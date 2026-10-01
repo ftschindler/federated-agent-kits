@@ -155,13 +155,55 @@ equivalent of.
 
 ## 6. Sources
 
-A source holds `skills/<name>/SKILL.md`, `rules/<name>.md` and `agents/<name>.md`. That is
-the entire contract. `ftschindler/agents-skills` already satisfies the skills third of it
-without having been designed to.
+A source is a git repository. Nothing is registered, nothing is declared, and a source never
+learns that you subscribed. This is what "federated" means here, and it costs one thing: a
+source cannot tell you anything about itself. Section 9 is where that hurts.
 
-Nothing is registered and nothing is declared. This is what "federated" means here, and it
-costs one thing: a source cannot tell you anything about itself. Section 9 is where that
-hurts.
+### Accept what `skills add` accepts
+
+`npx skills add` is how most people already install a skill, and the shapes it takes are
+therefore the shapes real repositories have. We take the same ones rather than inventing a
+narrower contract and telling people their repository is wrong.
+
+Five ways to name a source:
+
+- `owner/repo`, the GitHub shorthand.
+- A full GitHub, GitLab or Azure Repos URL.
+- Any git URL, including `git@` and `ssh://`.
+- A URL pointing at a subdirectory, which selects one kit inside a larger repository.
+- A local path.
+
+Private repositories need nothing special. Whatever authentication git is already configured
+with is what gets used, and no credential is read, printed or passed around by us.
+
+We do not take the sixth shape. `skills add` will also fetch a bare `SKILL.md` or a zip from
+any URL. A manifest records which revision you have, an archive has no revision, and an
+update would be "download it again and hope". Git or a local path, or we decline.
+
+### Accept the layouts it accepts
+
+A repository with one skill at its root is a source. So is a repository with sixty in
+categories. The `skills` CLI handles both by looking in a set of container directories and
+walking each one up to three levels deep, so `skills/<name>/`, `skills/<cat>/<name>/` and
+`skills/<cat>/<cat>/<name>/` all work. A `SKILL.md` higher up shadows anything nested beneath
+it.
+
+We follow that, including the container list: the repository root, `skills/`, its
+`.curated/`, `.experimental/` and `.system/` variants, and the harness-specific directories
+such as `.claude/skills/` and `.agents/skills/`.
+
+We reimplement it rather than call it. `skills` is node, and section 10 rules node out of
+anything a user has to run. The rules it follows are published, and the cost of following
+them is one directory walk.
+
+Rules and agents have no equivalent standard, so we mirror the one above. Containers are the
+root, `rules/` and `agents/`, and the places harnesses already keep them: `.github/agents/`,
+`.claude/agents/`, `.opencode/agent/`, `.github/instructions/`. Same three levels, same
+shadowing.
+
+The effect is that `ftschindler/agents-skills` is already a source, a single-skill
+`gist`-shaped repository is already a source, and so is a repository that has never heard of
+any of this.
 
 ## 7. The manifest
 
@@ -386,6 +428,11 @@ identical, and costs a sync step on your own work.
 the skill installs the tool and there is no second step. The alternative is a package on PyPI
 and a skill that assumes it. The first is one artefact and no install; the second updates
 without touching a skills directory.
+
+**What happens when a source's layout changes under you?** A kit found at `skills/writing/`
+today may be at `skills/prose/writing/` after an upstream tidy-up. The subscription names a
+kit, not a path, so it still resolves. Whether that silent move is worth reporting on the
+next `akit update` is open.
 
 ## 14. Not doing
 
