@@ -1,7 +1,8 @@
 # DESIGN - federated agent kits
 
 **Status:** first draft. Nothing is implemented. This document is the sole source of truth
-for the design, so change it here first.
+for the design, so change it here first. [IMPLEMENTATION.md](IMPLEMENTATION.md) says in which
+order it gets built.
 
 **Date:** 2026-10-01
 

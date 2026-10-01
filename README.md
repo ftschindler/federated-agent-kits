@@ -11,7 +11,8 @@ its own filename.
 This subscribes you to the kits you want, from wherever they live, and writes them where each
 harness looks.
 
-**Status: design only.** [DESIGN.md](DESIGN.md) is the source of truth. There is no CLI yet.
+**Status: design only.** [DESIGN.md](DESIGN.md) is the source of truth for what gets built,
+[IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets built in. There is no CLI yet.
 
 ## What it is for
 
