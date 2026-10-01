@@ -45,7 +45,8 @@ because they land in two different places.
 
 An agent can name skills it expects to be there. We do not chase those. A named skill you
 have not subscribed to gets you a warning from `akit doctor`, and nothing is installed that
-you did not ask for.
+you did not ask for. An agent naming an MCP server is treated the same way, and section 13
+says why that is as far as it goes.
 
 ## 2. What this does
 
@@ -358,6 +359,21 @@ repository already answers it. One place or none.
 
 **Sharing whole `AGENTS.md` files** is the problem rather than the solution. It is the one
 filename every harness insists on owning.
+
+**MCP servers are not a fourth kind of kit.** The three we have are markdown you copy from
+one place to another. An MCP server is a process: a command, its arguments, environment
+variables, and usually a token. Rendering a file with a secret in it is a different risk from
+rendering a file with advice in it, and it would be the only part of this tool that could
+leak a credential.
+
+They also land differently. No harness keeps one file per server. opencode has an `mcp` key
+in its config, VS Code has a `.vscode/mcp.json` and an `mcp-servers` list in agent
+frontmatter. Supporting them means merging into a file somebody else owns and edits, which
+ends "rendered files are disposable" on the first attempt.
+
+What we do instead costs nothing: an agent may name a server it expects, exactly as it names
+skills, and `akit doctor` tells you whether you have it. Nothing is configured on your
+behalf, and no secret passes through this tool.
 
 ## 14. The name
 
