@@ -45,14 +45,14 @@ because they land in two different places.
 
 An agent can name skills it expects to be there. We do not chase those. A named skill you
 have not subscribed to gets you a warning from `akit doctor`, and nothing is installed that
-you did not ask for. An agent naming an MCP server is treated the same way, and section 13
+you did not ask for. An agent naming an MCP server is treated the same way, and section 14
 says why that is as far as it goes.
 
 ## 2. What this does
 
 You have kits in several git repositories. Some are public, some are your employer's, some
-never leave your machine. You want a subset of them, in two harnesses, on two operating
-systems.
+never leave your machine. You want subsets of them, in multiple harnesses, on multiple
+operating systems on different machines.
 
 So: you write down what you want, and run one command that puts the files where each harness
 looks.
@@ -64,7 +64,8 @@ nothing else. It does not know this tool exists, and it does not know which othe
 have.
 
 **The manifest is the only thing that sees everything.** It lives on your machine. It is
-where anything needing knowledge of two sources at once has to happen.
+where anything needing knowledge of two sources at once has to happen. It can be tracked
+like any other dotfile.
 
 **Rendered files are disposable.** Delete any of them and re-run the command. Nothing you
 wrote by hand lives in one.
@@ -74,8 +75,6 @@ building a security mechanism either: what actually stops a colleague reading yo
 kits is that they cannot clone the repository.
 
 ## 3. Rules of the build
-
-Eight, each of which has already cost somebody something.
 
 1. **The file you edit is the only copy.** Everything else is generated from it.
 2. **Rendering twice changes nothing.** So it can run from a git hook, and a stale render is
@@ -316,7 +315,46 @@ akit doctor               # collisions, stale renders, refusals
 
 `render` doing nothing when nothing changed is what makes the other four safe to trust.
 
-## 12. Still open
+## 12. The skill
+
+Nobody reads this document before their first run, and an agent asked to "set up my kits"
+has nowhere to look. So the tool ships a skill.
+
+Three layers, each doing one job.
+
+| Layer | Carries | Loaded |
+| --- | --- | --- |
+| A rule, about five lines | that `akit` is here, and when to reach for it | every message |
+| The `akit` skill | getting started, which command for what, how to update | when the model opens it |
+| The `akit` CLI | everything that has to be correct rather than persuasive | when it is run |
+
+The skill covers three situations and no more. **Nothing is set up**, which means proposing
+where sources live, writing the first manifest and rendering once. **Something needs doing**,
+which means picking the right command and explaining what it just did. **A new release is
+out**, which means what the upgrade asks of a setup already on disk.
+
+Two rules keep the layers from bleeding into each other, and both were paid for in `fkb`.
+
+**Anything deterministic lives in the CLI, never in prose.** The skill says run `akit list`.
+It does not describe what the output looks like, because then there are two descriptions and
+one of them goes stale.
+
+**A skill may run a command. A skill never tells the model to open another skill.** Prose
+calling prose through a language model is not control flow.
+
+The five-line rule is the part that cannot be skipped. A skill nobody opens does nothing, and
+what makes a model open this one is a sentence in the prompt saying when to.
+
+### It bootstraps itself, once
+
+The first copy of the skill is installed by hand, or by whatever skill installer you already
+use. After that `akit` can subscribe you to its own skill from this repository, and the copy
+you placed by hand becomes a managed one.
+
+A skill that has been copied somewhere cannot tell how old it is, so it carries a `VERSION`
+file. That is the only thing that survives being copied into a skills directory.
+
+## 13. Still open
 
 None of these blocks the first piece of work.
 
@@ -344,7 +382,12 @@ a single kit can pin apart from its source is open, and probably not worth it.
 the one feature that behaves differently on Windows. Dropping it makes the two platforms
 identical, and costs a sync step on your own work.
 
-## 13. Not doing
+**Does the CLI ship inside the skill?** `fkb` puts it there, as `scripts/fkb`, so installing
+the skill installs the tool and there is no second step. The alternative is a package on PyPI
+and a skill that assumes it. The first is one artefact and no install; the second updates
+without touching a skills directory.
+
+## 14. Not doing
 
 **rulesync** renders to many harnesses from one directory, which is the rendering half of
 this. It is scoped to a single project, with no sources, no tiers and no subscriptions, so it
@@ -375,7 +418,7 @@ What we do instead costs nothing: an agent may name a server it expects, exactly
 skills, and `akit doctor` tells you whether you have it. Nothing is configured on your
 behalf, and no secret passes through this tool.
 
-## 14. The name
+## 15. The name
 
 The system covers three kinds of kit, so a name mentioning only rules would be wrong within
 a month. `federated-agents` reads as agents federating with each other, which is a different
