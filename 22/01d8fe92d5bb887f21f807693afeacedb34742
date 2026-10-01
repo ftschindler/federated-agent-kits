@@ -1,0 +1,35 @@
+CONTRIBUTING.md
+  s_38f72cf9a2e333::t_9163158374307f 1-34
+.pre-commit-config.yaml
+  s_38f72cf9a2e333::t_8b03ac03eed39d 1-183
+Makefile
+  s_38f72cf9a2e333::t_de90cc0b6f6a56 1-27
+.gitignore
+  s_38f72cf9a2e333::t_c7dc0c7aec0540 1-30
+.markdownlint-cli2.jsonc
+  s_38f72cf9a2e333::t_fe53b226772cba 1-11
+.mailmap
+  s_38f72cf9a2e333::t_246ec5fec5d08b 1-11
+.linkspector.yml
+  s_38f72cf9a2e333::t_8931686c6c5b1a 1-14
+DESIGN.md
+  s_38f72cf9a2e333::t_5e56b25033ae71 1-301
+README.md
+  s_38f72cf9a2e333::t_a5d88a23962fd3 1-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "2201d8fe92d5bb887f21f807693afeacedb34742",
+  "prompts": {},
+  "sessions": {
+    "s_38f72cf9a2e333": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f08445b7fffeiUUrUlc8N2TEtd",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Felix Schindler <107669806+ftschindler@users.noreply.github.com>"
+    }
+  }
+}
