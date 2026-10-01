@@ -1,301 +1,371 @@
 # DESIGN - federated agent kits
 
-**Status:** first draft, nothing implemented. This document is the **sole source of truth**
-for the design. Change it here first.
+**Status:** first draft. Nothing is implemented. This document is the sole source of truth
+for the design, so change it here first.
 
 **Date:** 2026-10-01
 
-## 1. What we build
+## 1. The words
 
-A way to keep the things that configure a coding agent in several git repositories at
-different privacy tiers, subscribe to a subset of them, and render that subset into the
-files each harness actually reads.
+Seven words carry the whole design. The rest of this document uses them without explaining
+them again.
 
-- Each **source** is an ordinary git repository holding kits. It does not know that this
-  system exists, and it does not know about any other source.
-- A **kit** is one shareable thing: a skill, a rule, or an agent definition.
-- A **manifest** on your machine says which kits you want, from which sources, rendered at
-  which scope. It is the only file that sees every source at once.
-- **Rendering** writes harness-native files. Those files are generated and disposable.
-
-Harnesses in scope on day one: opencode and VS Code. Claude Code comes free, because its
-file conventions are a subset of what the other two need.
-
-We do not build a registry, a marketplace or a runtime. We do not build a security
-mechanism: access control is git remote permissions, and everything here is a guardrail that
-prevents accidents, not attackers.
-
-### Open questions
-
-Detail in [§9](#9-open-questions). None of them blocks the first task.
-
-| # | Question |
+| Word | What it is |
 | --- | --- |
-| 9.1 | Whether rule fragments need `applyTo` globs, or whether always-on is enough |
-| 9.2 | Where a source's visibility ceiling is declared, in the source or the manifest |
-| 9.3 | Whether rendered files are committed in a project, and who decides |
-| 9.4 | How agent tool names map between harnesses, and what happens when they do not |
-| 9.5 | Whether the manifest pins versions, and at what granularity |
-| 9.6 | Whether `akit` grows a `sync` for sources it did not clone |
+| **Harness** | the program that runs the model: opencode, VS Code, pi, Claude Code |
+| **Kit** | one shareable thing that configures a harness |
+| **Source** | a git repository holding kits |
+| **Subscription** | a line saying you want one kit from one source |
+| **Manifest** | the file your subscriptions live in |
+| **Adapter** | the code that knows where one harness keeps its files |
+| **Render** | writing the kits you subscribed to into files a harness reads |
 
-## 2. Invariants
+### A kit is one of three things
 
-These bound every decision below.
+A **rule** is prose. The harness pastes it into the system prompt before every single
+message. You pay for it on every turn, so a rule that runs to three pages is a bad rule.
 
-1. **The source file is the source.** A rendered file is generated and may be deleted at any
-   time. Nothing is authored in two places, and no drift guard is needed between them.
-2. **Render is idempotent and cheap.** It can run from a git hook or a shell startup, so a
-   stale render is never a state anyone has to reason about.
-3. **Install what is whole, compose what is a fragment.** Skills and agents arrive as
-   complete files. Only rules are concatenated, and only where a harness cannot read a list.
-4. **A refusal is hard.** Where policy says no, the tool fails with a message naming the fix.
-   It never degrades to a partial render or a warning.
-5. **Ship self-contained.** No post-install configuration, no assumption that a sibling tool
-   is present, no cross-kit dependencies.
-6. **The manifest is a guardrail, not a boundary.** A source stays safe when somebody
-   bypasses this tool entirely.
+A **skill** is a folder with instructions inside. The model sees only its one-line
+description, and opens the folder when it judges the description matches. An unopened skill
+costs almost nothing, so a skill can be long.
 
-## 3. The three kinds
+An **agent** is a prompt with a model and a list of tools attached. Starting a session as an
+agent replaces the normal prompt rather than adding to it.
 
-What separates them is when they enter the model's context, not where they live.
+### How the three meet
 
-| Kind | What it is | When it loads | Unit |
-| --- | --- | --- | --- |
-| Rule | prose added to the system prompt | every message | a fragment |
-| Skill | a folder the model may open | when the model decides to | a folder |
-| Agent | prompt plus model plus tool allow-list | when a session runs as it | a file |
+A long skill usually needs a short rule to go with it.
 
-A rule costs tokens on every turn, so it stays short. A skill costs only its description
-until opened, so it can be long. An agent replaces the prompt rather than adding to it.
+Nothing makes a model open a skill except its description. If the moment to reach for it is
+not obvious from the description alone, the model never reaches. Three lines in the system
+prompt naming the trigger fix that, and those three lines are a rule.
 
-The common pattern that makes the three look entangled: a long skill plus a three-line rule
-that names the trigger for reaching for it. Those are two kits, and the rule ships in the
-same source as the skill it activates.
+So a skill and its activation rule ship together, from the same source. They stay two kits,
+because they land in two different places.
 
-### Which kind carries what
+An agent can name skills it expects to be there. We do not chase those. A named skill you
+have not subscribed to gets you a warning from `akit doctor`, and nothing is installed that
+you did not ask for.
 
-Put a thing in the cheapest kind that still fires at the right moment.
+## 2. What this does
 
-- Shapes every reply and fits in thirty lines: rule.
-- Long, or only relevant to one kind of task: skill.
-- Needs a different model, a smaller tool set, or a prompt that contradicts the defaults:
-  agent.
+You have kits in several git repositories. Some are public, some are your employer's, some
+never leave your machine. You want a subset of them, in two harnesses, on two operating
+systems.
 
-## 4. Where harnesses look
+So: you write down what you want, and run one command that puts the files where each harness
+looks.
 
-Both harnesses support all three kinds, at both repository and user scope. What differs is
-whether the harness will read a **list** of locations or insists on a fixed path.
+Three things follow from that sentence.
 
-**opencode** reads a list, which is why federation is nearly free there.
+**A source is an ordinary repository.** It holds kits in conventional directories and knows
+nothing else. It does not know this tool exists, and it does not know which other sources you
+have.
 
-| | Repository | User-wide |
+**The manifest is the only thing that sees everything.** It lives on your machine. It is
+where anything needing knowledge of two sources at once has to happen.
+
+**Rendered files are disposable.** Delete any of them and re-run the command. Nothing you
+wrote by hand lives in one.
+
+We are not building a registry, a marketplace, or anything that runs an agent. We are not
+building a security mechanism either: what actually stops a colleague reading your employer's
+kits is that they cannot clone the repository.
+
+## 3. Rules of the build
+
+Eight, each of which has already cost somebody something.
+
+1. **The file you edit is the only copy.** Everything else is generated from it.
+2. **Rendering twice changes nothing.** So it can run from a git hook, and a stale render is
+   never a state anyone has to think about.
+3. **Whole things get installed, fragments get composed.** A skill and an agent arrive
+   complete. Only rules are stitched together, and only where a harness cannot read a list.
+4. **A refusal is a refusal.** When policy says no, the command fails and names the fix. It
+   never writes half the files and warns.
+5. **Python, on Windows and Linux equally.**
+6. **A harness is a file, not a branch.** Adding one touches nothing else.
+7. **Nothing to configure after install.** No sibling tool assumed, no kit depending on
+   another kit.
+8. **This is a guardrail.** Every source stays just as safe when somebody ignores this tool
+   entirely.
+
+## 4. Where each harness keeps things
+
+Harnesses differ in one way that matters more than all the others: whether they will read a
+**list** of locations, or insist on one fixed path.
+
+opencode reads a list. Its config takes an `instructions` key of files, globs and even https
+URLs, and combines all of them with whatever `AGENTS.md` files it found. So rules need no
+file written at all. We point it at the sources and stop.
+
+| opencode | Repository | User-wide |
 | --- | --- | --- |
-| Rules | `AGENTS.md`, walking up to the worktree root, plus `instructions` globs in `opencode.json` | `~/.config/opencode/AGENTS.md`, plus `instructions` in the global config |
+| Rules | `AGENTS.md` up to the worktree root, plus `instructions` globs | `~/.config/opencode/AGENTS.md`, plus `instructions` in the global config |
 | Skills | `.opencode/skills/`, `.claude/skills/`, `.agents/skills/` | the same three under `~` |
 | Agents | `.opencode/agent/*.md` | `~/.config/opencode/agent/*.md` |
 
-`instructions` takes files, globs and https URLs, and all of them are combined with whatever
-`AGENTS.md` files were found.
+VS Code insists on fixed paths.
 
-**VS Code** mostly insists on fixed paths.
-
-| | Repository | User-wide |
+| VS Code | Repository | User-wide |
 | --- | --- | --- |
-| Rules | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, root `AGENTS.md` | profile data for the Local agent, `~/.copilot/instructions/` for Agent Host |
-| Skills | `.claude/skills/`, where the harness supports it | varies by harness, and this is the weakest leg |
+| Rules | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, root `AGENTS.md` | profile data for Local, `~/.copilot/instructions/` for Agent Host |
+| Skills | `.claude/skills/`, where the harness supports it | varies, and this is the weak leg |
 | Agents | `.github/agents/*.agent.md`, `.claude/agents/` | `~/.copilot/agents/`, or profile data |
 
-`chat.instructionsFilesLocations` and its siblings do take external directories, including
-absolute and `~` paths. The current documentation marks them deprecated and Local-agent only,
-and neither Copilot Agent Host nor the cloud agent honours them. **So we do not build on
-them.** Fixed-path output is the common denominator.
+There is a setting that would let VS Code read external directories, and we are not using it.
+`chat.instructionsFilesLocations` does take absolute and `~` paths. The documentation marks
+it deprecated and says only the Local agent honours it, so neither Agent Host nor the cloud
+agent would see anything we wrote there. Writing to fixed paths is what all three read.
 
-## 5. Sources and the manifest
+## 5. Adding a harness
 
-### A source is an ordinary repository
+Write an adapter. An adapter answers six questions and nothing else in the system changes.
 
-No manifest inside it, no registration step, no knowledge of this tool. A source holds
-`skills/<name>/SKILL.md`, `rules/<name>.md` and `agents/<name>.md`, and anything that follows
-those conventions can be subscribed to. `ftschindler/agents-skills` already qualifies for the
-skills third of that.
+1. Where do skills go, for the whole machine and for one repository?
+2. Can rules be listed in a config file, or must a file be written?
+3. If a file: one per rule, or all of them in one?
+4. Where do agents go, and what are the frontmatter keys called?
+5. What are this harness's tools called?
+6. What counts as "this repository" here?
 
-This is deliberate, and it is what "federated" means here. The cost is that a source cannot
-declare anything about itself, which [§7](#7-policy) has to work around.
+"This harness has no agents" is a valid answer to question 4. The adapter declines that kind
+and the command says so.
 
-### Subscribe to an item, not to a repository
+### What pi looks like
 
-A source holds many kits and you will want some of them. The entry:
+pi is about as cheap as an adapter gets, which makes it a good first worked example.
+
+**Skills: nothing to write.** pi already reads `~/.agents/skills/` and `.agents/skills/`.
+Its `settings.json` also takes a list of skill directories, absolute or `~`-relative.
+
+**Rules: one concatenated file.** pi reads `~/.pi/agent/AGENTS.md` plus every `AGENTS.md`
+walking up from the working directory, and joins them. That is the same treatment Claude Code
+wants.
+
+**Agents: only via a package.** The third-party `pi-agents` package puts them in
+`~/.pi/agent/agents/*.md`, with `name`, `description`, `thinking`, `skills` and `tools`. An
+adapter can support that and must not assume it is installed.
+
+Two details from pi generalise. It deliberately does not require a skill's `name` to match
+its directory, saying the rule is awkward for shared skill directories, which means a kit
+renamed on subscription still loads there. And it refuses to read anything project-local
+until you have trusted the folder, which is an answer to question 6 that opencode has no
+equivalent of.
+
+## 6. Sources
+
+A source holds `skills/<name>/SKILL.md`, `rules/<name>.md` and `agents/<name>.md`. That is
+the entire contract. `ftschindler/agents-skills` already satisfies the skills third of it
+without having been designed to.
+
+Nothing is registered and nothing is declared. This is what "federated" means here, and it
+costs one thing: a source cannot tell you anything about itself. Section 9 is where that
+hurts.
+
+## 7. The manifest
+
+You subscribe to one kit, not to a repository.
 
 ```yaml
 - source: ftschindler/agents-skills
   kind: skill
   name: writing
   scope: global
-  as: writing        # optional; resolves a collision
+  as: writing        # optional
 ```
 
-A glob in `name` covers "take everything of this kind from this source", which is what the
-corporate source will want.
+A glob in `name` takes everything of that kind from that source. That is what you want from
+an employer's repository and rarely want from a public one.
 
-`as` is not decoration. opencode requires skill names to be unique across all six of its
-search locations, so two sources both shipping `kb` is a real collision. Neither source can
-resolve it, because neither knows the other exists. The manifest is the only place that can.
+**`as` exists because two sources will eventually both ship a kit called `kb`.** opencode
+demands skill names be unique across all six places it looks. pi keeps whichever it found
+first and warns you. Neither source can fix this, because neither knows the other exists. The
+manifest is the only place that can.
 
-### Two manifests, one schema
+### Two files, one format
 
-| | Lists | Committed |
-| --- | --- | --- |
-| `$XDG_CONFIG_HOME/akit/kits.yaml` | what is true of you | no |
-| `<repo>/.akit/kits.yaml` | what is true of that repository | yes |
+One manifest holds what is true of you, and lives in the per-platform user config directory.
+It is not shared.
 
-The project manifest adds to the global one rather than replacing it, because a global
-subscription is a fact about you that does not stop being true inside a repository. A project
-entry naming the same item wins, which is how a repository pins something different without
-you un-subscribing globally.
+The other holds what is true of one repository, lives in `.akit/kits.yaml` inside it, and is
+committed. Someone clones the repository, runs one command, and has what that repository
+expects.
 
-### Subscription and resolution are different questions
+The project file adds to yours rather than replacing it. Your subscriptions do not stop being
+true because you changed directory. Where both name the same kit, the repository wins, which
+is how a repository pins something different without you unsubscribing.
 
-A committed manifest may not contain a single absolute path, because a colleague's checkout
-is somewhere else. So:
+### Naming a source is not finding it
 
-- **Subscription** names a source as `ftschindler/agents-skills@v2`. It lives in either
-  manifest.
-- **Resolution** turns that name into a directory on this disk. It lives in the user
-  manifest only, or defaults to a clone under `$XDG_CACHE_HOME`.
+A committed file may not contain `~/Projects/public/agents-skills`. Your colleague keeps it
+somewhere else, and on Windows it is not even that shape of path.
 
-A colleague who clones a repository therefore needs no setup, and you still get live edits on
-the sources you author yourself.
+So the two halves split. **Subscriptions name a source**, as `ftschindler/agents-skills@v2`,
+and live in either file. **Resolution finds it on this disk**, and lives only in your
+personal file.
 
-### Link what you author, copy what you consume
+When resolution has nothing to say, the source is cloned into the platform cache directory.
+That is why a colleague needs no setup, and why you still get live edits on the repositories
+you author yourself.
 
-Both already happen by hand today and both are worth keeping.
+### Copy by default, link if you ask
 
-| | When | Cost |
-| --- | --- | --- |
-| Symlink | you have the source checked out and edit it | nothing to sync, one file, and it breaks on a Windows clone |
-| Copy plus hash | a pinned upstream you only read | an update is a diff you review |
+Copying a kit and recording its hash means an update arrives as a diff you read. That is what
+you want from anything you only consume.
 
-The lockfile records which, along with the source revision, so `akit doctor` can say what is
-stale.
+Linking means there is one file and nothing to sync. That is what you want for a repository
+you are actively writing.
 
-## 6. Rendering
+Copying is the default, because it is the one that works on Windows without developer mode.
 
-One renderer per kind per harness. They differ only in the last step.
+## 8. Rendering
 
-**Skills** are installed by linking or copying `skills/<name>/` into the harness directory.
-Six locations across two harnesses already agree on `skills/<name>/SKILL.md`, so there is no
-translation to do.
+Skills are copied or linked, unchanged, into the harness directory. Several locations across
+four harnesses already agree on `skills/<name>/SKILL.md`, so there is nothing to translate.
 
-**Rules** render three ways:
+Rules land three different ways.
 
-- opencode: nothing is written. The manifest contributes glob paths to `instructions`.
-- VS Code: one `*.instructions.md` per fragment, into `.github/instructions/`, carrying the
-  fragment's `applyTo` straight through. One file per fragment, so a fragment can be dropped
-  without touching its neighbours.
-- `AGENTS.md`-shaped targets: a single concatenation, each fragment wrapped in `BEGIN <id>`
-  and `END <id>` markers, so hand-written text between blocks survives a re-render.
+- **opencode** gets no file. The source directories go into its `instructions` globs.
+- **VS Code** gets one `.instructions.md` per rule, in `.github/instructions/`. One file each
+  means dropping a rule does not touch its neighbours.
+- **Claude Code and pi** get one concatenated `AGENTS.md`. Each rule sits between
+  `BEGIN <id>` and `END <id>` markers, so anything you wrote by hand between two blocks
+  survives the next render.
 
-Rules are the only kind with an order, because two rules can contradict and something must
-win. Manifest order decides it, and we are not looking for a cleverer answer.
+Rules are the only kind with an order. Two rules can contradict each other and something has
+to win. The order they appear in the manifest decides it, and we are not looking for a
+cleverer answer than that.
 
-**Agents** are the hard case. All three harnesses use markdown with frontmatter, which looks
-encouraging until you read the keys:
+### Agents are the hard one
+
+Every harness stores an agent as markdown with frontmatter. That looks like portability until
+you read the keys.
 
 | Harness | Location | Frontmatter |
 | --- | --- | --- |
 | opencode | `agent/*.md` | `model`, `tools`, `temperature`, `permission` |
 | VS Code | `.github/agents/*.agent.md` | `description`, `tools`, `model`, `handoffs`, `mcp-servers` |
 | Claude Code | `.claude/agents/*.md` | `name`, `description`, `tools`, `model` |
+| pi, via `pi-agents` | `~/.pi/agent/agents/*.md` | `name`, `description`, `thinking`, `skills`, `tools` |
 
-The body is portable. Tool names, model identifiers and the notion of what an agent is for
-are not: an opencode subagent is delegated to by a lead, a VS Code custom agent is picked by
-a human from a menu. The same body serves both only when it is written about the task rather
-than about who called it.
+The prose body travels. The tool names, the model identifiers and the keys do not.
 
-So: one canonical file, a portable body, and a `harness:` map in the frontmatter holding the
-per-target overrides. The adapter maps what it knows and **fails loudly on a tool name it
-cannot map**, because a subagent quietly missing a tool fails later and further away.
+Neither does the idea of what an agent is for. An opencode subagent is handed work by a lead
+agent. A VS Code custom agent is chosen by a person from a menu. One body serves both only
+when it describes the task rather than who asked.
 
-## 7. Policy
+So an agent is one file: a portable body, plus a `harness:` block of per-target overrides.
+The adapter translates what it knows. **A tool name it cannot translate stops the render.**
+Dropping it quietly would produce an agent that fails later, somewhere else, for no visible
+reason.
 
-The failure this prevents: a corporate rule rendered into a repository with a public remote.
+## 9. Keeping the employer's kits in
 
-**A source declares the furthest its kits may travel, and rendering past that is refused.**
-This is `referenceable_by` from the knowledge bundles, pointed the other way: there it is an
-inbound permission, here it is an outbound ceiling.
+One failure matters more than the others: an employer's rule rendered into a repository with
+a public remote.
 
-Where it is declared is [§9.2](#9-open-questions). A file in the source is the honest place,
-because the ceiling is a fact about the source rather than about this machine. It costs the
-"a source knows nothing about this tool" property from [§5](#5-sources-and-the-manifest), so
-the fallback is a ceiling in the manifest entry, defaulting closed.
+So a source says how far its kits may travel, and a render past that line fails.
 
-The check compares the ceiling against the render target's git remote. No remote means
-private. A target it cannot classify is refused rather than assumed safe.
+Where it says that is open. In the source is the honest place, because it is a fact about the
+source rather than about your laptop, and it costs the "a source declares nothing" property
+from section 6. In the manifest is the fallback, and then every subscriber restates it and
+one of them gets it wrong.
 
-## 8. The CLI
+The check reads the render target's git remote. No remote means private. A target it cannot
+classify is refused, not assumed safe.
+
+## 10. Windows, Linux, Python
+
+**Windows and Linux are equal targets.** macOS should work and is not a priority.
+
+That means, concretely:
+
+- No `&&`, no pipes, no assuming `bash` exists. Two steps are two subprocess calls from
+  Python.
+- `pathlib.Path`, never a string with a slash in it.
+- The config directory is looked up per platform, not spelled `~/.config`.
+- Files are written with `encoding="utf-8"` stated out loud. Windows does not default to it.
+- **Symlinks are opt-in.** Creating one on Windows needs developer mode or an elevated shell.
+  A symlink committed to a repository arrives on a Windows clone as a text file containing a
+  path, and whatever read through it reads nonsense.
+- Two kits whose names differ only in case collide. The filesystem may not tell them apart.
+
+**CI runs the tests on `ubuntu-latest` and `windows-latest`, and both must pass.** There are
+no tests yet, so that workflow does not exist yet. It lands with the first Python module. The
+hygiene suite in `governance.yml` is the same on every platform and runs on Linux only.
+
+**Python is the only language we write.** No TypeScript, no shell scripts, no Makefile recipe
+doing real work. Every script carries its dependencies in a PEP 723 header and runs under
+`uv run`, so there is no install step and no lockfile to go stale.
+
+There is one exception, and it is deliberate. `.scripts/linkspector.mjs` is twenty lines of
+node that pin a Chrome build and start a link checker. It runs inside a pre-commit hook,
+never anywhere else, and nothing a user of `akit` touches depends on it.
+
+## 11. Commands
 
 ```text
-akit list                 # what is subscribed, where it renders, is it current
+akit list                 # what you subscribed to, where it renders, whether it is current
 akit add <source> <name> --kind rule --scope global
-akit render [scope]       # idempotent; safe from a git hook
-akit update [name]        # re-pin copies and show the diff
-akit doctor               # collisions, stale renders, policy violations
+akit render [scope]       # safe to run from a git hook
+akit update [name]        # re-pin what was copied, show the diff
+akit doctor               # collisions, stale renders, refusals
 ```
 
-`render` being idempotent and cheap is what makes the rest trustworthy.
+`render` doing nothing when nothing changed is what makes the other four safe to trust.
 
-## 9. Open questions
+## 12. Still open
 
-**9.1 Do rule fragments need `applyTo`?** VS Code supports a glob that decides when a
-fragment applies. opencode has no equivalent, so a fragment with `applyTo` renders as
-always-on there. Carrying a field that only one harness honours may be worse than not having
-it. Settled by writing the first ten real fragments and seeing whether any wants one.
+None of these blocks the first piece of work.
 
-**9.2 Where does the visibility ceiling live?** In the source, which breaks "a source knows
-nothing", or in the manifest entry, which means every subscriber re-states it and one of them
-gets it wrong. Settled before any corporate source is added.
+**Do rules need an `applyTo` glob?** VS Code has one, deciding when a rule applies. opencode
+and pi have nothing like it, so such a rule would simply be always-on there. A field that one
+harness out of four honours may be worse than no field. Write ten real rules and see whether
+any of them wants it.
 
-**9.3 Are rendered files committed in a project?** Committed means a colleague who never
-installs `akit` still gets the rules, which is the whole point for a team repository. It also
-means a mis-subscription puts corporate prose into a public repository, so it interacts with
-9.2. Likely per-repository, declared in the project manifest.
+**Where does the travel limit live?** In the source, or in each subscription. Settled before
+the first employer source is added, and it decides the next question too.
 
-**9.4 How do agent tool names map?** A hand-maintained table that fails on an unknown name is
-the stated plan. Whether that table is per-harness or per-agent is open, and we should not
-invest here until three agents genuinely want to live in both places.
+**Are rendered files committed inside a project?** Committed, a colleague who never installs
+`akit` still gets the rules, which is the entire point for a team repository. Committed, a
+mis-subscription also puts the employer's prose in a public repository. Probably declared per
+repository.
 
-**9.5 Does the manifest pin versions?** A tag or commit per source is the obvious answer.
-Whether an individual kit can pin separately from its source is open, and probably not worth
-it.
+**How do tool names map between harnesses?** A table maintained by hand that fails on
+anything unknown. Whether that table is per harness or per agent is open. Not worth deciding
+until three agents genuinely want to live in two places.
 
-**9.6 Does `akit` grow a `sync`?** For a source it cloned into the cache, updating is just a
-fetch. For one you authored and symlinked, there is nothing to do. The question is whether a
-third state exists that needs a command.
+**Does the manifest pin versions?** A tag or commit per source is the obvious answer. Whether
+a single kit can pin apart from its source is open, and probably not worth it.
 
-## 10. Rejected
+**Does linking survive at all?** It is nicer on Linux for the repositories you write. It is
+the one feature that behaves differently on Windows. Dropping it makes the two platforms
+identical, and costs a sync step on your own work.
 
-**rulesync.** It renders to many harnesses from one `.rulesync/rules/` directory, which is
-the rendering half of this. It is project-scoped, with no federation, no tiers and no
-subscription, so it would sit underneath the manifest rather than replace it. Not worth the
-dependency for a renderer we can write in a hundred lines.
+## 13. Not doing
 
-**One manifest shared with `fkb`.** Knowledge bundles and kit sources answer different
-questions, and merging the files means a colleague cloning a repository sees the path to your
-private bundle.
+**rulesync** renders to many harnesses from one directory, which is the rendering half of
+this. It is scoped to a single project, with no sources, no tiers and no subscriptions, so it
+would sit underneath the manifest rather than replace it. It is also node, which section 10
+rules out for anything a user has to run.
 
-**A field in each file declaring its privacy tier.** The repository a file lives in already
-says it, and a field can disagree with the repository. One place or none.
+**Sharing a manifest with `fkb`** would mean a colleague cloning a repository can read the
+path to your private knowledge bundle. Different question, different file.
 
-**`AGENTS.md` as the unit of sharing.** It is the one filename every harness insists on
-owning, which is why composing it is the problem rather than the solution.
+**A privacy field in each kit** can disagree with the repository the kit is sitting in. The
+repository already answers it. One place or none.
 
-## 11. Naming
+**Sharing whole `AGENTS.md` files** is the problem rather than the solution. It is the one
+filename every harness insists on owning.
 
-The system covers three kinds, so a name mentioning only rules would be wrong within a month.
-`federated-agents` reads as agents federating with each other, which is a different and noisy
-topic.
+## 14. The name
 
-The binary is `akit` and not `kit`, because KitOps ships a `kit` binary to `/usr/local/bin`
-through Homebrew, aimed at the same AI audience, and its verbs are the ones we want:
-`kit init`, `kit list`, `kit diff`. The clash would not be an install error but a reader
-running the wrong tool from our documentation.
+The system covers three kinds of kit, so a name mentioning only rules would be wrong within
+a month. `federated-agents` reads as agents federating with each other, which is a different
+and much noisier topic.
+
+The command is `akit` rather than `kit` because KitOps already installs a `kit` binary to
+`/usr/local/bin` through Homebrew. It serves the same AI audience and uses the verbs we want:
+`kit init`, `kit list`, `kit diff`. The damage would not be a failed install. It would be
+somebody running the wrong tool out of our own documentation.

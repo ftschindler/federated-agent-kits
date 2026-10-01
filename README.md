@@ -1,55 +1,63 @@
 # federated-agent-kits
 
-Share the things that configure a coding agent - skills, rules and agent definitions - across
-several git repositories at different privacy tiers, and render the subset you subscribe to
-into whatever your harness reads.
+Your agent is configured by three kinds of thing: **skills** it can open, **rules** that go
+into every prompt, and **agent definitions** with their own model and tools. Each of those is
+a **kit**.
 
-A **kit** is one such thing. A skill is a folder, a rule is a fragment of instructions, an
-agent is a persona with a model and a tool list. They are different shapes, they come from
-different repositories, and no repository knows which others you have. The one file that sees
-them all at once is yours, on your machine.
+Kits accumulate in different places. Some you would publish, some belong to your employer,
+some never leave your laptop. Meanwhile each harness wants them in its own directory, under
+its own filename.
+
+This subscribes you to the kits you want, from wherever they live, and writes them where each
+harness looks.
 
 **Status: design only.** [DESIGN.md](DESIGN.md) is the source of truth. There is no CLI yet.
 
-## What to use it for
+## What it is for
 
-**Keep your own practice in one place and still use it everywhere.** A writing style, a
-debugging workflow, a review agent. Subscribe once, render into opencode and VS Code.
+**Use your own practice everywhere.** Write a style guide or a debugging workflow once.
+Subscribe to it on every machine, in every harness.
 
-**Share with a team without sharing everything.** The corporate repository holds the
-corporate kits. The public one holds what you are happy to publish. Which tier a kit sits at
-is decided by which repository it lives in, never by a field in a file.
+**Share with a team without sharing everything.** Which tier a kit belongs to is decided by
+which repository it sits in. There is no field to get wrong, and a kit that may not be
+published cannot be rendered into a public repository.
 
-**Pull in other people's kits without vendoring them by hand.** A subscription names a
-source and an item. An update is a diff you read, not something that changed under you.
+**Take other people's kits without copying them by hand.** A subscription names a source and
+an item. An update arrives as a diff you read, not as something that changed under you.
 
-**Stop writing the same instructions into four files.** One rule fragment renders to
-`AGENTS.md`, to `.github/instructions/`, and to an `instructions` glob in `opencode.json`.
+**Stop writing the same instructions into four files.** One rule renders to `AGENTS.md`, to
+`.github/instructions/`, and to an `instructions` glob in `opencode.json`.
 
-Use something else if you want a registry, a marketplace, or a runtime that executes agents.
-This writes files and then gets out of the way.
+Use something else if you want a registry, a marketplace, or a runtime. This writes files and
+gets out of the way.
 
 ## How it will work
 
 ```text
 akit add ftschindler/federated-agent-kits writing --scope global
-akit render          # idempotent; safe to run from a git hook
-akit doctor          # name collisions, stale renders, policy violations
+akit render          # safe to run from a git hook
+akit doctor          # name collisions, stale renders, refusals
 ```
 
-Two manifests, one schema. A user-wide one lists what is true of you. A committed, per-repo
-one lists what is true of that repository, so a colleague clones it and runs one command.
+A source is an ordinary git repository with `skills/`, `rules/` or `agents/` in it. It needs
+no manifest and no registration, and it never learns that you subscribed.
 
-## How it is put together
+Your subscriptions live in two files with one format. A personal one says what is true of
+you. A committed one in a repository says what that repository expects, so a colleague clones
+it and runs one command.
 
-- **The source file is the source.** Rendered files are generated and disposable. Nothing is
-  edited in two places.
-- **Install what is whole, compose what is a fragment.** Skills and agents are copied or
-  linked. Only rules are concatenated, and only where the harness cannot read a list.
-- **A source declares the furthest it may travel.** Rendering a corporate kit into a
-  repository with a public remote is refused, not warned about.
-- **It is a guardrail, not a security boundary.** The boundary is git remote permissions.
-  This prevents accidents by people who already have access.
+## What it promises
+
+**Windows and Linux are equal.** Both are tested in CI, and neither is the afterthought.
+
+**Python only.** Scripts carry their dependencies inline and run under `uv`, so there is
+nothing to install and no lockfile to go stale.
+
+**A new harness is one file.** opencode and VS Code come first. An adapter answers six
+questions about where that harness keeps things, and nothing else in the system changes.
+[DESIGN.md](DESIGN.md#5-adding-a-harness) works pi through as an example.
+
+**The file you edit is the only copy.** Everything rendered is generated and disposable.
 
 ## License
 
