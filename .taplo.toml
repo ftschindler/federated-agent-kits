@@ -1,0 +1,11 @@
+# taplo (TOML) formatter config. https://taplo.tamasfe.dev
+# Disable the remote schema catalog: our TOML is tool config, and lint must work offline.
+[schema]
+enabled = false
+
+[formatting]
+align_entries = false
+array_auto_expand = true
+column_width = 100
+indent_string = "  "
+reorder_keys = false

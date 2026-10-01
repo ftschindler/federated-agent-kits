@@ -1,0 +1,11 @@
+# Prevent git from showing duplicate names with commands like "git shortlog".
+# See the manpage of git-shortlog for details (git help shortlog).
+#
+# This file is up-to-date if the command git log --format="%aN <%aE>" | sort -u
+# gives no duplicates.
+#
+# The list below should be sorted alphabetically.
+
+dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>
+Felix Schindler <107669806+ftschindler@users.noreply.github.com>
+Felix Schindler <107669806+ftschindler@users.noreply.github.com> <x@example.com>

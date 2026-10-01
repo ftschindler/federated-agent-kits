@@ -1,0 +1,18 @@
+---
+version: 2
+updates:
+# Bump pinned pre-commit hook SHAs (keeps the frozen revisions current).
+- package-ecosystem: pre-commit
+  directory: /
+  schedule:
+    interval: weekly
+  commit-message:
+    prefix: "chore(pre-commit)"
+
+# Bump pinned GitHub Actions SHAs.
+- package-ecosystem: github-actions
+  directory: /
+  schedule:
+    interval: weekly
+  commit-message:
+    prefix: "chore(actions)"

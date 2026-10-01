@@ -1,0 +1,14 @@
+---
+dirs:
+- .
+fileExtensions:
+- md
+useGitIgnore: true
+ignorePatterns:
+- pattern: '^mailto:'
+aliveStatusCodes:
+- 200
+- 206
+- 429  # rate-limited, but the target exists
+timeout: 10000
+retryCount: 3

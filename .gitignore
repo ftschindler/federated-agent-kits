@@ -1,0 +1,30 @@
+# Node
+node_modules/
+npm-debug.log*
+.npm/
+
+# Tooling caches
+.cache/
+.biome-cache/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+*~
+.idea/
+.vscode/
+
+# Local subscription manifest. Each user copies the .example and edits it; the
+# real one names on-disk checkouts of their private and corporate kit sources.
+/kits.yaml
+
+# OpenCode agent session/continuation state - machine cruft, not repo content
+.omo/

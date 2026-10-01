@@ -1,0 +1,35 @@
+# Normalise all text to LF on commit, independent of contributor OS.
+# Pairs with .editorconfig and the mixed-line-ending pre-commit hook
+# (belt-and-braces LF enforcement).
+* text=auto eol=lf
+
+# Explicit text types (documentation + tooling)
+*.md        text eol=lf
+*.mjs       text eol=lf
+*.js        text eol=lf
+*.json      text eol=lf
+*.jsonc     text eol=lf
+*.yaml      text eol=lf
+*.yml       text eol=lf
+*.toml      text eol=lf
+*.example   text eol=lf
+*.sh        text eol=lf
+.gitignore      text eol=lf
+.gitattributes  text eol=lf
+.editorconfig   text eol=lf
+
+# Binary assets: if we ever add images or PDFs, they belong in Git LFS (keeps
+# history lean). `-text` exempts them from the `* text eol=lf` rule above so LFS
+# and line-ending normalisation don't collide.
+#
+# These rules are inert until a matching file is added: with none tracked, git
+# never invokes the lfs filter, so git-lfs is NOT required to clone, commit, or
+# test. It becomes required only for whoever first adds such a file — run
+# `git lfs install` in your clone before committing one.
+*.png       filter=lfs diff=lfs merge=lfs -text
+*.jpg       filter=lfs diff=lfs merge=lfs -text
+*.jpeg      filter=lfs diff=lfs merge=lfs -text
+*.gif       filter=lfs diff=lfs merge=lfs -text
+*.webp      filter=lfs diff=lfs merge=lfs -text
+*.svg       filter=lfs diff=lfs merge=lfs -text
+*.pdf       filter=lfs diff=lfs merge=lfs -text

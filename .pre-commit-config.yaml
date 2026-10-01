@@ -1,0 +1,183 @@
+---
+# Pre-commit config for federated-agent-kits.
+#
+# Principles honored (from the wiki):
+#   - Every file type in the repo has a linter/formatter here (md, mjs/js, yaml,
+#     json/jsonc, toml, GitHub workflows) plus general text hygiene.
+#   - Every hook repo is pinned to a frozen SHA with a `# frozen: <tag>` comment
+#     (reproducible, auditable; upgrades are explicit diffs). Bump via
+#     `prek autoupdate --freeze` or Dependabot (pre-commit ecosystem).
+#   - Auto-fixers are ordered so general hygiene runs LAST and cannot re-dirty
+#     content formatters' output.
+#   - Repo invariants are guarded at commit-time, and the whole suite is
+#     mirrored in CI (governance.yml).
+#
+# Run locally:  prek run --all-files
+# Install:      prek install
+
+minimum_pre_commit_version: "3.0.0"
+
+repos:
+# ---- content formatters / linters (run FIRST) -------------------------
+
+# JavaScript (.mjs) - lint + format in one pass. Biome CLI pinned via
+# additional_dependencies so the toolchain is reproducible.
+- repo: https://github.com/biomejs/pre-commit
+  rev: 922fba1f8fd9f9f096d04586e54369a31e6c1c31  # frozen: v2.5.12
+  hooks:
+  - id: biome-check
+    # Biome only auto-discovers biome.json(c); a hidden .biome.json must be
+    # passed explicitly or Biome silently falls back to defaults. The hook's
+    # entry already supplies `check --write`, so only add the config path.
+    args: ["--config-path=.biome.json"]
+    additional_dependencies: ["@biomejs/biome@2.5.12"]
+
+# Markdown - two complementary linters.
+# ATTENTION: keep this rev's version in sync with the markdownlint-cli2 schema
+# URL in the check-jsonschema hook below.
+- repo: https://github.com/DavidAnson/markdownlint-cli2
+  rev: b82a6c8896e491b9cb377a99ff3412131920681b  # frozen: v0.23.2
+  hooks:
+  - id: markdownlint-cli2
+    args: ["--fix"]
+
+- repo: https://github.com/jackdewinter/pymarkdown
+  rev: b7c6d5936ef699bcf5af0b0c2558118d3eba24d6  # frozen: v0.9.39
+  hooks:
+  - id: pymarkdown
+    # MD046 (code-block style) is owned by markdownlint-cli2; disable here so
+    # the two markdown linters do not disagree. The config enables front-matter
+    # recognition so `fix` does not reflow (and break) YAML frontmatter.
+    args: ["--config", ".pymarkdown.json", "--disable-rules", "MD046", "fix"]
+
+# Broken-link checking. Pins the exact Chrome puppeteer drives, tied to the
+# linkspector version (pin the transitive runtime, not just the tool).
+# ATTENTION: keep chrome@... and @umbrelladocs/linkspector@... versions matched.
+- repo: local
+  hooks:
+  - id: linkspector
+    name: Check broken links (linkspector)
+    # Two steps behind one entry, in node rather than `bash -c`: the config is
+    # run by contributors on Windows too, where bash is not a given.
+    entry: node .scripts/linkspector.mjs
+    language: node
+    additional_dependencies: ["@umbrelladocs/linkspector@0.5.6", "puppeteer"]
+    pass_filenames: false
+    files: \.md$
+
+# YAML formatting
+- repo: https://github.com/google/yamlfmt
+  rev: 21ca5323a9c87ee37a434e0ca908efc0a89daa07  # frozen: v0.21.0
+  hooks:
+  - id: yamlfmt
+
+# Python (.scripts/*.py) - lint + format
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: e8f7d69b957a30acb2c875078d5fd012de24b64c  # frozen: v0.16.7
+  hooks:
+  - id: ruff-check
+    args: ["--fix"]
+  - id: ruff-format
+
+# TOML formatting + validation
+- repo: https://github.com/ComPWA/taplo-pre-commit
+  rev: ade0f95ddcf661c697d4670d2cfcbe95d0048a0a  # frozen: v0.9.3
+  hooks:
+  - id: taplo-format
+  - id: taplo-lint
+    # Override the hook's default `--default-schema-catalogs`: our TOML is
+    # local tool config, and lint must work offline/deterministically.
+    args: ["lint", "--no-schema"]
+
+# ---- validators (no auto-fix) ----------------------------------------
+
+# GitHub Actions workflow linting
+- repo: https://github.com/rhysd/actionlint
+  rev: 914e7df21a07ef503a81201c76d2b11c789d3fca  # frozen: v1.7.12
+  hooks:
+  - id: actionlint
+
+# Makefile linting
+- repo: https://github.com/mrtazz/checkmake
+  rev: 59931d556f8f5cf4fbacf2c8390a8122ef7a881d  # frozen: v0.3.2
+  hooks:
+  - id: checkmake
+    # checkmake only auto-discovers a non-dot `checkmake.ini`; point it at
+    # the hidden config explicitly.
+    args: ["--config=.checkmake.ini"]
+
+# Validate config files against their published JSON schema
+- repo: https://github.com/python-jsonschema/check-jsonschema
+  rev: 12e63946db2c5cfcc9030fac21c3883ba88c6ed8  # frozen: 0.38.0
+  hooks:
+  - id: check-jsonschema
+    name: Validate GitHub workflows against schema
+    files: ^\.github/workflows/.*\.ya?ml$
+    args: ["--schemafile", "https://json.schemastore.org/github-workflow.json"]
+  - id: check-jsonschema
+    name: Validate Dependabot config against schema
+    files: ^\.github/dependabot\.ya?ml$
+    args: ["--schemafile", "https://json.schemastore.org/dependabot-2.0.json"]
+  - id: check-jsonschema
+    name: Validate markdownlint-cli2 config against schema
+    files: ^\.markdownlint-cli2\.jsonc$
+    # identify tags .jsonc as only [file,text], so the hook's built-in
+    # types_or:[json,yaml] never matches. Override it to match on filename.
+    types_or: [text]
+    # ATTENTION: this schema version MUST match the markdownlint-cli2 rev above.
+    args: ["--schemafile", "https://raw.githubusercontent.com/DavidAnson/markdownlint-cli2/v0.23.2/schema/markdownlint-cli2-config-schema.json"]
+
+# ---- repo-local invariant guards -------------------------------------
+
+- repo: local
+  hooks:
+  # House style for markdown: no `---` separators, no em dashes.
+  - id: markdown-style
+    name: Markdown has no `---` separators or em dashes
+    entry: uv run --script .scripts/check_markdown_style.py
+    language: system
+    files: \.md$
+    pass_filenames: true
+
+  # Keep author attribution canonical: fail if any commit author is missing
+  # from .mailmap, or the file has duplicate emails / unsorted lines.
+  - id: check-mailmap
+    name: Check .mailmap for inconsistencies
+    entry: uv run --script .scripts/check_mailmap.py
+    language: system
+    pass_filenames: false
+    always_run: true
+
+  # No symlinks in the tree. A symlink is committed as a mode-120000 blob
+  # holding a path, and a clone on Windows without developer mode writes that
+  # path out as an ordinary text file: the link silently becomes a one-line
+  # document, and whatever read through it reads nonsense.
+  - id: no-symlinks
+    name: No symlinks are committed (they do not survive a Windows clone)
+    entry: uv run --script .scripts/check_no_symlinks.py
+    language: system
+    pass_filenames: false
+    always_run: true
+
+  # Portable paths: lowercase, no whitespace (with an allowlist).
+  - id: lowercase-no-whitespace-filenames
+    name: Filenames are lowercase with no whitespace
+    entry: Filename must be lowercase with no whitespace
+    language: fail
+    files: "[\\sA-Z]"
+    exclude: "^(TODO\\.md|IMPLEMENTATION\\.md|README\\.md|.*/README\\.md|CONTRIBUTING\\.md|DECISIONS\\.md|DESIGN\\.md|JOURNAL\\.md|.*/JOURNAL\\.md|LICENSE|Makefile|SKILL\\.md|.*/SKILL\\.md|.*/VERSION)$"
+
+# ---- general text hygiene (run LAST so it cleans up after everything) --
+
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # frozen: v6.0.0
+  hooks:
+  - id: check-yaml
+  - id: check-json
+    exclude: \.jsonc$
+  - id: check-merge-conflict
+  - id: check-added-large-files
+  - id: mixed-line-ending
+    args: ["--fix=lf"]
+  - id: trailing-whitespace
+  - id: end-of-file-fixer

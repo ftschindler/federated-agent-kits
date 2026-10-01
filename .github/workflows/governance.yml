@@ -1,0 +1,59 @@
+---
+name: Governance
+
+permissions:
+  contents: read
+
+# Pull requests only, and deliberately. GitHub builds a pull request's checks
+# against the head merged into `main`, so what these jobs run on is already the
+# merge result rather than the branch in isolation - running them again after
+# the merge tests a tree that passed a minute earlier.
+#
+# It also ends a confusion the release job introduced: that job pushes a version
+# commit seconds behind every merge, which landed in the same concurrency group
+# as the merge itself and cancelled its checks, leaving every merge commit
+# showing a cancelled run forever.
+#
+# What this gives up is the case where two pull requests pass separately and
+# conflict in meaning once both are in. Closing that needs the branch to be up
+# to date before merging, which is a repository setting rather than anything
+# here, and `workflow_dispatch` remains for asking `main` the question by hand.
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: governance_${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  governance:
+    name: 🩺 (run governance checks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash -elo pipefail {0}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+    - name: Setup node
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+      with:
+        node-version: "24"
+
+    - name: Setup uv
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+      with:
+        # This repository has no pyproject.toml and no lockfile: every script
+        # carries its own dependencies in a PEP 723 header, so those files are
+        # what a cache here has to be keyed on. Left to the default globs the
+        # action matches nothing, says so, and keeps a cache that can never be
+        # invalidated - which is worse than none, because it goes stale in
+        # silence.
+        cache-dependency-glob: |
+          .scripts/*.py
+
+    - name: Run pre-commit hooks
+      run: uvx prek run --show-diff-on-failure --color=always --all-files
