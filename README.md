@@ -34,7 +34,7 @@ gets out of the way.
 ## How it will work
 
 ```text
-akit add owner/repo writing --scope global
+akit add owner/repo writing      # -p writes the repository's file instead of yours
 akit render          # safe to run from a git hook
 akit doctor          # name collisions, stale renders, refusals
 ```

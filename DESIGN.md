@@ -202,23 +202,65 @@ add the directories harnesses already read.
 
 ## 7. The manifest
 
-You subscribe to one kit, not to a repository.
+You subscribe to one kit, not to a repository. Thirty subscriptions is a normal number, so
+the file is shaped to stay readable at that size.
 
 ```yaml
-- source: owner/repo
-  kind: skill
-  name: writing
-  scope: global
-  as: writing        # optional
+version: 1
+
+sources:
+  owner/repo:  {ref: v2}
+  acme/kits:   {url: "git@git.acme.example:team/kits.git"}
+  mine:        {path: ../my-kits}
+
+skills:
+  owner/repo: [writing, caveman]
+  acme/kits:  ["*"]
+
+rules:               # order matters here, and nowhere else
+- owner/repo: prose-style
+- acme/kits: security-review
+- mine: scratch-notes
+
+agents:
+  acme/kits: [reviewer, release-manager]
 ```
 
-A glob in `name` takes everything of that kind from that source. That is what you want from
-an employer's repository and rarely want from a public one.
+**Kind is the top level, because kind decides everything downstream.** It picks the renderer,
+the directory, and whether order means anything. Grouping by it means no entry has to say
+which kind it is, and the three blocks can be read one at a time.
+
+**A source is configured once and named up to three times.** Its URL, ref, authentication and
+on-disk path live in `sources:`, so none of that repeats. What repeats is a short key in each
+block that source contributes to, and most sources contribute to one.
+
+**Skills and agents are mappings, rules are a list.** That asymmetry is the point. Two skills
+cannot disagree, so their order is noise. Two rules can, so the order you read down the page
+is the order they are rendered in, and a YAML mapping would not promise that.
+
+A `"*"` takes everything of that kind from that source. That is what you want from an
+employer's repository and rarely from a public one.
+
+### When a kit needs more than its name
+
+Most do not. One that does becomes a mapping instead of a string:
+
+```yaml
+skills:
+  owner/repo:
+  - writing
+  - name: kb
+    as: upstream-kb      # this name is taken
+    link: true           # I edit this one
+```
 
 **`as` exists because two sources will eventually both ship a kit called `kb`.** opencode
 demands skill names be unique across all six places it looks. pi keeps whichever it found
 first and warns you. Neither source can fix this, because neither knows the other exists. The
 manifest is the only place that can.
+
+At thirty entries the file is for editing and `akit list` is for reading. The file never
+grows a column of rendered paths or revisions, because those are answers the tool computes.
 
 ### Two files, one format
 
@@ -229,6 +271,10 @@ The other holds what is true of one repository, lives in `.akit/kits.yaml` insid
 committed. Someone clones the repository, runs one command, and has what that repository
 expects.
 
+**Which file a subscription is in is what decides its scope.** Yours renders everywhere.
+A repository's renders inside that repository. There is no `scope:` key, because there is no
+third answer.
+
 The project file adds to yours rather than replacing it. Your subscriptions do not stop being
 true because you changed directory. Where both name the same kit, the repository wins, which
 is how a repository pins something different without you unsubscribing.
@@ -238,12 +284,12 @@ is how a repository pins something different without you unsubscribing.
 A committed file may not contain `~/Projects/public/some-source`. Your colleague keeps it
 somewhere else, and on Windows it is not even that shape of path.
 
-So the two halves split. **Subscriptions name a source**, as `owner/repo@v2`, and live in
-either file. **Resolution finds it on this disk**, and lives only in your personal file.
+So the `sources:` block splits in two. **The name and the ref are shared**, and may sit in a
+committed file. **The `path` is personal**, and only ever appears in yours.
 
-When resolution has nothing to say, the source is cloned into the platform cache directory.
-That is why a colleague needs no setup, and why you still get live edits on the repositories
-you author yourself.
+When nothing gives a path, the source is cloned into the platform cache directory. That is
+why a colleague needs no setup, and why you still get live edits on the repositories you
+author yourself.
 
 ### Copy by default, link if you ask
 
@@ -251,7 +297,7 @@ Copying a kit and recording its hash means an update arrives as a diff you read.
 you want from anything you only consume.
 
 Linking means there is one file and nothing to sync. That is what you want for a repository
-you are actively writing.
+you are actively writing, and it is the `link: true` above.
 
 Copying is the default, because it is the one that works on Windows without developer mode.
 
@@ -343,8 +389,8 @@ never anywhere else, and nothing a user of `akit` touches depends on it.
 
 ```text
 akit list                 # what you subscribed to, where it renders, whether it is current
-akit add <source> <name> --kind rule --scope global
-akit render [scope]       # safe to run from a git hook
+akit add <source> <name> --kind rule      # -p writes the project file instead of yours
+akit render               # safe to run from a git hook
 akit update [name]        # re-pin what was copied, show the diff
 akit doctor               # collisions, stale renders, refusals
 ```
@@ -443,6 +489,14 @@ repository already answers it. One place or none.
 
 **Sharing whole `AGENTS.md` files** is the problem rather than the solution. It is the one
 filename every harness insists on owning.
+
+**One flat list of subscriptions** reads fine at five entries and badly at thirty. Every line
+repeats which source and which kind it is, so the eye has to parse each one to find out what
+it is looking at.
+
+**Grouping by source instead of by kind** names each repository once, which is the thing it
+has going for it. It then scatters the rules across the file, and rules are the one kind with
+an order, so the order would stop being visible anywhere.
 
 **MCP servers are not a fourth kind of kit.** The three we have are markdown you copy from
 one place to another. An MCP server is a process: a command, its arguments, environment
