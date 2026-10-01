@@ -159,58 +159,53 @@ A source is a git repository. Nothing is registered, nothing is declared, and a 
 learns that you subscribed. This is what "federated" means here, and it costs one thing: a
 source cannot tell you anything about itself. Section 9 is where that hurts.
 
-### Accept what `skills add` accepts
+### Naming one
 
-`npx skills add` is how most people already install a skill, and the shapes it takes are
-therefore the shapes real repositories have. We take the same ones rather than inventing a
-narrower contract and telling people their repository is wrong.
+Any of these is a source:
 
-Five ways to name a source:
+| Form | Example |
+| --- | --- |
+| GitHub shorthand | `owner/repo` |
+| A forge URL: GitHub, GitLab, Azure Repos | `https://github.com/org/repo` |
+| Any git URL | `git@github.com:org/repo.git`, `ssh://git@git.example.com/org/repo` |
+| A URL into a subdirectory, selecting one kit | `https://github.com/org/repo/tree/main/skills/writing` |
+| A local path | `../my-kits` |
 
-- `owner/repo`, the GitHub shorthand.
-- A full GitHub, GitLab or Azure Repos URL.
-- Any git URL, including `git@` and `ssh://`.
-- A URL pointing at a subdirectory, which selects one kit inside a larger repository.
-- A local path.
+Private repositories need nothing extra. Git's configured authentication is what gets used,
+and no credential is read, printed or carried by us.
 
-Private repositories need nothing special. Whatever authentication git is already configured
-with is what gets used, and no credential is read, printed or passed around by us.
+A bare `SKILL.md` or an archive at some URL is not a source. The manifest records which
+revision you have, an archive has no revision, and updating one would mean fetching it again
+and hoping.
 
-We do not take the sixth shape. `skills add` will also fetch a bare `SKILL.md` or a zip from
-any URL. A manifest records which revision you have, an archive has no revision, and an
-update would be "download it again and hope". Git or a local path, or we decline.
+### Finding kits inside one
 
-### Accept the layouts it accepts
+Every kind is found the same way. Each container directory below is walked up to three levels
+deep, so `<container>/<name>/`, `<container>/<category>/<name>/` and one category deeper all
+resolve. A kit found higher up shadows anything nested beneath it.
 
-A repository with one skill at its root is a source. So is a repository with sixty in
-categories. The `skills` CLI handles both by looking in a set of container directories and
-walking each one up to three levels deep, so `skills/<name>/`, `skills/<cat>/<name>/` and
-`skills/<cat>/<cat>/<name>/` all work. A `SKILL.md` higher up shadows anything nested beneath
-it.
+| Kind | Looked for | Containers |
+| --- | --- | --- |
+| Skill | `SKILL.md` | the repository root, `skills/`, `skills/.curated/`, `skills/.experimental/`, `skills/.system/`, and the harness directories such as `.claude/skills/` and `.agents/skills/` |
+| Rule | `*.md` | the repository root, `rules/`, `.github/instructions/` |
+| Agent | `*.md` | the repository root, `agents/`, `.github/agents/`, `.claude/agents/`, `.opencode/agent/` |
 
-We follow that, including the container list: the repository root, `skills/`, its
-`.curated/`, `.experimental/` and `.system/` variants, and the harness-specific directories
-such as `.claude/skills/` and `.agents/skills/`.
+So a repository holding one skill at its root is a source, and so is one holding sixty in
+categories, and so is one that has never heard of any of this.
 
-We reimplement it rather than call it. `skills` is node, and section 10 rules node out of
-anything a user has to run. The rules it follows are published, and the cost of following
-them is one directory walk.
+**Why those, for skills:** this is what `npx skills add` already accepts, which makes it what
+repositories in the wild already look like. We follow the same rules and implement them
+ourselves, because `skills` is node and section 10 keeps node away from anything a user runs.
 
-Rules and agents have no equivalent standard, so we mirror the one above. Containers are the
-root, `rules/` and `agents/`, and the places harnesses already keep them: `.github/agents/`,
-`.claude/agents/`, `.opencode/agent/`, `.github/instructions/`. Same three levels, same
-shadowing.
-
-The effect is that `ftschindler/agents-skills` is already a source, a single-skill
-`gist`-shaped repository is already a source, and so is a repository that has never heard of
-any of this.
+**Why those, for rules and agents:** no standard exists, so they mirror the skills layout and
+add the directories harnesses already read.
 
 ## 7. The manifest
 
 You subscribe to one kit, not to a repository.
 
 ```yaml
-- source: ftschindler/agents-skills
+- source: owner/repo
   kind: skill
   name: writing
   scope: global
@@ -240,12 +235,11 @@ is how a repository pins something different without you unsubscribing.
 
 ### Naming a source is not finding it
 
-A committed file may not contain `~/Projects/public/agents-skills`. Your colleague keeps it
+A committed file may not contain `~/Projects/public/some-source`. Your colleague keeps it
 somewhere else, and on Windows it is not even that shape of path.
 
-So the two halves split. **Subscriptions name a source**, as `ftschindler/agents-skills@v2`,
-and live in either file. **Resolution finds it on this disk**, and lives only in your
-personal file.
+So the two halves split. **Subscriptions name a source**, as `owner/repo@v2`, and live in
+either file. **Resolution finds it on this disk**, and lives only in your personal file.
 
 When resolution has nothing to say, the source is cloned into the platform cache directory.
 That is why a colleague needs no setup, and why you still get live edits on the repositories
