@@ -208,31 +208,30 @@ the file is shaped to stay readable at that size.
 ```yaml
 version: 1
 
-sources:
-  owner/repo:  {ref: v2}
-  acme/kits:   {url: "git@git.acme.example:team/kits.git"}
-  mine:        {path: ../my-kits}
-
 skills:
-  owner/repo: [writing, caveman]
-  acme/kits:  ["*"]
+  owner/repo#v2: [writing, caveman]
+  acme/kits:     ["*"]
 
-rules:               # order matters here, and nowhere else
-- owner/repo: prose-style
+rules:                 # order matters here, and nowhere else
+- owner/repo#v1: prose-style
 - acme/kits: security-review
-- mine: scratch-notes
 
 agents:
-  acme/kits: [reviewer, release-manager]
+  acme/kits#2026.3: [reviewer, release-manager]
 ```
 
 **Kind is the top level, because kind decides everything downstream.** It picks the renderer,
 the directory, and whether order means anything. Grouping by it means no entry has to say
 which kind it is, and the three blocks can be read one at a time.
 
-**A source is configured once and named up to three times.** Its URL, ref, authentication and
-on-disk path live in `sources:`, so none of that repeats. What repeats is a short key in each
-block that source contributes to, and most sources contribute to one.
+**The key is the source, written out.** Any of the forms from section 6 goes there: the
+shorthand above, a full forge URL, a git URL, or a local path. There is no table of
+nicknames to look up, and nothing that can go out of sync with one.
+
+**`#ref` pins, and it pins per line.** `owner/repo#v2` and `owner/repo#v1` are two different
+sources as far as the file is concerned, so the skills block can sit on a tag the rules block
+has not moved to yet. A key with no `#` tracks the default branch. The separator is `#` and
+not `@`, because `git@github.com:org/repo.git` already has one of those.
 
 **Skills and agents are mappings, rules are a list.** That asymmetry is the point. Two skills
 cannot disagree, so their order is noise. Two rules can, so the order you read down the page
@@ -247,11 +246,10 @@ Most do not. One that does becomes a mapping instead of a string:
 
 ```yaml
 skills:
-  owner/repo:
+  owner/repo#v2:
   - writing
   - name: kb
     as: upstream-kb      # this name is taken
-    link: true           # I edit this one
 ```
 
 **`as` exists because two sources will eventually both ship a kit called `kb`.** opencode
@@ -260,7 +258,8 @@ first and warns you. Neither source can fix this, because neither knows the othe
 manifest is the only place that can.
 
 At thirty entries the file is for editing and `akit list` is for reading. The file never
-grows a column of rendered paths or revisions, because those are answers the tool computes.
+grows a column of rendered paths or resolved commits, because those are answers the tool
+computes.
 
 ### Two files, one format
 
@@ -279,25 +278,30 @@ The project file adds to yours rather than replacing it. Your subscriptions do n
 true because you changed directory. Where both name the same kit, the repository wins, which
 is how a repository pins something different without you unsubscribing.
 
-### Naming a source is not finding it
+### Where a source actually is
 
-A committed file may not contain `~/Projects/public/some-source`. Your colleague keeps it
-somewhere else, and on Windows it is not even that shape of path.
+A key names a source. It does not say where that source is on this disk, and for a committed
+file it must not: your colleague keeps it elsewhere, and on Windows it is not even that shape
+of path.
 
-So the `sources:` block splits in two. **The name and the ref are shared**, and may sit in a
-committed file. **The `path` is personal**, and only ever appears in yours.
+So anything found by cloning is cloned, into the platform cache directory, and that is the
+whole story for a colleague who just wants it to work.
 
-When nothing gives a path, the source is cloned into the platform cache directory. That is
-why a colleague needs no setup, and why you still get live edits on the repositories you
-author yourself.
+A local path as a key is the exception, and it is only ever sensible in your own file. Use it
+for a source you are writing rather than consuming.
+
+When you need both at once, which is a project subscribing to `owner/repo` that you also
+happen to be the author of, `akit link owner/repo ../my-kits` points this machine at your
+checkout. That goes in machine state beside the lockfile, never in either manifest, because
+it is true of one laptop and nothing else.
 
 ### Copy by default, link if you ask
 
 Copying a kit and recording its hash means an update arrives as a diff you read. That is what
 you want from anything you only consume.
 
-Linking means there is one file and nothing to sync. That is what you want for a repository
-you are actively writing, and it is the `link: true` above.
+Linking means there is one file and nothing to sync. That is what you want for a source you
+are actively writing, and `akit link` above is how this machine gets told about it.
 
 Copying is the default, because it is the one that works on Windows without developer mode.
 
@@ -390,6 +394,7 @@ never anywhere else, and nothing a user of `akit` touches depends on it.
 ```text
 akit list                 # what you subscribed to, where it renders, whether it is current
 akit add <source> <name> --kind rule      # -p writes the project file instead of yours
+akit link <source> <path> # point this machine at a checkout you are writing
 akit render               # safe to run from a git hook
 akit update [name]        # re-pin what was copied, show the diff
 akit doctor               # collisions, stale renders, refusals
@@ -457,8 +462,10 @@ repository.
 anything unknown. Whether that table is per harness or per agent is open. Not worth deciding
 until three agents genuinely want to live in two places.
 
-**Does the manifest pin versions?** A tag or commit per source is the obvious answer. Whether
-a single kit can pin apart from its source is open, and probably not worth it.
+**What does a pin mean when a source moves a tag?** `#v2` resolves to a commit, which the
+lockfile records. If upstream re-points `v2` somewhere else, the next `akit update` sees a
+different commit under the same name. Whether that is reported differently from an ordinary
+update is open.
 
 **Does linking survive at all?** It is nicer on Linux for the repositories you write. It is
 the one feature that behaves differently on Windows. Dropping it makes the two platforms
@@ -497,6 +504,11 @@ it is looking at.
 **Grouping by source instead of by kind** names each repository once, which is the thing it
 has going for it. It then scatters the rules across the file, and rules are the one kind with
 an order, so the order would stop being visible anywhere.
+
+**A `sources:` block defining each repository once**, with the subscriptions referring to it
+by nickname. It saves a little typing and costs two things. Every key becomes a lookup
+somewhere else in the file, and the same repository can no longer sit at two versions in two
+blocks without inventing two nicknames for one repository.
 
 **MCP servers are not a fourth kind of kit.** The three we have are markdown you copy from
 one place to another. An MCP server is a process: a command, its arguments, environment
