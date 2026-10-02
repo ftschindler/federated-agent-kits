@@ -65,7 +65,7 @@ kit discovery walk, and a CI matrix on `ubuntu-latest` and `windows-latest`.
 **Steps.**
 
 - Parse both manifests. The user one in the per-platform config directory, the project one at
-  `.akit/kits.yaml`, project adding to user and winning on a clash.
+  `.akit.yaml` in the repository root, project adding to user and winning on a clash.
 - Resolve a source key: shorthand, forge URL, git URL, subdirectory URL, local path, with an
   optional `#ref`. Clone into the platform cache when nothing says otherwise.
 - Implement `akit link <source> <path>` and the machine-state file it writes to. Keep that
@@ -230,15 +230,13 @@ subscribing to a private source is the one thing that can do real damage.
 - Classify a render target from its git remote. No remote means private. Anything it cannot
   classify is refused, never assumed safe.
 - Make the refusal hard: no partial render, no warning, and a message naming the fix.
-- Settle whether rendered files are committed inside a project
-  ([§13](DESIGN.md#13-still-open)), which this check is what makes safe either way.
 - One test per row of the refusal table. The table is the whole product here, and an untested
   row is a row that is wrong.
 
 **Done when.** A private source renders into a private repository, is refused into a public
 one, and the test suite covers both directions plus the unclassifiable target.
 
-**Settles.** Where the ceiling lives, and whether renders are committed.
+**Settles.** Where the ceiling lives.
 
 ## T7 - Render agents
 

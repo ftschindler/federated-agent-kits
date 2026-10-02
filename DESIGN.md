@@ -301,9 +301,10 @@ computes.
 One manifest holds what is true of you, and lives in the per-platform user config directory.
 It is not shared.
 
-The other holds what is true of one repository, lives in `.akit/kits.yaml` inside it, and is
-committed. Someone clones the repository, runs one command, and has what that repository
-expects.
+The other holds what is true of one repository, is committed, and sits at `.akit.yaml` in its
+root. One file, so no directory: `.akit/` would hold a single thing forever, and a top-level
+dotfile is visible to anyone looking at the repository rather than hidden one level down.
+Someone clones the repository, runs one command, and has what it expects.
 
 **Which file a subscription is in is what decides its scope.** Yours renders everywhere.
 A repository's renders inside that repository. There is no `scope:` key, because there is no
@@ -313,22 +314,55 @@ The project file adds to yours rather than replacing it. Your subscriptions do n
 true because you changed directory. Where both name the same kit, the repository wins, which
 is how a repository pins something different without you unsubscribing.
 
+### What a repository commits
+
+**The manifest, never the renders.** `.akit.yaml` is the source of truth; everything
+`akit render` writes into the repository is generated, and generated files are ignored.
+
+```gitignore
+.github/instructions/
+.claude/skills/
+.agents/skills/
+```
+
+A repository that is its own source keeps the opposite habit: `skills/` is hand-written and
+committed, and the rendered copies of it are not.
+
+The workflow is clone, `akit render`, work. A colleague who has not installed the tool sees
+`.akit.yaml` and nothing else, which is the honest signal that a step is missing.
+
+**One class of render cannot be ignored**, and it is the one that writes into a file somebody
+else owns. A marker block inside a committed `AGENTS.md`, or a key added to a committed
+`opencode.json`, rides along with its host. There is no choice there: the host file is
+committed because somebody hand-wrote the rest of it.
+
+That makes those files able to go stale, which nothing else here can. So `akit render
+--check` exits non-zero when a render is out of date, as a pre-commit hook and in CI. It is
+the same code path as `render`, writing nothing.
+
 ### Where a source actually is
 
-A key names a source. It does not say where that source is on this disk, and for a committed
-file it must not: your colleague keeps it elsewhere, and on Windows it is not even that shape
-of path.
+A key names a source. It does not say where that source is on this disk, and an **absolute**
+path in a committed file is always wrong: your colleague keeps it elsewhere, and on Windows
+it is not even that shape of path.
 
 So anything found by cloning is cloned, into the platform cache directory, and that is the
 whole story for a colleague who just wants it to work.
 
-A local path as a key is the exception, and it is only ever sensible in your own file. Use it
-for a source you are writing rather than consuming.
+**A relative path is a different thing, and it belongs in a committed file.** It resolves
+against the repository root, so it means the same on every machine. The case it is for is a
+repository that ships kits alongside its own code: a `skills/` directory holding what an
+agent needs in order to work on *this* project. The source key is `.`, the parts are found by
+the usual walk, and nothing is cloned or cached because the working tree is already there.
+
+An absolute path as a key is the exception, and only ever in your own file. Use it for a
+source you are writing rather than consuming.
 
 When you need both at once, which is a project subscribing to `owner/repo` that you also
 happen to be the author of, `akit link owner/repo ../my-kits` points this machine at your
-checkout. It redirects where a source is read from, and has nothing to do with symlinks. That goes in machine state beside the lockfile, never in either manifest, because
-it is true of one laptop and nothing else.
+checkout. It redirects where a source is read from, and has nothing to do with symlinks. That
+goes in machine state beside the lockfile, never in either manifest, because it is true of one
+laptop and nothing else.
 
 ### Always copied
 
@@ -435,7 +469,7 @@ never anywhere else, and nothing a user of `akit` touches depends on it.
 akit list                 # what you subscribed to, where it renders, whether it is current
 akit add <source> <name> --kind rule      # -p writes the project file instead of yours
 akit link <source> <path> # read this source from a local checkout instead of a clone
-akit render               # safe to run from a git hook
+akit render               # --check writes nothing and fails when stale
 akit update [name]        # re-pin what was copied, show the diff
 akit doctor               # collisions, stale renders, refusals
 ```
@@ -492,11 +526,6 @@ any of them wants it.
 
 **Where does the travel limit live?** In the source, or in each subscription. Settled before
 the first employer source is added, and it decides the next question too.
-
-**Are rendered files committed inside a project?** Committed, a colleague who never installs
-`akit` still gets the rules, which is the entire point for a team repository. Committed, a
-mis-subscription also puts the employer's prose in a public repository. Probably declared per
-repository.
 
 **How do tool names map between harnesses?** A table maintained by hand that fails on
 anything unknown. Whether that table is per harness or per agent is open. Not worth deciding

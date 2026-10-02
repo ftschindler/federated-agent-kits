@@ -22,8 +22,9 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Local subscription manifest. Each user copies the .example and edits it; the
-# real one names on-disk checkouts of their private and corporate kit sources.
+# A scratch copy of a personal manifest, when one is kept here while working.
+# This repository's own `.akit.yaml` is committed: it is the project manifest,
+# and DESIGN.md section 7 is why.
 /kits.yaml
 
 # OpenCode agent session/continuation state - machine cruft, not repo content
