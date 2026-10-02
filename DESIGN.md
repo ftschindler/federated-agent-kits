@@ -327,30 +327,27 @@ for a source you are writing rather than consuming.
 
 When you need both at once, which is a project subscribing to `owner/repo` that you also
 happen to be the author of, `akit link owner/repo ../my-kits` points this machine at your
-checkout. That goes in machine state beside the lockfile, never in either manifest, because
+checkout. It redirects where a source is read from, and has nothing to do with symlinks. That goes in machine state beside the lockfile, never in either manifest, because
 it is true of one laptop and nothing else.
 
-### Copied, unless the source is a checkout you edit
+### Always copied
 
-**A cloned source is always copied.** Its clone lives in the cache directory, which the next
-`akit update` overwrites, so linking into it would offer you a file that is not safe to edit
-and will change under you. Copying also records a hash, which is what makes an update a diff
-you read.
+**Rendering copies, on every platform, from every kind of source.** The hash of what was
+copied goes in the lockfile, which is what lets `akit doctor` spot a rendered file somebody
+has edited by mistake, and what makes an update a diff you read.
 
-**A local source may be linked instead.** That is the whole reason linking exists: you are
-writing the kit, and you want the harness to see the edit without a render in between. It
-applies to a local path used as a key, and to a remote source `akit link` has pointed at a
-checkout. Nowhere else.
+The alternative was a symlink for a source you have checked out and edit, so the harness sees
+an edit with no render in between. It bought one saved command, and cost a feature that
+behaves differently on Windows, where a symlink needs developer mode or an elevated shell.
 
-Even then, copying is the default, because a symlink needs developer mode or an elevated
-shell on Windows. On a machine where linking is unavailable, a local source is copied and
-`akit render` after an edit is the sync step.
+So editing a kit you author means running `akit render` afterwards. That makes render speed a
+real requirement rather than a nicety: it is the inner loop of writing a kit, not just
+something you run after changing the manifest.
 
 ## 8. Rendering
 
-Skills are copied into the harness directory unchanged, or linked when the source is a
-checkout you edit. Several locations across four harnesses already agree on
-`skills/<name>/SKILL.md`, so there is nothing to translate.
+Skills are copied into the harness directory unchanged. Several locations across four
+harnesses already agree on `skills/<name>/SKILL.md`, so there is nothing to translate.
 
 Rules land three different ways.
 
@@ -414,9 +411,10 @@ That means, concretely:
 - `pathlib.Path`, never a string with a slash in it.
 - The config directory is looked up per platform, not spelled `~/.config`.
 - Files are written with `encoding="utf-8"` stated out loud. Windows does not default to it.
-- **Symlinks are opt-in.** Creating one on Windows needs developer mode or an elevated shell.
-  A symlink committed to a repository arrives on a Windows clone as a text file containing a
-  path, and whatever read through it reads nonsense.
+- **No symlink is ever created.** Creating one on Windows needs developer mode or an elevated
+  shell, so rendering copies instead ([§7](#7-the-manifest)). A symlink committed to a
+  repository is worse still: a Windows clone writes it out as a text file containing a path,
+  and whatever reads through it reads nonsense.
 - Two kits whose names differ only in case collide. The filesystem may not tell them apart.
 
 **CI runs the tests on `ubuntu-latest` and `windows-latest`, and both must pass.** There are
@@ -436,7 +434,7 @@ never anywhere else, and nothing a user of `akit` touches depends on it.
 ```text
 akit list                 # what you subscribed to, where it renders, whether it is current
 akit add <source> <name> --kind rule      # -p writes the project file instead of yours
-akit link <source> <path> # point this machine at a checkout you are writing
+akit link <source> <path> # read this source from a local checkout instead of a clone
 akit render               # safe to run from a git hook
 akit update [name]        # re-pin what was copied, show the diff
 akit doctor               # collisions, stale renders, refusals
@@ -509,11 +507,6 @@ lockfile records. If upstream re-points `v2` somewhere else, the next `akit upda
 different commit under the same name. Whether that is reported differently from an ordinary
 update is open.
 
-**Is linking worth having at all?** It only ever applies to a source you have checked out and
-edit, and its whole benefit is skipping a re-render while you work. On Windows it needs
-developer mode, so that machine is re-rendering anyway. If `akit render` turns out to be fast
-and habitual, linking buys a second saved and costs a platform difference.
-
 **Does the CLI ship inside the skill?** `fkb` puts it there, as `scripts/fkb`, so installing
 the skill installs the tool and there is no second step. The alternative is a package on PyPI
 and a skill that assumes it. The first is one artefact and no install; the second updates
@@ -536,6 +529,10 @@ path to your private knowledge bundle. Different question, different file.
 
 **A privacy field in each part** can disagree with the repository it is sitting in. The
 repository already answers it. One place or none.
+
+**Symlinked renders**, so that editing a source you author skips the render. One saved
+command, against a feature that needs developer mode on Windows and a second code path
+everywhere. `akit render` is the inner loop instead, and it has to be quick.
 
 **A kit declaration inside a source**, saying which parts belong together. Almost no source
 in the world would carry one, so the tool would need the manifest route anyway and this would

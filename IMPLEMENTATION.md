@@ -91,16 +91,16 @@ right without a file-writing bug on top of it.
 
 **Deliverable.** `akit render` for skills, `akit update`, `akit doctor`, and the lockfile.
 
-**Specified by DESIGN.md.** Copy versus link ([§7](DESIGN.md#7-the-manifest)), what rendering
-a skill means ([§8](DESIGN.md#8-rendering)), symlinks opt-in
+**Specified by DESIGN.md.** Rendering always copies ([§7](DESIGN.md#7-the-manifest)), what
+rendering a skill means ([§8](DESIGN.md#8-rendering)), no symlink is ever created
 ([§10](DESIGN.md#10-windows-linux-python)).
 
 **Steps.**
 
 - Render into the harness directories for opencode and VS Code, plus `~/.agents/skills/`,
   which several harnesses read directly.
-- Record in the lockfile what was written, from which source at which commit, by copy or by
-  link.
+- Record in the lockfile what was written, from which source at which commit, with the hash
+  of the copy.
 - Make the second render a no-op. Prove it with a test that renders twice and compares the
   tree, not by inspection.
 - `akit update` re-pins a copied kit and shows the diff.
@@ -112,9 +112,8 @@ a skill means ([§8](DESIGN.md#8-rendering)), symlinks opt-in
 both operating systems, and deleting the rendered tree then re-running `akit render` restores
 it exactly.
 
-**Leave alone.** Rules and agents. Also the question of whether linking is worth having
-([§13](DESIGN.md#13-still-open)); build it for local sources only, and let the journal say
-whether anybody uses it.
+**Leave alone.** Rules and agents. Also any notion of a symlinked render: rendering copies,
+and `akit render` being quick is what replaces it.
 
 ## T3 - Render rules
 
@@ -277,8 +276,6 @@ construction: no completion date, and its first output is evidence rather than c
 - Keep the journal running. The incidents that matter here are a render that surprised
   somebody, a kit that was edited in its rendered copy by mistake, a collision the rename did
   not solve, a source whose layout moved.
-- Settle whether linking is worth having ([§13](DESIGN.md#13-still-open)) from whether anyone
-  used it.
 - Settle what a moved tag should report ([§13](DESIGN.md#13-still-open)), when one moves.
 - Add a harness when somebody wants one, not before. Each addition is also a test of
   [T4](#t4---add-a-third-harness)'s claim, and the first one that needs a change outside its
