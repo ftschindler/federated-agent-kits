@@ -421,18 +421,60 @@ reason.
 
 ## 9. Keeping the employer's kits in
 
-One failure matters more than the others: an employer's rule rendered into a repository with
-a public remote.
+### What can actually leak
 
-So a source says how far its kits may travel, and a render past that line fails.
+Almost nothing, because [§7](#7-the-manifest) says a repository commits no renders. A skill
+copied into `.claude/skills/`, an agent file, a VS Code `.instructions.md`: all ignored, none
+pushed anywhere.
 
-Where it says that is open. In the source is the honest place, because it is a fact about the
-source rather than about your laptop, and it costs the "a source declares nothing" property
-from section 6. In the manifest is the fallback, and then every subscriber restates it and
-one of them gets it wrong.
+Two things are committed, and they are the whole risk.
 
-The check reads the render target's git remote. No remote means private. A target it cannot
-classify is refused, not assumed safe.
+**A marker block inside a file somebody else owns.** A rule rendered into a committed
+`AGENTS.md`, or a key added to a committed `opencode.json`. This is the one that bites: the
+employer's prose is now in a public repository, and the diff looks like every other diff.
+
+**The project manifest.** `.akit.yaml` names its sources, and
+`git@git.acme.example:team/unreleased-thing-kits.git` is information even to somebody who
+cannot clone it.
+
+### How a source is known to be private
+
+Not by declaring it. [§6](#6-sources) says a source declares nothing, and almost every source
+in the world predates this idea, so anything that needs a file in the repository is a rule
+that applies to nobody.
+
+**Cloning it is the test.** A source that needed credentials is private. A source that clones
+anonymously is public. A local path is unknown, and unknown is treated as private.
+
+This costs nothing, needs no cooperation, and is true at the moment it matters, which is when
+the parts are fetched. It is also occasionally wrong in the safe direction: a public
+repository behind an authenticating proxy is treated as private, and the cost of that is a
+refusal you override once.
+
+### How a target is known to be public
+
+By its git remotes. No remote means private, since nothing can leave. A remote that resolves
+anonymously means public. Anything else, including a remote that cannot be reached, is
+refused rather than guessed at.
+
+### The rule
+
+**A private source's parts do not render into a public target, and a private source is not
+named in a public target's committed manifest.** Both halves fail hard, with a message naming
+the source, the target and the override.
+
+The override lives in your own manifest, never in the project one, because an override
+committed into the public repository is the leak it was guarding against.
+
+### What this is not
+
+A guardrail, not a boundary. It reads a remote at render time, so it cannot help with a
+repository made public next month, a file you copy by hand, or a colleague who already has
+the credentials. What actually keeps your employer's kits in is that nobody else can clone
+the source.
+
+The failure it exists for is the ordinary one: you subscribed to something at work, you ran
+`akit render` in a public repository, and nothing told you.
 
 ## 10. Windows, Linux, Python
 
@@ -523,9 +565,6 @@ None of these blocks the first piece of work.
 and pi have nothing like it, so such a rule would simply be always-on there. A field that one
 harness out of four honours may be worse than no field. Write ten real rules and see whether
 any of them wants it.
-
-**Where does the travel limit live?** In the source, or in each subscription. Settled before
-the first employer source is added, and it decides the next question too.
 
 **How do tool names map between harnesses?** A table maintained by hand that fails on
 anything unknown. Whether that table is per harness or per agent is open. Not worth deciding

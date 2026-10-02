@@ -219,24 +219,30 @@ remote.
 **This task gates the first employer source.** Not an ordering preference. Until it is built,
 subscribing to a private source is the one thing that can do real damage.
 
-**Specified by DESIGN.md.** The ceiling and what the check reads
-([§9](DESIGN.md#9-keeping-the-employers-kits-in)), refusals are hard
-([§3](DESIGN.md#3-rules-of-the-build)).
+**Specified by DESIGN.md.** What can actually leak, how a source and a target are
+classified, and what the refusal covers ([§9](DESIGN.md#9-keeping-the-employers-kits-in)).
+Refusals are hard ([§3](DESIGN.md#3-rules-of-the-build)).
 
 **Steps.**
 
-- Settle where the ceiling is declared, in the source or in the subscription
-  ([§13](DESIGN.md#13-still-open)). Everything else here depends on it.
-- Classify a render target from its git remote. No remote means private. Anything it cannot
-  classify is refused, never assumed safe.
-- Make the refusal hard: no partial render, no warning, and a message naming the fix.
+- Classify a source at fetch time: it needed credentials, it cloned anonymously, or it is a
+  local path. Record which in the lockfile, because the answer is only available while
+  fetching.
+- Classify a target from its git remotes. No remote means private, an anonymously resolvable
+  remote means public, anything unreachable is refused rather than guessed at.
+- Refuse a private source's parts rendering into a public target. Refuse a private source
+  being named in a public target's committed manifest, which is the half that is easy to
+  forget because no render is involved.
+- Implement the override, in the user manifest only. Writing it into a project manifest is
+  itself refused.
+- Make every refusal hard: no partial render, no warning, and a message naming source, target
+  and override.
 - One test per row of the refusal table. The table is the whole product here, and an untested
   row is a row that is wrong.
 
 **Done when.** A private source renders into a private repository, is refused into a public
-one, and the test suite covers both directions plus the unclassifiable target.
-
-**Settles.** Where the ceiling lives.
+one, is refused when named in a committed manifest there, and the suite covers both
+directions plus the unreachable remote.
 
 ## T7 - Render agents
 
