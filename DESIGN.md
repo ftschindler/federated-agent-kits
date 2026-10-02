@@ -330,20 +330,27 @@ happen to be the author of, `akit link owner/repo ../my-kits` points this machin
 checkout. That goes in machine state beside the lockfile, never in either manifest, because
 it is true of one laptop and nothing else.
 
-### Copy by default, link if you ask
+### Copied, unless the source is a checkout you edit
 
-Copying a kit and recording its hash means an update arrives as a diff you read. That is what
-you want from anything you only consume.
+**A cloned source is always copied.** Its clone lives in the cache directory, which the next
+`akit update` overwrites, so linking into it would offer you a file that is not safe to edit
+and will change under you. Copying also records a hash, which is what makes an update a diff
+you read.
 
-Linking means there is one file and nothing to sync. That is what you want for a source you
-are actively writing, and `akit link` above is how this machine gets told about it.
+**A local source may be linked instead.** That is the whole reason linking exists: you are
+writing the kit, and you want the harness to see the edit without a render in between. It
+applies to a local path used as a key, and to a remote source `akit link` has pointed at a
+checkout. Nowhere else.
 
-Copying is the default, because it is the one that works on Windows without developer mode.
+Even then, copying is the default, because a symlink needs developer mode or an elevated
+shell on Windows. On a machine where linking is unavailable, a local source is copied and
+`akit render` after an edit is the sync step.
 
 ## 8. Rendering
 
-Skills are copied or linked, unchanged, into the harness directory. Several locations across
-four harnesses already agree on `skills/<name>/SKILL.md`, so there is nothing to translate.
+Skills are copied into the harness directory unchanged, or linked when the source is a
+checkout you edit. Several locations across four harnesses already agree on
+`skills/<name>/SKILL.md`, so there is nothing to translate.
 
 Rules land three different ways.
 
@@ -502,9 +509,10 @@ lockfile records. If upstream re-points `v2` somewhere else, the next `akit upda
 different commit under the same name. Whether that is reported differently from an ordinary
 update is open.
 
-**Does linking survive at all?** It is nicer on Linux for the repositories you write. It is
-the one feature that behaves differently on Windows. Dropping it makes the two platforms
-identical, and costs a sync step on your own work.
+**Is linking worth having at all?** It only ever applies to a source you have checked out and
+edit, and its whole benefit is skipping a re-render while you work. On Windows it needs
+developer mode, so that machine is re-rendering anyway. If `akit render` turns out to be fast
+and habitual, linking buys a second saved and costs a platform difference.
 
 **Does the CLI ship inside the skill?** `fkb` puts it there, as `scripts/fkb`, so installing
 the skill installs the tool and there is no second step. The alternative is a package on PyPI
