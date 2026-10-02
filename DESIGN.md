@@ -41,6 +41,11 @@ prompt naming the trigger fix that, and those three lines are a rule.
 Sharing the skill alone therefore ships something that quietly never runs. The composition is
 the unit because it is the smallest thing that works on the other machine.
 
+**You compose it, the source does not.** Almost nothing out there ships a kit, and a
+repository holding a skill beside its rule has no way to say the two belong together. So the
+composition lives in your manifest, which is also the only place that can compose across two
+sources ([§7](#7-the-manifest)).
+
 An agent can name skills it expects to be there. Those are not parts of it: they are a
 dependency, and we do not chase dependencies. A named skill you have not subscribed to gets
 you a warning from `akit doctor`, and nothing is installed that you did not ask for. An agent
@@ -227,14 +232,13 @@ add the directories harnesses already read.
 
 ## 7. The manifest
 
-> **Unsettled.** What follows treats each part as the thing you subscribe to, which section 1
-> has outgrown: a kit is a composition, so subscribing to one should bring all of its parts.
-> The shape below is kept as the record of where the thinking got to, and
-> [§13](#13-still-open) carries the question. Everything else in this section survives either
-> answer.
+**A kit is assembled here, not found out there.** A source offers parts. Which of them belong
+together is a judgement you make, and the manifest is where you make it. Even a repository
+that ships a skill alongside its activation rule has nothing tying the two together, so both
+get named either way.
 
-You subscribe to one kit, not to a repository. Thirty subscriptions is a normal number, so
-the file is shaped to stay readable at that size.
+So the file subscribes to parts, and a kit is what a set of subscriptions amounts to. Thirty
+of them is a normal number, so the file is shaped to stay readable at that size.
 
 ```yaml
 version: 1
@@ -476,14 +480,6 @@ file. That is the only thing that survives being copied into a skills directory.
 
 None of these blocks the first piece of work.
 
-**How does a source say which parts make up one kit?** Section 1 settles that a kit is a
-composition, and [§7](#7-the-manifest) has not caught up: it still subscribes to one part at
-a time. A source declares nothing ([§6](#6-sources)), so the answer cannot be a file inside
-the repository. The cheap candidate is the name, where `skills/writing/`, `rules/writing.md`
-and `agents/writing.md` in one source are the `writing` kit, and naming a kind explicitly
-takes one part when that is what you want. The cost is that rules need an order and a
-composition does not obviously carry one. Settled before the manifest is implemented.
-
 **Do rules need an `applyTo` glob?** VS Code has one, deciding when a rule applies. opencode
 and pi have nothing like it, so such a rule would simply be always-on there. A field that one
 harness out of four honours may be worse than no field. Write ten real rules and see whether
@@ -530,8 +526,13 @@ rules out for anything a user has to run.
 **Sharing a manifest with `fkb`** would mean a colleague cloning a repository can read the
 path to your private knowledge bundle. Different question, different file.
 
-**A privacy field in each kit** can disagree with the repository the kit is sitting in. The
+**A privacy field in each part** can disagree with the repository it is sitting in. The
 repository already answers it. One place or none.
+
+**A kit declaration inside a source**, saying which parts belong together. Almost no source
+in the world would carry one, so the tool would need the manifest route anyway and this would
+be a second way of expressing the same thing. It also moves a judgement to the publisher that
+belongs to the subscriber: which parts you want together is a fact about your setup.
 
 **Sharing whole `AGENTS.md` files** is the problem rather than the solution. It is the one
 filename every harness insists on owning.
