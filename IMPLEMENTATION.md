@@ -42,7 +42,7 @@ A fresh session needs four things, two of which are not in this repository.
 | What | Where | Why |
 | --- | --- | --- |
 | The design | [DESIGN.md](DESIGN.md) | Every schema, path and refusal is specified there |
-| The `skills` CLI discovery rules | its npm README, section "Skill Discovery" | [§6](DESIGN.md#6-sources) follows them and does not restate the container list in full |
+| The `skills` CLI discovery rules | its npm README, section "Skill Discovery" | [§6](DESIGN.md#6-sources) follows them and does not restate the full list of directories |
 | Harness documentation | opencode, VS Code, pi | [§4](DESIGN.md#4-where-each-harness-keeps-things) is a summary, not a substitute |
 | The guard suite | this repository | `make bootstrap`, then `make check` |
 
@@ -58,7 +58,7 @@ satisfied by the CI matrix that [T1](#t1---read-the-manifest-render-nothing) add
 **Deliverable.** `akit list` and `akit link`, the manifest parser, the source resolver, the
 kit discovery walk, and a CI matrix on `ubuntu-latest` and `windows-latest`.
 
-**Specified by DESIGN.md.** Source forms and the container walk
+**Specified by DESIGN.md.** Source forms and the directory walk
 ([§6](DESIGN.md#6-sources)), the manifest schema, the two files and their precedence
 ([§7](DESIGN.md#7-the-manifest)).
 
@@ -71,7 +71,7 @@ kit discovery walk, and a CI matrix on `ubuntu-latest` and `windows-latest`.
 - Implement `akit link <source> <path>` and the machine-state file it writes to. Keep that
   file separate from the lockfile from the start; they answer different questions and one of
   them is shared.
-- Walk the containers from [§6](DESIGN.md#6-sources), three levels, shallower shadowing
+- Walk the directories from [§6](DESIGN.md#6-sources), three levels, shallower shadowing
   deeper, for all three kinds.
 - Report: each subscription, which source and ref it resolved to, which kit file, and whether
   two subscriptions collide on a name.

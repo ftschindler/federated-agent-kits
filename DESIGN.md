@@ -203,11 +203,12 @@ and hoping.
 
 ### Finding parts inside one
 
-Every kind of part is found the same way. Each container directory below is walked up to
-three levels deep, so `<container>/<name>/`, `<container>/<category>/<name>/` and one
-category deeper all resolve. A part found higher up shadows anything nested beneath it.
+Every kind of part is found the same way, by looking in a fixed set of directories inside the
+source. Each of those is walked up to three levels deep, so `<dir>/<name>/`,
+`<dir>/<category>/<name>/` and one category deeper all resolve. A part found higher up
+shadows anything nested beneath it.
 
-| Kind | Looked for | Containers |
+| Kind | Looked for | Looked for in |
 | --- | --- | --- |
 | Skill | `SKILL.md` | the repository root, `skills/`, `skills/.curated/`, `skills/.experimental/`, `skills/.system/`, and the harness directories such as `.claude/skills/` and `.agents/skills/` |
 | Rule | `*.md` | the repository root, `rules/`, `.github/instructions/` |
