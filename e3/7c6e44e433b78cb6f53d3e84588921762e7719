@@ -1,0 +1,69 @@
+README.md
+  s_66f2017b9a8c8c::t_d67fd2babe0ee6 14-20,43-45,50
+akit/discovery.py
+  s_66f2017b9a8c8c::t_749de4411107bc 1-84,86-98,100-103,105-106,108,110-111,114-118,124-131
+  s_66f2017b9a8c8c::t_d7e51bdb0b6138 99,104,107,109,112-113,119-123
+  s_66f2017b9a8c8c::t_f4678ab4a6c878 85
+akit/sources.py
+  s_66f2017b9a8c8c::t_6ac3031f93b991 247
+  s_66f2017b9a8c8c::t_ea3ff3b800638c 1-246,248-260
+JOURNAL.md
+  s_66f2017b9a8c8c::t_c433d22d429850 1-43
+Makefile
+  s_66f2017b9a8c8c::t_41bc26c1767ab3 27-31
+IMPLEMENTATION.md
+  s_66f2017b9a8c8c::t_d67fd2babe0ee6 14
+akit/resolve.py
+  s_66f2017b9a8c8c::t_836c317115a7a5 1-94,96-125
+  s_66f2017b9a8c8c::t_f2b9d803051ede 95
+tests/conftest.py
+  s_66f2017b9a8c8c::t_162508f71535df 1-17,19-75
+  s_66f2017b9a8c8c::t_f2b9d803051ede 18
+tests/test_cli.py
+  s_66f2017b9a8c8c::t_6a354cfe004032 1-48,50-124,126-176
+  s_66f2017b9a8c8c::t_f2b9d803051ede 49,125
+akit/cli.py
+  s_66f2017b9a8c8c::t_958e6ffb5f46f5 1-18,20-36,40-43,45-166,169-193
+  s_66f2017b9a8c8c::t_f2b9d803051ede 37-39,44
+  s_66f2017b9a8c8c::t_6ac3031f93b991 19,167-168
+akit/__main__.py
+  s_66f2017b9a8c8c::t_c0baae153c147b 1-15
+tests/test_discovery.py
+  s_66f2017b9a8c8c::t_fe2f424b322647 1-38,40-101
+  s_66f2017b9a8c8c::t_1328c34a3513a5 39
+akit/state.py
+  s_66f2017b9a8c8c::t_f17c78a2b758ef 1-79
+tests/test_manifest.py
+  s_66f2017b9a8c8c::t_f2b9d803051ede 96
+  s_66f2017b9a8c8c::t_8ad0834100d09c 1-95,97-116
+.github/workflows/test.yml
+  s_66f2017b9a8c8c::t_aa9c46c1c45c0a 1-49
+tests/test_sources.py
+  s_66f2017b9a8c8c::t_05cbc1aa892d6b 1-129
+akit/paths.py
+  s_66f2017b9a8c8c::t_f45b83b6cdd7d7 1-83
+akit/manifest.py
+  s_66f2017b9a8c8c::t_6590dd9d89fe77 1-154,156-172,174-209
+  s_66f2017b9a8c8c::t_f2b9d803051ede 155,173
+akit/__init__.py
+  s_66f2017b9a8c8c::t_ade3600256bcad 1-11
+bin/akit.py
+  s_66f2017b9a8c8c::t_f2b9d803051ede 25
+  s_66f2017b9a8c8c::t_902caf06aaf589 1-24,26-28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "e37c6e44e433b78cb6f53d3e84588921762e7719",
+  "prompts": {},
+  "sessions": {
+    "s_66f2017b9a8c8c": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f04bea260ffealxvE7zxmZyibp",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Felix Schindler <107669806+ftschindler@users.noreply.github.com>"
+    }
+  }
+}
