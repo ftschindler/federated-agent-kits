@@ -6,22 +6,16 @@ order it gets built.
 
 **Date:** 2026-10-01
 
-## 1. The words
+## 1. What this is
 
-Seven words carry the whole design. The rest of this document uses them without explaining
-them again.
+A tool and a skill for sharing **agent kits** portably: across machines, across operating
+systems, and across harnesses.
 
-| Word | What it is |
-| --- | --- |
-| **Harness** | the program that runs the model: opencode, VS Code, pi, Claude Code |
-| **Kit** | one shareable thing that configures a harness |
-| **Source** | a git repository holding kits |
-| **Subscription** | a line saying you want one kit from one source |
-| **Manifest** | the file your subscriptions live in |
-| **Adapter** | the code that knows where one harness keeps its files |
-| **Render** | writing the kits you subscribed to into files a harness reads |
+A kit is an arbitrary composition of three parts. It may be a single skill. It may be a skill
+with the rule that makes a model reach for it. It may be an agent, two skills it leans on and
+a rule that sets the house style. What makes them one kit is that you want them together.
 
-### A kit is one of three things
+### The three parts
 
 A **rule** is prose. The harness pastes it into the system prompt before every single
 message. You pay for it on every turn, so a rule that runs to three pages is a bad rule.
@@ -33,7 +27,10 @@ costs almost nothing, so a skill can be long.
 An **agent** is a prompt with a model and a list of tools attached. Starting a session as an
 agent replaces the normal prompt rather than adding to it.
 
-### How the three meet
+They go to three different places in a harness, which is why they are three parts rather than
+one file. They are wanted together, which is why the thing you share is the composition.
+
+### Why a composition and not a part
 
 A long skill usually needs a short rule to go with it.
 
@@ -41,13 +38,28 @@ Nothing makes a model open a skill except its description. If the moment to reac
 not obvious from the description alone, the model never reaches. Three lines in the system
 prompt naming the trigger fix that, and those three lines are a rule.
 
-So a skill and its activation rule ship together, from the same source. They stay two kits,
-because they land in two different places.
+Sharing the skill alone therefore ships something that quietly never runs. The composition is
+the unit because it is the smallest thing that works on the other machine.
 
-An agent can name skills it expects to be there. We do not chase those. A named skill you
-have not subscribed to gets you a warning from `akit doctor`, and nothing is installed that
-you did not ask for. An agent naming an MCP server is treated the same way, and section 14
-says why that is as far as it goes.
+An agent can name skills it expects to be there. Those are not parts of it: they are a
+dependency, and we do not chase dependencies. A named skill you have not subscribed to gets
+you a warning from `akit doctor`, and nothing is installed that you did not ask for. An agent
+naming an MCP server is treated the same way, and section 14 says why that is as far as it
+goes.
+
+### What it takes to move one
+
+A kit is the thing being shared. These six words are the machinery that shares it, and each
+one exists for a different part of "portable, federated, across harnesses".
+
+| Word | What it is | What it buys |
+| --- | --- | --- |
+| **Harness** | the program that runs the model | the thing portability is *across*: opencode, VS Code, pi, Claude Code |
+| **Source** | a git repository holding kits | federation: many repositories, at whatever privacy tier each one has |
+| **Subscription** | a line saying you want one kit from one source | choice, made per machine rather than per source |
+| **Manifest** | the file your subscriptions live in | the one place that sees every source at once, which is where anything cross-source has to happen |
+| **Adapter** | the code that knows one harness's conventions | a new harness being a file rather than a rewrite |
+| **Render** | writing a kit into the files a harness reads | the crossing itself, from how a source stores a kit to how a harness wants it |
 
 ## 2. What this does
 
@@ -179,11 +191,11 @@ A bare `SKILL.md` or an archive at some URL is not a source. The manifest record
 revision you have, an archive has no revision, and updating one would mean fetching it again
 and hoping.
 
-### Finding kits inside one
+### Finding parts inside one
 
-Every kind is found the same way. Each container directory below is walked up to three levels
-deep, so `<container>/<name>/`, `<container>/<category>/<name>/` and one category deeper all
-resolve. A kit found higher up shadows anything nested beneath it.
+Every kind of part is found the same way. Each container directory below is walked up to
+three levels deep, so `<container>/<name>/`, `<container>/<category>/<name>/` and one
+category deeper all resolve. A part found higher up shadows anything nested beneath it.
 
 | Kind | Looked for | Containers |
 | --- | --- | --- |
@@ -202,6 +214,12 @@ ourselves, because `skills` is node and section 10 keeps node away from anything
 add the directories harnesses already read.
 
 ## 7. The manifest
+
+> **Unsettled.** What follows treats each part as the thing you subscribe to, which section 1
+> has outgrown: a kit is a composition, so subscribing to one should bring all of its parts.
+> The shape below is kept as the record of where the thinking got to, and
+> [§13](#13-still-open) carries the question. Everything else in this section survives either
+> answer.
 
 You subscribe to one kit, not to a repository. Thirty subscriptions is a normal number, so
 the file is shaped to stay readable at that size.
@@ -445,6 +463,14 @@ file. That is the only thing that survives being copied into a skills directory.
 ## 13. Still open
 
 None of these blocks the first piece of work.
+
+**How does a source say which parts make up one kit?** Section 1 settles that a kit is a
+composition, and [§7](#7-the-manifest) has not caught up: it still subscribes to one part at
+a time. A source declares nothing ([§6](#6-sources)), so the answer cannot be a file inside
+the repository. The cheap candidate is the name, where `skills/writing/`, `rules/writing.md`
+and `agents/writing.md` in one source are the `writing` kit, and naming a kind explicitly
+takes one part when that is what you want. The cost is that rules need an order and a
+composition does not obviously carry one. Settled before the manifest is implemented.
 
 **Do rules need an `applyTo` glob?** VS Code has one, deciding when a rule applies. opencode
 and pi have nothing like it, so such a rule would simply be always-on there. A field that one

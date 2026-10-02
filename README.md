@@ -1,8 +1,9 @@
 # federated-agent-kits
 
-Your agent is configured by three kinds of thing: **skills** it can open, **rules** that go
-into every prompt, and **agent definitions** with their own model and tools. Each of those is
-a **kit**.
+A **kit** is a composition of three kinds of thing: **skills** your agent can open, **rules**
+that go into every prompt, and **agent definitions** with their own model and tools. A kit may
+be one skill, or a skill with the rule that makes a model reach for it, or an agent with
+everything it leans on. What makes them one kit is that you want them together.
 
 Kits accumulate in different places. Some you would publish, some belong to your employer,
 some never leave your laptop. Meanwhile each harness wants them in its own directory, under
