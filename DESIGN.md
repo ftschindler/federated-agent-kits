@@ -63,18 +63,24 @@ one exists for a different part of "portable, federated, across harnesses".
 
 ## 2. What this does
 
-You have kits in several git repositories. Some are public, some are your employer's, some
-never leave your machine. You want subsets of them, in multiple harnesses, on multiple
-operating systems on different machines.
+You have kits in several git repositories, and more often you have loose parts. A repository
+holding one skill at its root. A gist-shaped repository somebody published once. A team
+repository with forty skills and no rules at all. None of it was authored as a kit, because
+nothing out there knows the word.
 
-So: you write down what you want, and run one command that puts the files where each harness
-looks.
+**A lone part is a kit with one part, and it takes no ceremony to become one.** Nothing is
+added to the repository, nothing is declared, and the author is never asked. Composition is
+what this tool reads, not what a source has to provide.
+
+You want subsets of all that, in multiple harnesses, on multiple operating systems on
+different machines. So: you write down what you want, and run one command that puts the files
+where each harness looks.
 
 Three things follow from that sentence.
 
-**A source is an ordinary repository.** It holds kits in conventional directories and knows
-nothing else. It does not know this tool exists, and it does not know which other sources you
-have.
+**A source is an ordinary repository.** It holds parts in conventional directories and knows
+nothing else. It does not know this tool exists, it does not know which other sources you
+have, and it need never have heard the word kit.
 
 **The manifest is the only thing that sees everything.** It lives on your machine. It is
 where anything needing knowledge of two sources at once has to happen. It can be tracked
@@ -168,9 +174,13 @@ equivalent of.
 
 ## 6. Sources
 
-A source is a git repository. Nothing is registered, nothing is declared, and a source never
-learns that you subscribed. This is what "federated" means here, and it costs one thing: a
-source cannot tell you anything about itself. Section 9 is where that hurts.
+A source is a git repository holding parts. Nothing is registered, nothing is declared, and a
+source never learns that you subscribed. This is what "federated" means here, and it costs one
+thing: a source cannot tell you anything about itself. Section 9 is where that hurts.
+
+**Almost every source in the world predates this idea**, which is the case the rules below are
+written for. A repository with one skill in it was never going to add a manifest for our
+benefit, and it does not have to.
 
 ### Naming one
 
@@ -181,7 +191,7 @@ Any of these is a source:
 | GitHub shorthand | `owner/repo` |
 | A forge URL: GitHub, GitLab, Azure Repos | `https://github.com/org/repo` |
 | Any git URL | `git@github.com:org/repo.git`, `ssh://git@git.example.com/org/repo` |
-| A URL into a subdirectory, selecting one kit | `https://github.com/org/repo/tree/main/skills/writing` |
+| A URL into a subdirectory, selecting one part | `https://github.com/org/repo/tree/main/skills/writing` |
 | A local path | `../my-kits` |
 
 Private repositories need nothing extra. Git's configured authentication is what gets used,
@@ -204,7 +214,8 @@ category deeper all resolve. A part found higher up shadows anything nested bene
 | Agent | `*.md` | the repository root, `agents/`, `.github/agents/`, `.claude/agents/`, `.opencode/agent/` |
 
 So a repository holding one skill at its root is a source, and so is one holding sixty in
-categories, and so is one that has never heard of any of this.
+categories, and so is one that has never heard of any of this. The first of those is also a
+kit, of one part, without anybody having decided so.
 
 **Why those, for skills:** this is what `npx skills add` already accepts, which makes it what
 repositories in the wild already look like. We follow the same rules and implement them
