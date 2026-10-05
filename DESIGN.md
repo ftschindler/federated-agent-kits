@@ -128,10 +128,26 @@ Write an adapter. An adapter answers six questions, and nothing else in the syst
 3. If it is the middle one, what is the pointer, and what writes it at setup?
 4. Where do agents go, and what are the frontmatter keys called?
 5. What are this harness's tools called?
-6. What counts as "this repository" here?
+6. Which directory does it treat as the project, and will it read what we put there?
 
 "This harness has no agents" is a valid answer to question 4. The adapter declines that kind
 and the command says so.
+
+**Question 6 is the one that silently renders into the wrong place.** We render a
+repository's kits next to its `.akit.yaml`, at the git root. A harness that anchors somewhere
+else never sees them, and nothing fails: the files exist, the agent just behaves as if they
+do not. Three ways it diverges, all real:
+
+- **A different anchor.** pi takes the nearest ancestor holding a `.pi` directory, which in a
+  monorepo is a package rather than the repository.
+- **A different idea of a project.** VS Code uses the open workspace, which can be several
+  folders at once, or one subfolder of a repository.
+- **A condition before reading.** pi ignores everything project-local until you have trusted
+  the folder, so correctly placed files stay unread.
+
+The first two the adapter resolves, by computing the harness's anchor rather than assuming
+the git root. The third it cannot, so it reports: `akit doctor` says the files are in place
+and this harness is not reading them yet.
 
 **An adapter is where a harness's changes land.** When one moves its directories or replaces
 its config key, the fix is that one file, not this design.
@@ -153,7 +169,8 @@ edited again.
 | Skills | `.opencode/skills/`, `.claude/skills/`, `.agents/skills/` | the same three under `~` |
 | Agents | `.opencode/agent/*.md` | `~/.config/opencode/agent/*.md` |
 
-Question 6 is cheap here: the worktree root, found by walking up.
+Question 6 is cheap here: opencode walks up to the git worktree root, which is where
+`.akit.yaml` already is.
 
 ### What VS Code looks like
 
@@ -170,6 +187,11 @@ There is a setting that would make it the second shape, and we are not using it.
 it deprecated and says only the Local agent honours it, so neither Agent Host nor the cloud
 agent would see anything we wrote there.
 
+Question 6 is the awkward one. VS Code anchors on the open workspace, which is usually the
+repository and sometimes one folder inside it, and sometimes several folders at once. An
+`applyTo` glob resolves against that workspace root too, so a rule written for `src/**` stops
+matching when somebody opens the subfolder instead.
+
 ### What pi looks like
 
 pi is about as cheap as an adapter gets.
@@ -185,11 +207,13 @@ is the third shape and gets marker blocks, the same as Claude Code.
 `~/.pi/agent/agents/*.md`, with `name`, `description`, `thinking`, `skills` and `tools`. An
 adapter can support that and must not assume it is installed.
 
-Two details from pi generalise. It deliberately does not require a skill's `name` to match
+**Question 6 has two answers here, and both are awkward.** The project anchor is the nearest
+ancestor holding a `.pi` directory, not the git root. And nothing project-local is read until
+the folder is trusted, which is the condition `akit doctor` has to report rather than fix.
+
+One more pi detail generalises. It deliberately does not require a skill's `name` to match
 its directory, saying the rule is awkward for shared skill directories, which means a kit
-renamed on subscription still loads there. And it refuses to read anything project-local
-until you have trusted the folder, which is an answer to question 6 that opencode has no
-equivalent of.
+renamed on subscription still loads there.
 
 ## 5. Sources
 
