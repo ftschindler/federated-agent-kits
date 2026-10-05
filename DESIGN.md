@@ -105,23 +105,32 @@ kits is that they cannot clone the repository.
    never a state anyone has to think about.
 3. **Whole things get installed, fragments get composed.** A skill and an agent arrive
    complete. Only rules are stitched together, and only where a harness cannot read a list.
-4. **A refusal is a refusal.** When policy says no, the command fails and names the fix. It
+4. **We write only files we own.** A render creates and overwrites files in directories this
+   tool manages. The one exception is a harness that reads a single fixed file, which is
+   shared with whatever the user wrote in it, and then we touch only our own marker blocks.
+5. **A refusal is a refusal.** When policy says no, the command fails and names the fix. It
    never writes half the files and warns.
-5. **Python, on Windows and Linux equally.**
-6. **A harness is a file, not a branch.** Adding one touches nothing else.
-7. **Nothing to configure after install.** No sibling tool assumed, no kit depending on
+6. **Python, on Windows and Linux equally.**
+7. **A harness is a file, not a branch.** Adding one touches nothing else, and where a harness
+   keeps things is its adapter's business rather than this document's.
+8. **Nothing to configure after install.** No sibling tool assumed, no kit depending on
    another kit.
-8. **This is a guardrail.** Every source stays just as safe when somebody ignores this tool
+9. **This is a guardrail.** Every source stays just as safe when somebody ignores this tool
    entirely.
 
-## 4. Where each harness keeps things
+## 4. Where each harness keeps things, today
+
+> **A snapshot, not a contract.** Every path below is where one harness happened to keep
+> things when this was written, and each will move. The authority is the adapter
+> ([§5](#5-adding-a-harness)); nothing else in this design may depend on a path from this
+> section.
 
 Harnesses differ in one way that matters more than all the others: whether they will read a
 **list** of locations, or insist on one fixed path.
 
 opencode reads a list. Its config takes an `instructions` key of files, globs and even https
-URLs, and combines all of them with whatever `AGENTS.md` files it found. So rules need no
-file written at all. We point it at the sources and stop.
+URLs, and combines all of them with whatever `AGENTS.md` files it found. So it is the second
+shape in [§8](#8-rendering): pointed once at a directory we own, and never edited again.
 
 | opencode | Repository | User-wide |
 | --- | --- | --- |
@@ -140,21 +149,26 @@ VS Code insists on fixed paths.
 There is a setting that would let VS Code read external directories, and we are not using it.
 `chat.instructionsFilesLocations` does take absolute and `~` paths. The documentation marks
 it deprecated and says only the Local agent honours it, so neither Agent Host nor the cloud
-agent would see anything we wrote there. Writing to fixed paths is what all three read.
+agent would see anything we wrote there. Writing to the fixed paths is what all three read.
 
 ## 5. Adding a harness
 
 Write an adapter. An adapter answers six questions and nothing else in the system changes.
 
 1. Where do skills go, for the whole machine and for one repository?
-2. Can rules be listed in a config file, or must a file be written?
-3. If a file: one per rule, or all of them in one?
+2. How does it pick up rules: a directory we own, a directory it can be pointed at once, or
+   one fixed file we have to share ([§8](#8-rendering))?
+3. If it is the middle one, what is the pointer, and what writes it at setup?
 4. Where do agents go, and what are the frontmatter keys called?
 5. What are this harness's tools called?
 6. What counts as "this repository" here?
 
 "This harness has no agents" is a valid answer to question 4. The adapter declines that kind
 and the command says so.
+
+**An adapter is also where a harness's changes land.** When one moves its directories or
+replaces its config key, the fix is that file and the snapshot in
+[§4](#4-where-each-harness-keeps-things-today), not the design.
 
 ### What pi looks like
 
@@ -163,9 +177,9 @@ pi is about as cheap as an adapter gets, which makes it a good first worked exam
 **Skills: nothing to write.** pi already reads `~/.agents/skills/` and `.agents/skills/`.
 Its `settings.json` also takes a list of skill directories, absolute or `~`-relative.
 
-**Rules: one concatenated file.** pi reads `~/.pi/agent/AGENTS.md` plus every `AGENTS.md`
-walking up from the working directory, and joins them. That is the same treatment Claude Code
-wants.
+**Rules: one fixed file, shared.** pi reads `~/.pi/agent/AGENTS.md` plus every `AGENTS.md`
+walking up from the working directory, and joins them. Nothing can be pointed anywhere, so it
+is the third shape and gets marker blocks, the same as Claude Code.
 
 **Agents: only via a package.** The third-party `pi-agents` package puts them in
 `~/.pi/agent/agents/*.md`, with `name`, `description`, `thinking`, `skills` and `tools`. An
@@ -331,10 +345,9 @@ committed, and the rendered copies of it are not.
 The workflow is clone, `akit render`, work. A colleague who has not installed the tool sees
 `.akit.yaml` and nothing else, which is the honest signal that a step is missing.
 
-**One class of render cannot be ignored**, and it is the one that writes into a file somebody
-else owns. A marker block inside a committed `AGENTS.md`, or a key added to a committed
-`opencode.json`, rides along with its host. There is no choice there: the host file is
-committed because somebody hand-wrote the rest of it.
+**One class of render cannot be ignored**: marker blocks in a file the harness insists on
+reading and the user hand-wrote the rest of. Those ride along with their host, which is
+committed for reasons that have nothing to do with us.
 
 That makes those files able to go stale, which nothing else here can. So `akit render
 --check` exits non-zero when a render is out of date, as a pre-commit hook and in CI. It is
@@ -383,14 +396,30 @@ something you run after changing the manifest.
 Skills are copied into the harness directory unchanged. Several locations across four
 harnesses already agree on `skills/<name>/SKILL.md`, so there is nothing to translate.
 
-Rules land three different ways.
+### Rules, and the three ways a harness can take them
 
-- **opencode** gets no file. The source directories go into its `instructions` globs.
-- **VS Code** gets one `.instructions.md` per rule, in `.github/instructions/`. One file each
-  means dropping a rule does not touch its neighbours.
-- **Claude Code and pi** get one concatenated `AGENTS.md`. Each rule sits between
-  `BEGIN <id>` and `END <id>` markers, so anything you wrote by hand between two blocks
-  survives the next render.
+Harnesses differ here more than anywhere else, and they will keep changing. So the design
+names the three shapes a harness can have, and leaves which shape each one is to its adapter.
+
+| Shape | What we render | What setup costs |
+| --- | --- | --- |
+| It reads a directory we can own | one file per rule, into that directory | nothing |
+| It reads a directory, once pointed at one | one file per rule, into a directory we own | one line in its config, written once |
+| It reads one fixed file, shared with the user | marker blocks inside that file | nothing |
+
+**Prefer the first shape, accept the second, and treat the third as the fallback.** One file
+per rule means removing a rule does not touch its neighbours, and a directory we own means a
+render is never a merge.
+
+The second shape exists because a harness that can be pointed somewhere lets our files stay
+out of a file the user already owns. **That pointer is setup, not rendering.** It is written
+once, by `akit` or by hand, and never rewritten, so no render has to preserve somebody's
+comments or key order.
+
+The third shape is the one that costs. A harness that reads exactly one file means sharing it
+with whatever the user wrote there, so each rule sits between `BEGIN <id>` and `END <id>`
+markers and everything between blocks survives. It is also the only render that can end up
+committed, which is why [§9](#9-keeping-the-employers-kits-in) is mostly about it.
 
 Rules are the only kind with an order. Two rules can contradict each other and something has
 to win. The order they appear in the manifest decides it, and we are not looking for a
@@ -429,9 +458,10 @@ pushed anywhere.
 
 Two things are committed, and they are the whole risk.
 
-**A marker block inside a file somebody else owns.** A rule rendered into a committed
-`AGENTS.md`, or a key added to a committed `opencode.json`. This is the one that bites: the
-employer's prose is now in a public repository, and the diff looks like every other diff.
+**A marker block inside a file somebody else owns.** This is the third shape in
+[§8](#8-rendering): a harness that reads exactly one fixed file, which is committed because
+the user wrote the rest of it. The employer's prose is now in a public repository, and the
+diff looks like every other diff.
 
 **The project manifest.** `.akit.yaml` names its sources, and
 `git@git.acme.example:team/unreleased-thing-kits.git` is information even to somebody who

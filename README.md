@@ -27,8 +27,8 @@ published cannot be rendered into a public repository.
 **Take other people's kits without copying them by hand.** A subscription names a source and
 an item. An update arrives as a diff you read, not as something that changed under you.
 
-**Stop writing the same instructions into four files.** One rule renders to `AGENTS.md`, to
-`.github/instructions/`, and to an `instructions` glob in `opencode.json`.
+**Stop writing the same instructions into four files.** One rule, written once, reaches every
+harness you use, in whichever shape each of them wants it.
 
 Use something else if you want a registry, a marketplace, or a runtime. This writes files and
 gets out of the way.

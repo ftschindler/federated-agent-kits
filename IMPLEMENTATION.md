@@ -43,7 +43,7 @@ A fresh session needs four things, two of which are not in this repository.
 | --- | --- | --- |
 | The design | [DESIGN.md](DESIGN.md) | Every schema, path and refusal is specified there |
 | The `skills` CLI discovery rules | its npm README, section "Skill Discovery" | [§6](DESIGN.md#6-sources) follows them and does not restate the full list of directories |
-| Harness documentation | opencode, VS Code, pi | [§4](DESIGN.md#4-where-each-harness-keeps-things) is a summary, not a substitute |
+| Harness documentation | opencode, VS Code, pi | [§4](DESIGN.md#4-where-each-harness-keeps-things-today) is a summary, not a substitute |
 | The guard suite | this repository | `make bootstrap`, then `make check` |
 
 Two constraints bind every task and are easy to breach without noticing. **Python only**, and
@@ -124,7 +124,7 @@ real rules living in a source.
 
 **Specified by DESIGN.md.** The three shapes and the ordering rule
 ([§8](DESIGN.md#8-rendering)), what each harness reads
-([§4](DESIGN.md#4-where-each-harness-keeps-things)).
+([§4](DESIGN.md#4-where-each-harness-keeps-things-today)).
 
 **Steps.**
 
