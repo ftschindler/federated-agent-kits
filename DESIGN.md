@@ -321,15 +321,15 @@ of them is a normal number, so the file is shaped to stay readable at that size.
 version: 1
 
 skills:
-  owner/repo#v2: [writing, caveman]
-  acme/kits:     ["*"]
+  owner/repo#9f2c1ab: [writing, caveman]   # frozen: v2
+  acme/kits#4d7e08b: ["*"]                 # frozen: main, 2026-10-05
 
-rules:                 # order matters here, and nowhere else
-- owner/repo#v1: prose-style
-- acme/kits: security-review
+rules:                                     # order matters here, and nowhere else
+- owner/repo#1c04f7e: prose-style          # frozen: v1
+- acme/kits#4d7e08b: security-review       # frozen: main, 2026-10-05
 
 agents:
-  acme/kits#2026.3: [reviewer, release-manager]
+  acme/kits#4d7e08b: [reviewer]            # frozen: main, 2026-10-05
 ```
 
 **Kind is the top level, because kind decides everything downstream.** It picks the renderer,
@@ -340,10 +340,18 @@ which kind it is, and the three blocks can be read one at a time.
 shorthand above, a full forge URL, a git URL, or a local path. There is no table of
 nicknames to look up, and nothing that can go out of sync with one.
 
-**`#ref` pins, and it pins per line.** `owner/repo#v2` and `owner/repo#v1` are two different
-sources as far as the file is concerned, so the skills block can sit on a tag the rules block
-has not moved to yet. A key with no `#` tracks the default branch. The separator is `#` and
-not `@`, because `git@github.com:org/repo.git` already has one of those.
+**The key carries a commit, and the comment says what it was.** This is `.pre-commit-config`'s
+habit, taken wholesale: the data is a hash, the human-readable name of it is a comment, and
+`akit` writes both. The separator is `#` and not `@`, because `git@github.com:org/repo.git`
+already has one of those.
+
+A commit is immutable, so a pin cannot move under you, and nothing has to be recorded
+elsewhere to make that true. Two blocks naming two commits of one repository are two
+subscriptions, which is how the skills block sits on an older commit than the rules block.
+
+You never type the hash. `akit add` resolves a tag or branch you name and writes the hash
+with the comment; `akit update` moves both. The comment is for a reader and nothing parses
+it, which is the only safe thing to do with a comment.
 
 **Skills and agents are mappings, rules are a list.** That asymmetry is the point. Two skills
 cannot disagree, so their order is noise. Two rules can, so the order you read down the page
@@ -358,7 +366,7 @@ Most do not. One that does becomes a mapping instead of a string:
 
 ```yaml
 skills:
-  owner/repo#v2:
+  owner/repo#9f2c1ab:    # frozen: v2
   - writing
   - name: kb
     as: upstream-kb      # this name is taken
@@ -422,8 +430,8 @@ than for people.
 
 ### What a repository commits
 
-**The manifest, its lockfile, and the renders for harnesses that have no machine.**
-Everything else `akit render` writes is generated and ignored.
+**The manifest, and the renders for harnesses that have no machine.** Everything else
+`akit render` writes is generated and ignored.
 
 The ordinary case is ignore. A harness runs on your laptop, where `akit` also runs, so the
 files it reads can be produced on demand:
@@ -434,8 +442,7 @@ files it reads can be produced on demand:
 ```
 
 The workflow is clone, `akit render`, work. A colleague who has not installed the tool sees
-`.akit.yaml` and `.akit.lock` and nothing else, which is the honest signal that a step is
-missing.
+`.akit.yaml` and nothing else, which is the honest signal that a step is missing.
 
 **Two kinds of render have to be committed anyway.**
 
@@ -499,36 +506,27 @@ So editing a kit you author means running `akit render` afterwards. That makes r
 real requirement rather than a nicety: it is the inner loop of writing a kit, not just
 something you run after changing the manifest.
 
-### What was pinned, and what was written
+### What a render leaves behind
 
-Two facts have to survive between commands, and they are not the same kind of fact, so they
-live in two files.
+The manifest already says which commit every subscription is on, so nothing has to be
+recorded to make a setup reproducible. What does need recording is what this particular
+machine wrote, and that is nobody else's business.
 
-**Which commit a ref resolved to is shareable, so it is committed.** `owner/repo#v2` is a
-name that can be re-pointed. The commit it meant when you added it is what everybody should
-get, so a repository carries `.akit.lock` beside its `.akit.yaml`, listing one commit per
-source the manifest names. A colleague clones, renders, and has your commits rather than
-whatever the tag means today.
+**The render record** lives in the state directory, beside the `akit link` overrides, and is
+never committed. It names every file a render produced, the subscription that explains it,
+and a hash of the copy.
 
-This is `uv.lock`'s job, and the comparison is exact: a human-written file of loose
-requirements, a generated file of exact answers, both committed, the second never hand-edited.
-Your own manifest gets the same file beside it in the config directory, where it is nobody
-else's business.
+It is what lets `akit doctor` say anything. A hash that no longer matches is a rendered file
+somebody edited by mistake. A file in the record that no subscription explains any more is an
+orphan to delete. It also records how each source was classified when it was fetched
+([§8](#8-keeping-the-employers-kits-in)), because needing credentials to clone is only
+observable while cloning.
 
-**What was written where is true of one machine, so it is not committed.** It names every
-file a render produced, the subscription that explains it, and a hash of the copy. It lives
-in the state directory with the `akit link` overrides, because the set of harnesses on this
-laptop is not a fact about the repository.
+It is a cache of facts about this disk, so deleting it costs one `akit render` and nothing
+else.
 
-That file is what makes `akit doctor` able to say anything: a hash that no longer matches is
-a rendered file somebody edited by mistake, and a file in the record that nothing explains
-any more is an orphan to delete. It also records how each source was classified when it was
-fetched ([§8](#8-keeping-the-employers-kits-in)), because needing credentials to clone is
-only observable while cloning.
-
-**`render` never moves a pin.** Only `add` and `update` write to `.akit.lock`, which is what
-makes rendering safe to run from a hook: it can change files on disk, never what a kit
-contains.
+**`render` never moves a pin.** Only `add` and `update` edit a manifest, which is what makes
+rendering safe to run from a hook: it can change files on disk, never what a kit contains.
 
 ## 7. Rendering
 
@@ -704,18 +702,18 @@ produces exactly what it produced yesterday.
 Offline, `add` therefore works for a source you already have and fails cleanly for one you do
 not, saying which it was.
 
-Four files are involved throughout, all described in [§6](#6-the-manifest). The
-**manifests** say what you want. The **lockfile** beside each one says which commit every ref
-resolved to. The **cache** holds a clone of each remote source. The **render record**, in the
-state directory, says what was written where, with a hash per copy.
+Three files are involved throughout, all described in [§6](#6-the-manifest). The
+**manifests** say what you want, each subscription naming the commit it is pinned to. The
+**cache** holds a clone of each remote source. The **render record**, in the state directory,
+says what this machine wrote where, with a hash per copy.
 
 ### `list`
 
-**Shows what is subscribed and what state it is in.** Reads the manifests, their lockfiles,
-the render record and the disk; writes nothing and fetches nothing.
+**Shows what is subscribed and what state it is in.** Reads the manifests, the render record
+and the disk; writes nothing and fetches nothing.
 
-Per subscription it prints the source, the commit its lockfile pinned, the parts found in
-it, and where each part was rendered. A subscription that was never rendered says so, and so
+Per subscription it prints the source, the commit it is pinned to, the parts found there,
+and where each part was rendered. A subscription that was never rendered says so, and so
 does one whose source is missing from the cache.
 
 Failures are reported per line rather than stopping the command, because this is what you run
@@ -729,12 +727,13 @@ a manifest, so its format is something you never have to hold in your head.
 A call does four things, in order:
 
 1. **Resolves the source.** A remote the cache does not hold is cloned now, which is the one
-   place `add` needs a network. A `#ref` is resolved to a commit.
+   place `add` needs a network. A tag or branch you named is resolved to a commit now.
 2. **Checks the kit is really there**, by the walk in [§5](#5-sources). A typo fails here,
    with a list of what the source does hold, rather than becoming a skill that silently never
    loads.
 3. **Writes one line** into the repository's manifest, or into yours with `--global`
-   ([§6](#6-the-manifest)).
+   ([§6](#6-the-manifest)). The line carries the commit; the comment after it carries the tag
+   or branch you asked for.
 4. **Renders**, so the kit is usable when the command returns.
 
 It fails before step 3 if the subscription would break a rule: a name already taken by
@@ -789,9 +788,13 @@ only ones that can go stale while looking fine.
 **Fetches new commits for sources already here, moves the pins, and shows what moved.** The
 only command that changes what a kit contains.
 
-For each source, or just the named one, it fetches, resolves the `#ref` again, and compares
-the new commit with the pinned one. It writes the new pin to the lockfile, prints the diff
-of every part you subscribe to, then renders.
+For each source, or just the named one, it fetches, works out the newest commit of whatever
+the comment says the pin follows, and compares it with the pinned one. It rewrites the key
+and the comment, prints the diff of every part you subscribe to, then renders.
+
+Rewriting a key means rewriting YAML somebody hand-wrote, so the writer preserves comments and
+layout. That is the one place this tool edits a file a person owns, and the reason the pin
+lives in a comment rather than in a second file.
 
 The diff is the point rather than a courtesy. A rule you have never read is text added to
 every prompt your agents see, so an update to one is a change to how they behave.
@@ -806,8 +809,7 @@ What it looks for:
 - two kits rendering to one name;
 - a rendered file no subscription explains;
 - a rendered file edited by hand, caught by its hash in the render record;
-- a lockfile that pins a source the manifest beside it no longer names;
-- a source that no longer resolves, or a `#ref` that no longer exists;
+- a source that no longer resolves, or a commit that is no longer in it;
 - a committed render that is out of date, which is `render --check` by another name;
 - an agent naming a skill or an MCP server you have not subscribed to
   ([§1](#1-what-this-is));
@@ -869,11 +871,6 @@ any of them wants it.
 anything unknown. Whether that table is per harness or per agent is open. Not worth deciding
 until three agents genuinely want to live in two places.
 
-**What does a pin mean when a source moves a tag?** `#v2` resolves to a commit, which the
-lockfile pins. If upstream re-points `v2` somewhere else, the next `akit update` sees a
-different commit under the same name. Whether that is reported differently from an ordinary
-update is open.
-
 **Does the CLI ship inside the skill?** `fkb` puts it there, as `scripts/fkb`, so installing
 the skill installs the tool and there is no second step. The alternative is a package on PyPI
 and a skill that assumes it. The first is one artefact and no install; the second updates
@@ -896,6 +893,11 @@ path to your private knowledge bundle. Different question, different file.
 
 **A privacy field in each part** can disagree with the repository it is sitting in. The
 repository already answers it. One place or none.
+
+**A committed lockfile**, holding the commit each subscription resolved to. That is what the
+manifest's own keys carry instead, so the second file would restate the first and be able to
+disagree with it. The cost is a YAML writer that preserves comments, which `.pre-commit-config`
+has needed for years and which is a solved problem.
 
 **Symlinked renders**, so that editing a source you author skips the render. One saved
 command, against a feature that needs developer mode on Windows and a second code path

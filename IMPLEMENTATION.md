@@ -68,10 +68,10 @@ kit discovery walk, and a CI matrix on `ubuntu-latest` and `windows-latest`.
   `.akit.yaml` beside the worktree root found by walking up, project adding to user and
   winning on a clash.
 - Resolve a source key: shorthand, forge URL, git URL, subdirectory URL, local path, with an
-  optional `#ref`. Clone into the platform cache when nothing says otherwise.
+  commit after `#`. Clone into the platform cache when nothing says otherwise.
 - Implement `akit link <source> <path>`, its `--remove`, and the machine-state file it writes
-  to. Keep that file separate from the lockfile from the start; they answer different
-  questions and one of them is shared.
+  to. Keep that file separate from the render record from the start; they answer different
+  questions.
 - Walk the directories from [§5](DESIGN.md#5-sources), three levels, shallower shadowing
   deeper, for all three kinds.
 - Report: each subscription, which source and ref it resolved to, which kit file, and whether
@@ -91,7 +91,8 @@ right without a file-writing bug on top of it.
 
 **Goal.** Replace the manual copy. Skills first because they need no translation.
 
-**Deliverable.** `akit render` for skills, `akit update`, `akit doctor`, and the lockfile.
+**Deliverable.** `akit render` for skills, `akit update`, `akit doctor`, and the render
+record.
 
 **Specified by DESIGN.md.** Rendering always copies ([§6](DESIGN.md#6-the-manifest)), what
 rendering a skill means ([§7](DESIGN.md#7-rendering)), no symlink is ever created
@@ -101,14 +102,15 @@ rendering a skill means ([§7](DESIGN.md#7-rendering)), no symlink is ever creat
 
 - Render into the harness directories for opencode and VS Code, plus `~/.agents/skills/`,
   which several harnesses read directly.
-- Record in the lockfile what was written, from which source at which commit, with the hash
-  of the copy.
+- Record what was written, from which source at which commit, with the hash of the copy.
+- Write the comment-preserving YAML editor `update` needs to move a pin in place. It is the
+  only code that edits a file a person owns.
 - Make the second render a no-op. Prove it with a test that renders twice and compares the
   tree, not by inspection.
 - `akit update` re-pins a copied kit and shows the diff.
 - `akit doctor` reports collisions, a rendered file that no subscription explains, and a
   source that will not resolve.
-- Handle `as` end to end: a renamed kit lands under the new name and the lockfile knows both.
+- Handle `as` end to end: a renamed kit lands under the new name and the record knows both.
 
 **Done when.** A skill subscribed from a public source loads in a real opencode session on
 both operating systems, and deleting the rendered tree then re-running `akit render` restores
@@ -231,7 +233,7 @@ Refusals are hard ([§3](DESIGN.md#3-rules-of-the-build)).
 **Steps.**
 
 - Classify a source at fetch time: it needed credentials, it cloned anonymously, or it is a
-  local path. Record which in the lockfile, because the answer is only available while
+  local path. Record which in the render record, because the answer is only available while
   fetching.
 - Classify a target from its git remotes. No remote means private, an anonymously resolvable
   remote means public, anything unreachable is refused rather than guessed at.
@@ -286,7 +288,6 @@ construction: no completion date, and its first output is evidence rather than c
 - Keep the journal running. The incidents that matter here are a render that surprised
   somebody, a kit that was edited in its rendered copy by mistake, a collision the rename did
   not solve, a source whose layout moved.
-- Settle what a moved tag should report ([§12](DESIGN.md#12-still-open)), when one moves.
 - Add a harness when somebody wants one, not before. Each addition is also a test of
   [T4](#t4---add-a-third-harness)'s claim, and the first one that needs a change outside its
   own file is worth writing down.

@@ -53,7 +53,7 @@ it and runs one command.
 **Windows and Linux are equal.** Both are tested in CI, and neither is the afterthought.
 
 **Python only.** Scripts carry their dependencies inline and run under `uv`, so there is
-nothing to install and no lockfile to go stale.
+nothing to install and no dependency lockfile to go stale.
 
 **A new harness is one file.** opencode and VS Code come first. An adapter answers six
 questions about where that harness keeps things, and nothing else in the system changes.
