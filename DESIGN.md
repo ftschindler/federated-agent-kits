@@ -607,17 +607,28 @@ The manifest already says which commit every subscription is on, so nothing has 
 recorded to make a setup reproducible. What does need recording is what this particular
 machine wrote, and that is nobody else's business.
 
-**The render record** lives in the state directory and is never committed. It names every file a render produced, the subscription that explains it,
-and a hash of the copy.
+**The render record** lives in the state directory and is never committed. It names every
+file a render produced, the subscription that explains it, and a hash of the copy.
 
-It is what lets `akit doctor` say anything. A hash that no longer matches is a rendered file
-somebody edited by mistake. A file in the record that no subscription explains any more is an
-orphan to delete. It also records how each source was classified when it was fetched
+**It is also the list of files this tool may delete, and the list is exhaustive.** A file not
+in the record was not written by us, so no command touches it, whatever directory it is
+sitting in and whatever it is called. Somebody's hand-written skill in `.claude/skills/` is
+not our business, and the record is what makes that a fact rather than a promise.
+
+Within the record the hash decides. One that still matches is a copy, and deleting a copy
+destroys nothing. One that no longer matches is a rendered file somebody edited, which is the
+only file in a rendered directory that contains anything, so it is reported and left where it
+is ([§10](#10-commands)).
+
+It also records how each source was classified when it was fetched
 ([§8](#8-keeping-the-employers-kits-in)), because needing credentials to clone is only
 observable while cloning.
 
 It is a cache of facts about this disk, so deleting it costs one `akit render` and nothing
-else.
+else. One thing does not come back: a file rendered before the record was deleted is now
+unknown rather than unexplained, so nothing will clean it up on its own. `akit doctor`
+reports what looks like an orphan and `akit render --prune` acts on it, which is the only
+place this tool deletes a file it cannot prove it wrote.
 
 **`render` never moves a pin.** Only `add` and `update` edit a manifest, which is what makes
 rendering safe to run from a hook: it can change files on disk, never what a kit contains.
@@ -889,6 +900,12 @@ subscription goes.
 **Drops a subscription and deletes what it rendered.** The other half of `add`, and the same
 flags decide which manifest is edited.
 
+Deletion follows the same rule as a render's withdrawal, for the same reason: the render
+record is the candidate list, a copy goes, and a rendered file somebody has since edited is
+named rather than destroyed. `remove` is the more deliberate command of the two, but being
+deliberate about dropping a subscription is not the same as being deliberate about throwing
+away the one file in that directory with something of yours in it.
+
 Naming a kit is enough. Where two manifests subscribe to one name, it refuses and asks which,
 because guessing would silently change what a repository gives everybody else.
 
@@ -902,9 +919,39 @@ cannot be mistaken for a working setup.
 **Makes the files on disk match the manifests. The only command that writes kit files.**
 
 A call walks every subscription, and for each one copies its parts into every harness in
-scope, translating where the harness needs it ([§7](#7-rendering)). It then deletes rendered
-files that no subscription explains any more, rewrites the ignore block in the repository's
-`.gitignore` ([§6](#6-the-manifest)), and rewrites the render record.
+scope, translating where the harness needs it ([§7](#7-rendering)). It then withdraws what no
+subscription explains any more, rewrites the ignore block in the repository's `.gitignore`
+([§6](#6-the-manifest)), and rewrites the render record.
+
+**Withdrawal deletes copies, and only copies.** A kit you unsubscribed from, or renamed with
+`as:`, leaves files behind, and leaving them there is not the safe option: a withdrawn rule
+is text that keeps going into every prompt on every turn, and a kit that may no longer be
+rendered into a public repository would keep sitting in one
+([§8](#8-keeping-the-employers-kits-in)). Both failures are silent, which is why this is not
+something to postpone until somebody runs `doctor`.
+
+What makes it safe is that the render record is the whole candidate list
+([§6](#6-the-manifest)), so there are three outcomes and not two:
+
+| The file | What render does |
+| --- | --- |
+| In the record, hash matches, nothing explains it | deletes it, and says so |
+| In the record, hash differs | leaves it, names it, and points at `doctor` |
+| Not in the record | nothing, ever |
+
+The middle row is the one worth arguing about. A rendered file whose hash has drifted is the
+only file in a rendered directory that contains something somebody wrote, and a render is a
+routine command that may run from a git hook. Routine commands do not destroy the one
+irreplaceable thing in the directory, even when it is there by mistake.
+
+The third row is what protects anything hand-made. We never ask whether a file looks like one
+of ours, because a skill you wrote by hand and a skill we copied look identical. We ask
+whether we wrote it, and the record answers.
+
+`--prune` is the opt-in that handles what withdrawal cannot: files rendered before the record
+was lost, which are now unknown rather than unexplained. It deletes what `doctor` reports as
+a plausible orphan, and it exists as a flag rather than a default because it is the one
+deletion this tool cannot prove is safe.
 
 **Which harnesses are in scope is one list, expanded then narrowed.**
 
@@ -980,8 +1027,11 @@ nothing, and talks to no network.
 What it looks for:
 
 - two kits rendering to one name;
-- a rendered file no subscription explains;
-- a rendered file edited by hand, caught by its hash in the render record;
+- a rendered file no subscription explains, where the next `render` will withdraw it;
+- a rendered file edited by hand, caught by its hash in the render record, which is also the
+  file `render` and `remove` refuse to delete until you say what you meant by it;
+- a file that looks like a render nothing knows about, which is what a lost render record
+  leaves behind, and what `render --prune` is for;
 - a source that no longer resolves, or a commit that is no longer in it;
 - a committed manifest naming a path that leaves the repository, which is somebody's laptop
   written into a shared file;
