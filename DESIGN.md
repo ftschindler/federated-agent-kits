@@ -470,27 +470,36 @@ code path as `render`, writing nothing.
 
 ### Where a source actually is
 
-A key names a source. It does not say where that source is on this disk, and an **absolute**
-path in a committed file is always wrong: your colleague keeps it elsewhere, and on Windows
-it is not even that shape of path.
+A key names a source. **It does not say where that source is on this disk**, and the two
+questions stay apart: `add` writes what you want, resolution works out where that is.
+Cloning is not a step of any command; it is what resolution does when it meets a remote
+source the cache does not hold.
 
-So anything found by cloning is cloned, into the platform cache directory, and that is the
-whole story for a colleague who just wants it to work.
+So anything remote is cloned, into the platform cache directory, and that is the whole story
+for a colleague who just wants it to work.
 
-**A relative path is a different thing, and it belongs in a committed file.** It resolves
-against the repository root, so it means the same on every machine. The case it is for is a
-repository that ships kits alongside its own code: a `skills/` directory holding what an
-agent needs in order to work on *this* project. The source key is `.`, the parts are found by
-the usual walk, and nothing is cloned or cached because the working tree is already there.
+**A path as a key is a source that is already here.** Nothing is cloned, nothing is cached,
+and rendering reads your working tree. There is no commit to pin, so such a subscription
+carries no `#`, `update` skips it, and `list` says it is local. That is the right trade for a
+source you are writing: the point is that an edit is visible to the next render.
 
-An absolute path as a key is the exception, and only ever in your own file. Use it for a
-source you are writing rather than consuming.
+A relative path resolves against the repository root, so it means the same on every machine
+and belongs in a committed file. The case it is for is a repository that ships kits alongside
+its own code: `.` as the key, a `skills/` directory holding what an agent needs in order to
+work on *this* project.
 
-When you need both at once, which is a project subscribing to `owner/repo` that you also
-happen to be the author of, `akit link owner/repo ../my-kits` points this machine at your
-checkout. It redirects where a source is read from, and has nothing to do with symlinks. That
-goes in machine state beside the render record, never in either manifest, because it is true
-of one laptop and nothing else.
+An absolute path only ever makes sense in your own manifest, since nobody else's disk looks
+like yours.
+
+**`link` is for a key you are not free to change.** A committed manifest has to name
+`owner/repo`, because your colleague has no checkout of it. If you happen to be its author
+and want yours used, editing the key would break everybody else, so
+`akit link owner/repo ../my-kits` redirects it for this machine only. It goes in machine state
+beside the render record, never in a manifest.
+
+That is the whole of the difference. In a personal manifest you would write the path as the
+key and never need `link`; it exists because a shared manifest and one developer's disk
+disagree, and only one of them is committed.
 
 ### Always copied
 
@@ -727,7 +736,8 @@ a manifest, so its format is something you never have to hold in your head.
 A call does four things, in order:
 
 1. **Resolves the source.** A remote the cache does not hold is cloned now, which is the one
-   place `add` needs a network. A tag or branch you named is resolved to a commit now.
+   place `add` needs a network, and a tag or branch you named is resolved to a commit. A path
+   is simply read where it is, with no clone and no commit.
 2. **Checks the kit is really there**, by the walk in [§5](#5-sources). A typo fails here,
    with a list of what the source does hold, rather than becoming a skill that silently never
    loads.
