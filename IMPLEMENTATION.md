@@ -162,7 +162,10 @@ cheap to fix if it is not.
 
 - Answer the six questions for pi in code. Skills need no file written, rules take the
   concatenation, agents exist only behind a third-party package and the adapter declines them
-  for now.
+  for now. Its project anchor is the nearest `.pi`, not the git root, and its trust prompt is
+  the condition `akit doctor` reports rather than resolves.
+- Declare pi as a harness with a machine, which forces the property to exist in the adapter
+  interface before a machineless one needs it.
 - Declining a kind is a first-class answer, so make sure it is: `akit list` says which kinds
   each harness takes, and nothing crashes on the one it does not.
 - Count what the adapter touched. Anything outside its own file is a design bug, and fixing
@@ -230,7 +233,8 @@ Refusals are hard ([§3](DESIGN.md#3-rules-of-the-build)).
   fetching.
 - Classify a target from its git remotes. No remote means private, an anonymously resolvable
   remote means public, anything unreachable is refused rather than guessed at.
-- Refuse a private source's parts rendering into a public target. Refuse a private source
+- Refuse a private source's parts rendering into a public target, per harness rather than per
+  repository: only a harness whose renders are committed can leak. Refuse a private source
   being named in a public target's committed manifest, which is the half that is easy to
   forget because no render is involved.
 - Implement the override, in the user manifest only. Writing it into a project manifest is

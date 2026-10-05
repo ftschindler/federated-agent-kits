@@ -149,6 +149,15 @@ The first two the adapter resolves, by computing the harness's anchor rather tha
 the git root. The third it cannot, so it reports: `akit doctor` says the files are in place
 and this harness is not reading them yet.
 
+**One property, not a question: some harnesses have no machine.** GitHub Copilot running in
+CI is a harness by every test above. It reads instruction files, it has custom agents, it
+answers all six questions. What it does not have is somewhere for `akit render` to run: it
+clones the repository and reads what is in the clone.
+
+So an adapter declares which it is. A harness with a machine gets files rendered on demand
+and ignored by git. A harness without one gets its files committed, because for it the
+repository is the delivery mechanism ([§6](#6-the-manifest)).
+
 **An adapter is where a harness's changes land.** When one moves its directories or replaces
 its config key, the fix is that one file, not this design.
 
@@ -354,28 +363,42 @@ is how a repository pins something different without you unsubscribing.
 
 ### What a repository commits
 
-**The manifest, never the renders.** `.akit.yaml` is the source of truth; everything
-`akit render` writes into the repository is generated, and generated files are ignored.
+**The manifest, and the renders for harnesses that have no machine.** Everything else
+`akit render` writes is generated and ignored.
+
+The ordinary case is ignore. A harness runs on your laptop, where `akit` also runs, so the
+files it reads can be produced on demand:
 
 ```gitignore
-.github/instructions/
 .claude/skills/
 .agents/skills/
 ```
 
-A repository that is its own source keeps the opposite habit: `skills/` is hand-written and
-committed, and the rendered copies of it are not.
-
 The workflow is clone, `akit render`, work. A colleague who has not installed the tool sees
 `.akit.yaml` and nothing else, which is the honest signal that a step is missing.
 
-**One class of render cannot be ignored**: marker blocks in a file the harness insists on
-reading and the user hand-wrote the rest of. Those ride along with their host, which is
-committed for reasons that have nothing to do with us.
+**Two kinds of render have to be committed anyway.**
 
-That makes those files able to go stale, which nothing else here can. So `akit render
---check` exits non-zero when a render is out of date, as a pre-commit hook and in CI. It is
-the same code path as `render`, writing nothing.
+The first is marker blocks in a file the harness insists on reading and the user hand-wrote
+the rest of. Those ride along with their host, which is committed for reasons that have
+nothing to do with us.
+
+The second is everything read by a harness with no machine, which is the case
+[§4](#4-adding-a-harness) describes: GitHub Copilot in CI clones the repository and reads
+what is there. Nobody runs `akit render` in that clone, so a file it is supposed to read and
+that is not committed does not exist. `.github/instructions/` moves out of the ignore list
+the moment such a harness is in use.
+
+That overlap is convenient rather than awkward. `.github/instructions/` is also where VS Code
+looks locally, so one committed directory serves both, and local VS Code stops needing a
+render at all.
+
+A repository that is its own source keeps the opposite habit for its inputs: `skills/` is
+hand-written and committed, and the rendered copies of it follow the rules above.
+
+**Anything committed can go stale**, which nothing ignored can. So `akit render --check`
+exits non-zero when a render is out of date, as a pre-commit hook and in CI. It is the same
+code path as `render`, writing nothing.
 
 ### Where a source actually is
 
@@ -476,16 +499,21 @@ reason.
 
 ### What can actually leak
 
-Almost nothing, because [§6](#6-the-manifest) says a repository commits no renders. A skill
-copied into `.claude/skills/`, an agent file, a VS Code `.instructions.md`: all ignored, none
-pushed anywhere.
+Whatever the repository commits, and [§6](#6-the-manifest) keeps that list short. A skill
+copied into `.claude/skills/`, an agent file, anything a harness on your laptop reads: all
+ignored, none pushed anywhere.
 
-Two things are committed, and they are the whole risk.
+Three things are committed, and they are the whole risk.
 
 **A marker block inside a file somebody else owns.** This is the third shape in
 [§7](#7-rendering): a harness that reads exactly one fixed file, which is committed because
 the user wrote the rest of it. The employer's prose is now in a public repository, and the
 diff looks like every other diff.
+
+**Everything a machineless harness reads.** Turning on GitHub Copilot in CI moves a whole
+directory of rendered rules into the repository, by design. It is the largest surface here
+and the easiest to forget, because committing those files is the correct behaviour rather
+than a mistake.
 
 **The project manifest.** `.akit.yaml` names its sources, and
 `git@git.acme.example:team/unreleased-thing-kits.git` is information even to somebody who
@@ -516,6 +544,11 @@ refused rather than guessed at.
 **A private source's parts do not render into a public target, and a private source is not
 named in a public target's committed manifest.** Both halves fail hard, with a message naming
 the source, the target and the override.
+
+The check is per harness, not per repository, because a repository may render to five
+harnesses and commit the output of only one. Rendering a private kit for a laptop harness in
+a public repository is fine: nothing is committed. Rendering the same kit for a machineless
+harness in that repository is the leak.
 
 The override lives in your own manifest, never in the project one, because an override
 committed into the public repository is the leak it was guarding against.
