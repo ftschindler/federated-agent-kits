@@ -1,0 +1,21 @@
+DESIGN.md
+  s_38f72cf9a2e333::t_a79ad36a7fcf97 172-173,210-214,216
+  s_38f72cf9a2e333::t_e8b9ec2711378b 131,136-150
+  s_38f72cf9a2e333::t_cb1a9c0d87b844 190-194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "9072adbf8ad7d13b96c02c5cb1fe2228c18b910b",
+  "prompts": {},
+  "sessions": {
+    "s_38f72cf9a2e333": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_f08445b7fffeiUUrUlc8N2TEtd",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Felix Schindler <107669806+ftschindler@users.noreply.github.com>"
+    }
+  }
+}
