@@ -1,0 +1,35 @@
+README.md
+  s_18efe2117ea9e1::t_fe9094a16a9de7 58-60
+DESIGN.md
+  s_18efe2117ea9e1::t_d7c88646d7b422 840-847
+  s_18efe2117ea9e1::t_90788b29e5f04a 914-916,919
+  s_18efe2117ea9e1::t_23fc64c721250e 866-868
+  s_18efe2117ea9e1::t_5b18c6f77a9edf 398-403,405-406,437-441
+  s_18efe2117ea9e1::t_450e063f6bee30 404,407-436
+  s_18efe2117ea9e1::t_afe94908e30de6 123
+  s_18efe2117ea9e1::t_bb7be9386eca75 735-738
+  s_18efe2117ea9e1::t_594e893aff1912 165-167,169-173
+  s_18efe2117ea9e1::t_fc204b737138cc 865,869,871,877,880,884-889
+  s_18efe2117ea9e1::t_214c84324cbfba 870,872-876,878-879,881-883
+  s_18efe2117ea9e1::t_196ae74ec19342 132,137-138,140-145
+  s_18efe2117ea9e1::t_d0cf95821ca179 953-959
+  s_18efe2117ea9e1::t_22900dcac6f09d 139
+  s_18efe2117ea9e1::t_bf17e84a92fcab 917-918
+  s_18efe2117ea9e1::t_c5129896f3818e 495-499,502,505,508-518,532-533
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "26d1a094fca1203de73fb6bbe313a1ad9d9c077e",
+  "prompts": {},
+  "sessions": {
+    "s_18efe2117ea9e1": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ef46f8873ffeIuRFYJERZ0Qbuk",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Felix Schindler <107669806+ftschindler@users.noreply.github.com>"
+    }
+  }
+}
