@@ -46,14 +46,21 @@ no manifest and no registration, and it never learns that you subscribed.
 
 Your subscriptions live in two files with one format. A personal one says what is true of
 you. A committed one in a repository says what that repository expects, so a colleague clones
-it and runs one command.
+it and runs one command:
+
+```text
+uvx akit render
+```
+
+**Nothing to install first.** `akit` ships on PyPI, so the step between a fresh clone and a
+working set of kits is that one line, in a contributing guide or in a pre-commit hook.
 
 ## What it promises
 
 **Windows and Linux are equal.** Both are tested in CI, and neither is the afterthought.
 
-**Python only.** Scripts carry their dependencies inline and run under `uv`, so there is
-nothing to install and no dependency lockfile to go stale.
+**Python only**, shipped as a package you run with `uvx`. No dependency lockfile of ours to
+go stale, and no install step for anyone who just wants to work on a repository.
 
 **A new harness is one file.** opencode and VS Code come first. An adapter answers seven
 questions about where that harness keeps things and how to tell it is installed, and nothing

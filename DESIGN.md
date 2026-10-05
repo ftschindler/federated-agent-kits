@@ -516,8 +516,10 @@ A line the user wrote themselves that already covers one of those directories is
 it is, and duplicated inside the block, which costs nothing: git does not mind an entry twice.
 Removing ours is then still safe.
 
-The workflow is clone, `akit render`, work. A colleague who has not installed the tool sees
-`.akit.yaml` and nothing else, which is the honest signal that a step is missing.
+The workflow is clone, `uvx akit render`, work. A colleague who has never run this tool sees
+`.akit.yaml` and nothing else, which is the honest signal that a step is missing, and that
+step is one command with no install in front of it
+([§9](#9-windows-linux-python)).
 
 **Two kinds of render have to be committed anyway.**
 
@@ -778,6 +780,43 @@ There is one exception, and it is deliberate. `.scripts/linkspector.mjs` is twen
 node that pin a Chrome build and start a link checker. It runs inside a pre-commit hook,
 never anywhere else, and nothing a user of `akit` touches depends on it.
 
+### How it ships
+
+**A package on PyPI, so `uvx akit render` works in a clone with nothing installed first.**
+
+That is a constraint rather than a packaging preference, and it comes from
+[§6](#6-the-manifest). A repository's `.akit.yaml` says what an agent working on that
+repository needs. The workflow is clone, render, work, and a colleague meets it on the day
+they first touch the repository: they have the clone, they do not have `akit`, and the thing
+standing between them and a working setup must be one command rather than an installation
+they have to be talked through.
+
+`uvx` is what makes that a single command on both target platforms. It fetches the package,
+runs it in a throwaway environment and leaves nothing behind, so the honest instruction in a
+contributing guide is one line and the honest instruction in a pre-commit hook is the same
+line.
+
+Three things follow.
+
+**The package is the unit, not the repository.** `uvx akit` resolves a published version, so
+what a colleague runs is a release rather than whatever is on `main` this afternoon. A
+rendered file's shape is therefore a thing that can be versioned and a change to it is a
+release note.
+
+**The CLI does not live inside the skill.** `fkb` puts its tool in `scripts/fkb`, which makes
+installing the skill install the tool and is the right trade there. Here it is the wrong one:
+a copy of the CLI inside a skills directory is a copy that `uvx` cannot resolve, cannot
+update, and that a colleague with no skills directory yet cannot reach at all. The skill
+assumes the CLI and says how to run it ([§11](#11-the-skill)).
+
+**A pre-commit hook is the other caller, and it wants the same thing.** The hook this project
+ships for `render --check` and for the leak refusal
+([§8](#8-keeping-the-employers-kits-in)) names the published package and a version, exactly
+as every other hook in this repository's own config does.
+
+An entry point named `akit` is therefore part of the package's contract, and renaming it is a
+breaking change for every hook config and every contributing guide that pinned it.
+
 ## 10. Commands
 
 ```text
@@ -997,6 +1036,11 @@ The first copy of the skill is installed by hand, or by whatever skill installer
 use. After that `akit` can subscribe you to its own skill from this repository, and the copy
 you placed by hand becomes a managed one.
 
+The CLI needs no such step, since it is a published package
+([§9](#9-windows-linux-python)). So the two halves bootstrap independently: the skill is a
+subscription like any other, and the tool it talks about is one `uvx` away whether or not the
+skill was ever installed.
+
 A skill that has been copied somewhere cannot tell how old it is, so it carries a `VERSION`
 file. That is the only thing that survives being copied into a skills directory.
 
@@ -1012,11 +1056,6 @@ any of them wants it.
 **How do tool names map between harnesses?** A table maintained by hand that fails on
 anything unknown. Whether that table is per harness or per agent is open. Not worth deciding
 until three agents genuinely want to live in two places.
-
-**Does the CLI ship inside the skill?** `fkb` puts it there, as `scripts/fkb`, so installing
-the skill installs the tool and there is no second step. The alternative is a package on PyPI
-and a skill that assumes it. The first is one artefact and no install; the second updates
-without touching a skills directory.
 
 **What happens when a source's layout changes under you?** A kit found at `skills/writing/`
 today may be at `skills/prose/writing/` after an upstream tidy-up. The subscription names a
