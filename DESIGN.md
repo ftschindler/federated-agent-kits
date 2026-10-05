@@ -501,6 +501,12 @@ That is the whole of the difference. In a personal manifest you would write the 
 key and never need `link`; it exists because a shared manifest and one developer's disk
 disagree, and only one of them is committed.
 
+**Writing a new kit therefore needs neither.** It has no remote yet, so you subscribe to
+where it is: `akit add ~/kits/my-new-thing my-new-skill --global`. Your manifest now carries
+an absolute path with no commit, rendering reads the working tree, and the loop is edit,
+`akit render`, try it. When it is published, `akit remove` that subscription and `add` the
+repository instead.
+
 ### Always copied
 
 **Rendering copies, on every platform, from every kind of source.** The hash of what was
@@ -696,6 +702,7 @@ never anywhere else, and nothing a user of `akit` touches depends on it.
 ```text
 akit list                 # what you subscribed to, and where it is
 akit add <source> <name>  # register a subscription, then render it; --global for yours
+akit remove <name>        # drop a subscription, and the files it rendered
 akit link <source> <path> # read this source from a local checkout instead of a clone
 akit render               # make the harness files match the manifests, both scopes
 akit update [name]        # fetch, move the pins, show what moved
@@ -749,6 +756,19 @@ A call does four things, in order:
 It fails before step 3 if the subscription would break a rule: a name already taken by
 another kit, or a private source being written into a committed manifest
 ([§8](#8-keeping-the-employers-kits-in)).
+
+### `remove`
+
+**Drops a subscription and deletes what it rendered.** The other half of `add`, and the same
+flags decide which manifest is edited.
+
+Naming a kit is enough. Where two manifests subscribe to one name, it refuses and asks which,
+because guessing would silently change what a repository gives everybody else.
+
+**Writing a kit is what this is for, more than tidying up.** A new kit starts subscribed from
+a path on your disk, and ends up subscribed from a published repository. That swap is
+`remove` then `add`, and keeping it two commands means the moment when neither is in place
+cannot be mistaken for a working setup.
 
 ### `link`
 

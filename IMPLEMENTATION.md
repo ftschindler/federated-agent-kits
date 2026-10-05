@@ -108,6 +108,8 @@ rendering a skill means ([§7](DESIGN.md#7-rendering)), no symlink is ever creat
 - Make the second render a no-op. Prove it with a test that renders twice and compares the
   tree, not by inspection.
 - `akit update` re-pins a copied kit and shows the diff.
+- `akit remove` drops a subscription and deletes what it rendered, refusing when two
+  manifests subscribe to the name.
 - `akit doctor` reports collisions, a rendered file that no subscription explains, and a
   source that will not resolve.
 - Handle `as` end to end: a renamed kit lands under the new name and the record knows both.
