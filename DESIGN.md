@@ -634,7 +634,59 @@ akit update [name]        # re-pin what was copied, show the diff
 akit doctor               # collisions, stale renders, refusals
 ```
 
-`render` doing nothing when nothing changed is what makes the other four safe to trust.
+### `list`
+
+Answers "what do I actually have?" without touching anything. For each subscription: the
+source it resolved to, the commit, the parts it found, and where each one rendered.
+
+It is also the command a person runs when something is not working, so it reports a failure
+per line and carries on rather than stopping at the first one.
+
+### `add`
+
+Edits the manifest for you, so the file's shape is something you can forget. It resolves the
+source first and fails if the kit is not there, which turns a typo into an error now rather
+than a missing skill later.
+
+### `link`
+
+Says "this source is on my disk, read it from there". For a repository you author and also
+subscribe to, usually through a project manifest you share with people who do not have it
+checked out. It writes to machine state, never to a manifest, because it is true of one
+laptop.
+
+### `render`
+
+The only command that writes kit files. Copies every subscribed part into every harness that
+takes it, and removes what no longer belongs. Running it twice changes nothing, so it is safe
+from a git hook or a shell startup.
+
+`--check` is the same walk with the writing turned off, exiting non-zero when a render is out
+of date. That is for the renders that get committed ([§6](#6-the-manifest)), which are the
+only ones that can be stale without anybody noticing.
+
+### `update`
+
+Moves a pin and shows what moved. `#ref` resolves to a commit, that commit is in the
+lockfile, and this is where a new one arrives. The diff is the point: an update to a rule you
+have never read is a change to what your agent is told on every message.
+
+### `doctor`
+
+Checks the setup rather than changing it. Two kits claiming one name, a rendered file nobody
+subscribes to, a rendered file somebody edited by hand, a source that will not resolve, an
+agent naming a skill you do not have, a harness that has the files but is not reading them
+([§4](#4-adding-a-harness)).
+
+Every finding names the command that fixes it. Nothing here fixes anything itself, which is
+what makes it safe to run when you are confused.
+
+### Why these six
+
+`render` being idempotent and cheap is what makes the rest safe to trust: nothing has to
+remember whether it ran, and no command needs an undo. The split is that `add` and `link`
+write what you meant, `render` makes it true on disk, and `list`, `update` and `doctor` tell
+you where things stand without surprising you.
 
 ## 11. The skill
 
