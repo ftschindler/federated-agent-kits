@@ -65,7 +65,8 @@ kit discovery walk, and a CI matrix on `ubuntu-latest` and `windows-latest`.
 **Steps.**
 
 - Parse both manifests. The user one in the per-platform config directory, the project one at
-  `.akit.yaml` in the repository root, project adding to user and winning on a clash.
+  `.akit.yaml` beside the worktree root found by walking up, project adding to user and
+  winning on a clash.
 - Resolve a source key: shorthand, forge URL, git URL, subdirectory URL, local path, with an
   optional `#ref`. Clone into the platform cache when nothing says otherwise.
 - Implement `akit link <source> <path>`, its `--remove`, and the machine-state file it writes

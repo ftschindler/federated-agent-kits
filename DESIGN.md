@@ -391,6 +391,33 @@ The project file adds to yours rather than replacing it. Your subscriptions do n
 true because you changed directory. Where both name the same kit, the repository wins, which
 is how a repository pins something different without you unsubscribing.
 
+### Finding them
+
+Yours is at a fixed place, looked up per platform. Nothing searches for it.
+
+The repository's is found by walking up from the working directory to the worktree root,
+stopping at the `.git` there, and looking for `.akit.yaml` beside it. Running a command from
+a subdirectory is normal and has to work. The walk cannot stray into somebody else's
+repository, because it stops at the first worktree root, and it cannot reach the user
+manifest, which is in the config directory and never on that path.
+
+**Reading uses both, always.** `render`, `list` and `doctor` take the union, which is the
+point of there being two.
+
+**Writing picks one, and gets asked.** Only `add` writes a manifest, and the flags are
+git's: `--global` for yours, `--project` for the repository's.
+
+**With neither flag, the repository's wins.** A repository with no `.akit.yaml` is an error
+naming `--global`, rather than a quiet write to your personal file.
+
+That default is chosen for how each mistake is discovered. A subscription that lands in the
+repository by accident shows up in `git status` within seconds. One that lands in your
+personal file by accident shows up when a colleague clones the repository and does not get
+it, which may be weeks. Prefer the mistake that announces itself.
+
+`--manifest <path>` writes to a file named outright, which is for scripts and tests rather
+than for people.
+
 ### What a repository commits
 
 **The manifest, and the renders for harnesses that have no machine.** Everything else
@@ -627,7 +654,7 @@ never anywhere else, and nothing a user of `akit` touches depends on it.
 
 ```text
 akit list                 # what you subscribed to, and where it is
-akit add <source> <name>  # register a subscription, then render it
+akit add <source> <name>  # register a subscription, then render it; --global for yours
 akit link <source> <path> # read this source from a local checkout instead of a clone
 akit render               # make the harness files match the manifests
 akit update [name]        # fetch, move the pins, show what moved
@@ -661,8 +688,8 @@ when something is already wrong.
 
 ### `add`
 
-**Registers a new subscription in a manifest, and installs it.** The one command that edits a
-manifest for you, so its format is something you never have to hold in your head.
+**Registers a new subscription in a manifest, and installs it.** The only command that edits
+a manifest, so its format is something you never have to hold in your head.
 
 A call does four things, in order:
 
@@ -671,7 +698,8 @@ A call does four things, in order:
 2. **Checks the kit is really there**, by the walk in [§5](#5-sources). A typo fails here,
    with a list of what the source does hold, rather than becoming a skill that silently never
    loads.
-3. **Writes one line** into your manifest, or into the repository's with `-p`.
+3. **Writes one line** into the repository's manifest, or into yours with `--global`
+   ([§6](#6-the-manifest)).
 4. **Renders**, so the kit is usable when the command returns.
 
 It fails before step 3 if the subscription would break a rule: a name already taken by
