@@ -491,15 +491,18 @@ work on *this* project.
 An absolute path only ever makes sense in your own manifest, since nobody else's disk looks
 like yours.
 
-**`link` is for a key you are not free to change.** A committed manifest has to name
-`owner/repo`, because your colleague has no checkout of it. If you happen to be its author
-and want yours used, editing the key would break everybody else, so
-`akit link owner/repo ../my-kits` redirects it for this machine only. It goes in machine state
-beside the render record, never in a manifest.
+**A committed manifest may only name a path that stays inside the repository.** `.` and
+`./kits` mean the same thing on every machine. `../my-kits` and `/home/me/kits` mean something
+only on yours, and committing one breaks the repository for everybody else.
 
-That is the whole of the difference. In a personal manifest you would write the path as the
-key and never need `link`; it exists because a shared manifest and one developer's disk
-disagree, and only one of them is committed.
+That is a check rather than a convention, and it belongs in a pre-commit hook this project
+ships for other repositories to pin, the way the leak refusal does
+([§8](#8-keeping-the-employers-kits-in)). `akit doctor` reports the same thing.
+
+**To work on a source a committed manifest names**, edit the key to your checkout and do not
+commit that line. `git status` shows the file is dirty, `git checkout --` undoes it, and the
+hook above stops it reaching a commit. There is no separate override mechanism, because git
+already is one.
 
 **Writing a new kit therefore needs neither.** It has no remote yet, so you subscribe to
 where it is: `akit add ~/kits/my-new-thing my-new-skill --global`. Your manifest now carries
@@ -527,8 +530,7 @@ The manifest already says which commit every subscription is on, so nothing has 
 recorded to make a setup reproducible. What does need recording is what this particular
 machine wrote, and that is nobody else's business.
 
-**The render record** lives in the state directory, beside the `akit link` overrides, and is
-never committed. It names every file a render produced, the subscription that explains it,
+**The render record** lives in the state directory and is never committed. It names every file a render produced, the subscription that explains it,
 and a hash of the copy.
 
 It is what lets `akit doctor` say anything. A hash that no longer matches is a rendered file
@@ -703,7 +705,6 @@ never anywhere else, and nothing a user of `akit` touches depends on it.
 akit list                 # what you subscribed to, and where it is
 akit add <source> <name>  # register a subscription, then render it; --global for yours
 akit remove <name>        # drop a subscription, and the files it rendered
-akit link <source> <path> # read this source from a local checkout instead of a clone
 akit render               # make the harness files match the manifests, both scopes
 akit update [name]        # fetch, move the pins, show what moved
 akit doctor               # what is wrong, and which command fixes it
@@ -770,18 +771,6 @@ a path on your disk, and ends up subscribed from a published repository. That sw
 `remove` then `add`, and keeping it two commands means the moment when neither is in place
 cannot be mistaken for a working setup.
 
-### `link`
-
-**Points this machine at a checkout of a source, instead of the cache.** For a source you
-author and also subscribe to, usually through a repository manifest shared with people who
-have no checkout of it.
-
-It writes one entry to machine state, beside the render record and never in a manifest,
-then renders. From then on every command reads that source from your working tree, so what you are
-editing is what your agents get after the next render.
-
-`akit link --remove <source>` goes back to the clone.
-
 ### `render`
 
 **Makes the files on disk match the manifests. The only command that writes kit files.**
@@ -840,6 +829,8 @@ What it looks for:
 - a rendered file no subscription explains;
 - a rendered file edited by hand, caught by its hash in the render record;
 - a source that no longer resolves, or a commit that is no longer in it;
+- a committed manifest naming a path that leaves the repository, which is somebody's laptop
+  written into a shared file;
 - a committed render that is out of date, which is `render --check` by another name;
 - an agent naming a skill or an MCP server you have not subscribed to
   ([§1](#1-what-this-is));
@@ -928,6 +919,12 @@ repository already answers it. One place or none.
 manifest's own keys carry instead, so the second file would restate the first and be able to
 disagree with it. The cost is a YAML writer that preserves comments, which `.pre-commit-config`
 has needed for years and which is a solved problem.
+
+**A command that redirects a source to a local checkout.** It existed to let you work on a
+source that a committed manifest names, without editing the key everybody shares. Editing the
+key and not committing that line does the same job, and git already reports it, reverts it and
+can refuse the commit. One fewer command, one fewer state file, and no override that is
+invisible six weeks later.
 
 **Symlinked renders**, so that editing a source you author skips the render. One saved
 command, against a feature that needs developer mode on Windows and a second code path

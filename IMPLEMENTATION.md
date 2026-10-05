@@ -55,8 +55,8 @@ satisfied by the CI matrix that [T1](#t1---read-the-manifest-render-nothing) add
 
 **Goal.** Say what you have subscribed to and where it is, before anything writes a file.
 
-**Deliverable.** `akit list` and `akit link`, the manifest parser, the source resolver, the
-kit discovery walk, and a CI matrix on `ubuntu-latest` and `windows-latest`.
+**Deliverable.** `akit list`, the manifest parser, the source resolver, the kit discovery
+walk, and a CI matrix on `ubuntu-latest` and `windows-latest`.
 
 **Specified by DESIGN.md.** Source forms and the directory walk
 ([§5](DESIGN.md#5-sources)), the manifest schema, the two files and their precedence
@@ -69,9 +69,6 @@ kit discovery walk, and a CI matrix on `ubuntu-latest` and `windows-latest`.
   winning on a clash.
 - Resolve a source key: shorthand, forge URL, git URL, subdirectory URL, local path, with an
   commit after `#`. Clone into the platform cache when nothing says otherwise.
-- Implement `akit link <source> <path>`, its `--remove`, and the machine-state file it writes
-  to. Keep that file separate from the render record from the start; they answer different
-  questions.
 - Walk the directories from [§5](DESIGN.md#5-sources), three levels, shallower shadowing
   deeper, for all three kinds.
 - Report: each subscription, which source and ref it resolved to, which kit file, and whether
@@ -110,6 +107,8 @@ rendering a skill means ([§7](DESIGN.md#7-rendering)), no symlink is ever creat
 - `akit update` re-pins a copied kit and shows the diff.
 - `akit remove` drops a subscription and deletes what it rendered, refusing when two
   manifests subscribe to the name.
+- Delete `akit link` and its machine-state file, which T1 built before
+  [§13](DESIGN.md#13-not-doing) retired it. The render record stays.
 - `akit doctor` reports collisions, a rendered file that no subscription explains, and a
   source that will not resolve.
 - Handle `as` end to end: a renamed kit lands under the new name and the record knows both.
@@ -245,6 +244,9 @@ Refusals are hard ([§3](DESIGN.md#3-rules-of-the-build)).
   forget because no render is involved.
 - Implement the override, in the user manifest only. Writing it into a project manifest is
   itself refused.
+- Refuse a committed manifest that names a path leaving the repository, which is a laptop
+  written into a shared file. Ship it as a pre-commit hook other repositories pin, beside the
+  leak check, so a repository is guarded whether or not `akit` is installed.
 - Make every refusal hard: no partial render, no warning, and a message naming source, target
   and override.
 - One test per row of the refusal table. The table is the whole product here, and an untested
