@@ -1009,8 +1009,47 @@ that part of the list reads the same on every machine.
 only command that changes what a kit contains.
 
 For each source, or just the named one, it fetches, works out the newest commit of whatever
-the comment says the pin follows, and compares it with the pinned one. It rewrites the key
-and the comment, prints the diff of every part you subscribe to, then renders.
+the comment says the pin follows, and looks for every part subscribed under that key at the
+new commit, by the same walk `add` used ([§5](#5-sources)). If they are all there it
+rewrites the key and the comment, prints the diff of every part you subscribe to, then
+renders.
+
+**Finding them again is a step, not an assumption.** A subscription names a kit rather than a
+path, so an upstream tidy-up that moves `skills/writing/` to `skills/prose/writing/` resolves
+without anything happening, and `update` says the path moved because it is cheap to notice
+and surprising to discover later. A kit that is *gone* is the case that matters, and upstream
+deleting or renaming one is ordinary.
+
+**A pin moves for every name under its key or for none of them.** The commit is a property of
+the key, not of each name beneath it ([§6](#6-the-manifest)), so there is no such thing as
+moving four of five names forward. A missing part therefore stops that key's update, leaving
+the pin where it is, and leaves every other key free to move.
+
+Nothing is rendered for a source whose pin did not move, so the failure costs nothing: you
+keep exactly the kits you had this morning. That is also why this does not have to be solved
+in a hurry.
+
+**Resolving it is yours, and `update` says so rather than guessing.** It has no way to tell a
+deletion from a rename, and the two want opposite things. Three ways out, and the message
+names all three: `akit remove` the part that is gone, `akit add` the name it was renamed to,
+or split it into a second subscription that keeps its own older commit, which the manifest
+already allows since two blocks naming one repository at two commits are two subscriptions.
+
+Writing that choice into the manifest is `add` and `remove`'s job, which keeps the rule from
+[§6](#6-the-manifest) intact: `update` edits a pin, never a name. A command that dropped a
+name on your behalf would delete a rule from every prompt your agents see, and one that added
+a name would subscribe you to a kit you have never read. Neither is a thing to infer from a
+rename somebody else made.
+
+**A `"*"` subscription cannot hit this**, because whatever is there is what it asked for. The
+cost moves into the diff instead: parts that disappeared upstream are listed beside parts
+that changed, since a kit you were using vanishing is the one thing a wildcard can do to you
+quietly.
+
+**At a pinned commit this can never be wrong**, which is worth saying because it is what
+makes the rest safe. `add` checked the part was there, and a commit is immutable, so the only
+way a pinned part goes missing is the history being rewritten underneath it, and that is
+already `akit doctor`'s "a commit that is no longer in it".
 
 Rewriting a key means rewriting YAML somebody hand-wrote, so the writer preserves comments and
 layout. That is the one place this tool edits a file a person owns, and the reason the pin
@@ -1106,11 +1145,6 @@ any of them wants it.
 **How do tool names map between harnesses?** A table maintained by hand that fails on
 anything unknown. Whether that table is per harness or per agent is open. Not worth deciding
 until three agents genuinely want to live in two places.
-
-**What happens when a source's layout changes under you?** A kit found at `skills/writing/`
-today may be at `skills/prose/writing/` after an upstream tidy-up. The subscription names a
-kit, not a path, so it still resolves. Whether that silent move is worth reporting on the
-next `akit update` is open.
 
 ## 13. Not doing
 
