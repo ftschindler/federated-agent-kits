@@ -161,9 +161,9 @@ repository is the delivery mechanism ([§6](#6-the-manifest)).
 **An adapter is where a harness's changes land.** When one moves its directories or replaces
 its config key, the fix is that one file, not this design.
 
-The three that follow are worked examples, and nothing else here may depend on a path in
-them. **They are a snapshot of where each harness kept things when this was written**, and
-every one of those paths will move.
+The four that follow are worked examples, and nothing else here may depend on a path in them.
+**They are a snapshot of where each harness kept things when this was written**, and every one
+of those paths will move.
 
 ### What opencode looks like
 
@@ -223,6 +223,36 @@ the folder is trusted, which is the condition `akit doctor` has to report rather
 One more pi detail generalises. It deliberately does not require a skill's `name` to match
 its directory, saying the rule is awkward for shared skill directories, which means a kit
 renamed on subscription still loads there.
+
+### What GitHub Copilot in CI looks like
+
+The cloud agent runs on GitHub's infrastructure, clones one repository and works in it. It is
+the harness with no machine, so **everything below has to be committed or it does not exist**.
+
+**Skills: a directory we own, committed.** It reads `.github/skills/`, `.claude/skills/` and
+`.agents/skills/`, each a directory of `<name>/SKILL.md`. A root-level `skills/` is not among
+them, which matters for a repository that is its own source: its hand-written `skills/` is
+not what the cloud agent reads, and the rendered copy under one of the three is.
+
+**Rules: a directory we own, committed.** `.github/instructions/` takes one
+`*.instructions.md` per rule, with `applyTo` globs, and that is the shape we want everywhere.
+It also reads `.github/copilot-instructions.md`, any `AGENTS.md` in the tree with the nearest
+winning, and a root `CLAUDE.md` or `GEMINI.md`. We write to the directory and leave the rest
+alone.
+
+**Agents: `.github/agents/<name>.agent.md`, committed.** `description` is required, `name`
+defaults to the filename, and `tools` and `mcp-servers` are optional. The prompt caps at
+30,000 characters, which is the only hard size limit any harness documents.
+
+Question 6 answers itself: the project is the checkout, and there is nothing else. Nested
+`AGENTS.md` files are read nearest-first, so a monorepo can vary its rules by directory
+without the adapter doing anything special.
+
+**Two things it reads that we cannot touch.** Organisation-level instructions live in GitHub
+settings, and MCP servers may be configured in repository settings rather than in a file.
+Neither is in the repository, so neither is renderable, and both can contradict a rule we
+wrote. `akit doctor` has no way to see them; the design's answer is to say so here rather
+than to pretend the repository is the whole story.
 
 ## 5. Sources
 
@@ -386,12 +416,13 @@ nothing to do with us.
 The second is everything read by a harness with no machine, which is the case
 [§4](#4-adding-a-harness) describes: GitHub Copilot in CI clones the repository and reads
 what is there. Nobody runs `akit render` in that clone, so a file it is supposed to read and
-that is not committed does not exist. `.github/instructions/` moves out of the ignore list
-the moment such a harness is in use.
+that is not committed does not exist. Its three directories, `.github/instructions/`,
+`.github/agents/` and one of the skills directories, move out of the ignore list the moment
+it is in use.
 
-That overlap is convenient rather than awkward. `.github/instructions/` is also where VS Code
-looks locally, so one committed directory serves both, and local VS Code stops needing a
-render at all.
+That overlap is convenient rather than awkward. `.github/instructions/` and `.claude/skills/`
+are also where harnesses on your laptop look, so one committed set serves both, and those
+harnesses stop needing a render at all.
 
 A repository that is its own source keeps the opposite habit for its inputs: `skills/` is
 hand-written and committed, and the rendered copies of it follow the rules above.
