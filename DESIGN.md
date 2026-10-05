@@ -4,7 +4,7 @@
 for the design, so change it here first. [IMPLEMENTATION.md](IMPLEMENTATION.md) says in which
 order it gets built.
 
-**Date:** 2026-10-01
+**Date:** 2026-10-05
 
 ## 1. What this is
 
@@ -18,11 +18,11 @@ a rule that sets the house style. What makes them one kit is that you want them 
 ### The three parts
 
 A **rule** is prose. The harness pastes it into the system prompt before every single
-message. You pay for it on every turn, so a rule that runs to three pages is a bad rule.
+message. You pay for it on every turn, so keep it short.
 
-A **skill** is a folder with instructions inside. The model sees only its one-line
-description, and opens the folder when it judges the description matches. An unopened skill
-costs almost nothing, so a skill can be long.
+A **skill** is a folder with instructions and optional supporting material (scripts or references)
+inside. The model sees only its one-line description, and opens the folder when it judges the
+description matches. An unopened skill costs almost nothing, so a skill can be long.
 
 An **agent** is a prompt with a model and a list of tools attached. Starting a session as an
 agent replaces the normal prompt rather than adding to it.
@@ -44,12 +44,12 @@ the unit because it is the smallest thing that works on the other machine.
 **You compose it, the source does not.** Almost nothing out there ships a kit, and a
 repository holding a skill beside its rule has no way to say the two belong together. So the
 composition lives in your manifest, which is also the only place that can compose across two
-sources ([§7](#7-the-manifest)).
+sources ([§6](#6-the-manifest)).
 
 An agent can name skills it expects to be there. Those are not parts of it: they are a
 dependency, and we do not chase dependencies. A named skill you have not subscribed to gets
 you a warning from `akit doctor`, and nothing is installed that you did not ask for. An agent
-naming an MCP server is treated the same way, and section 14 says why that is as far as it
+naming an MCP server is treated the same way, and section 13 says why that is as far as it
 goes.
 
 ### What it takes to move one
@@ -118,46 +118,13 @@ kits is that they cannot clone the repository.
 9. **This is a guardrail.** Every source stays just as safe when somebody ignores this tool
    entirely.
 
-## 4. Where each harness keeps things, today
+## 4. Adding a harness
 
-> **A snapshot, not a contract.** Every path below is where one harness happened to keep
-> things when this was written, and each will move. The authority is the adapter
-> ([§5](#5-adding-a-harness)); nothing else in this design may depend on a path from this
-> section.
-
-Harnesses differ in one way that matters more than all the others: whether they will read a
-**list** of locations, or insist on one fixed path.
-
-opencode reads a list. Its config takes an `instructions` key of files, globs and even https
-URLs, and combines all of them with whatever `AGENTS.md` files it found. So it is the second
-shape in [§8](#8-rendering): pointed once at a directory we own, and never edited again.
-
-| opencode | Repository | User-wide |
-| --- | --- | --- |
-| Rules | `AGENTS.md` up to the worktree root, plus `instructions` globs | `~/.config/opencode/AGENTS.md`, plus `instructions` in the global config |
-| Skills | `.opencode/skills/`, `.claude/skills/`, `.agents/skills/` | the same three under `~` |
-| Agents | `.opencode/agent/*.md` | `~/.config/opencode/agent/*.md` |
-
-VS Code insists on fixed paths.
-
-| VS Code | Repository | User-wide |
-| --- | --- | --- |
-| Rules | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, root `AGENTS.md` | profile data for Local, `~/.copilot/instructions/` for Agent Host |
-| Skills | `.claude/skills/`, where the harness supports it | varies, and this is the weak leg |
-| Agents | `.github/agents/*.agent.md`, `.claude/agents/` | `~/.copilot/agents/`, or profile data |
-
-There is a setting that would let VS Code read external directories, and we are not using it.
-`chat.instructionsFilesLocations` does take absolute and `~` paths. The documentation marks
-it deprecated and says only the Local agent honours it, so neither Agent Host nor the cloud
-agent would see anything we wrote there. Writing to the fixed paths is what all three read.
-
-## 5. Adding a harness
-
-Write an adapter. An adapter answers six questions and nothing else in the system changes.
+Write an adapter. An adapter answers six questions, and nothing else in the system changes.
 
 1. Where do skills go, for the whole machine and for one repository?
 2. How does it pick up rules: a directory we own, a directory it can be pointed at once, or
-   one fixed file we have to share ([§8](#8-rendering))?
+   one fixed file we have to share ([§7](#7-rendering))?
 3. If it is the middle one, what is the pointer, and what writes it at setup?
 4. Where do agents go, and what are the frontmatter keys called?
 5. What are this harness's tools called?
@@ -166,13 +133,46 @@ Write an adapter. An adapter answers six questions and nothing else in the syste
 "This harness has no agents" is a valid answer to question 4. The adapter declines that kind
 and the command says so.
 
-**An adapter is also where a harness's changes land.** When one moves its directories or
-replaces its config key, the fix is that file and the snapshot in
-[§4](#4-where-each-harness-keeps-things-today), not the design.
+**An adapter is where a harness's changes land.** When one moves its directories or replaces
+its config key, the fix is that one file, not this design.
+
+The three that follow are worked examples, and nothing else here may depend on a path in
+them. **They are a snapshot of where each harness kept things when this was written**, and
+every one of those paths will move.
+
+### What opencode looks like
+
+opencode reads a list, which makes rules the easy case. Its config takes an `instructions`
+key of files, globs and even https URLs, and combines all of them with whatever `AGENTS.md`
+files it found. So it is the second shape: pointed once at a directory we own, and never
+edited again.
+
+| opencode | Repository | User-wide |
+| --- | --- | --- |
+| Rules | `AGENTS.md` up to the worktree root, plus `instructions` globs | `~/.config/opencode/AGENTS.md`, plus `instructions` in the global config |
+| Skills | `.opencode/skills/`, `.claude/skills/`, `.agents/skills/` | the same three under `~` |
+| Agents | `.opencode/agent/*.md` | `~/.config/opencode/agent/*.md` |
+
+Question 6 is cheap here: the worktree root, found by walking up.
+
+### What VS Code looks like
+
+VS Code insists on fixed paths, so everything is written where it looks.
+
+| VS Code | Repository | User-wide |
+| --- | --- | --- |
+| Rules | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, root `AGENTS.md` | profile data for Local, `~/.copilot/instructions/` for Agent Host |
+| Skills | `.claude/skills/`, where the harness supports it | varies, and this is the weak leg |
+| Agents | `.github/agents/*.agent.md`, `.claude/agents/` | `~/.copilot/agents/`, or profile data |
+
+There is a setting that would make it the second shape, and we are not using it.
+`chat.instructionsFilesLocations` does take absolute and `~` paths. The documentation marks
+it deprecated and says only the Local agent honours it, so neither Agent Host nor the cloud
+agent would see anything we wrote there.
 
 ### What pi looks like
 
-pi is about as cheap as an adapter gets, which makes it a good first worked example.
+pi is about as cheap as an adapter gets.
 
 **Skills: nothing to write.** pi already reads `~/.agents/skills/` and `.agents/skills/`.
 Its `settings.json` also takes a list of skill directories, absolute or `~`-relative.
@@ -191,7 +191,7 @@ renamed on subscription still loads there. And it refuses to read anything proje
 until you have trusted the folder, which is an answer to question 6 that opencode has no
 equivalent of.
 
-## 6. Sources
+## 5. Sources
 
 A source is a git repository holding parts. Nothing is registered, nothing is declared, and a
 source never learns that you subscribed. This is what "federated" means here, and it costs one
@@ -239,12 +239,12 @@ kit, of one part, without anybody having decided so.
 
 **Why those, for skills:** this is what `npx skills add` already accepts, which makes it what
 repositories in the wild already look like. We follow the same rules and implement them
-ourselves, because `skills` is node and section 10 keeps node away from anything a user runs.
+ourselves, because `skills` is node and section 9 keeps node away from anything a user runs.
 
 **Why those, for rules and agents:** no standard exists, so they mirror the skills layout and
 add the directories harnesses already read.
 
-## 7. The manifest
+## 6. The manifest
 
 **A kit is assembled here, not found out there.** A source offers parts. Which of them belong
 together is a judgement you make, and the manifest is where you make it. Even a repository
@@ -391,7 +391,7 @@ So editing a kit you author means running `akit render` afterwards. That makes r
 real requirement rather than a nicety: it is the inner loop of writing a kit, not just
 something you run after changing the manifest.
 
-## 8. Rendering
+## 7. Rendering
 
 Skills are copied into the harness directory unchanged. Several locations across four
 harnesses already agree on `skills/<name>/SKILL.md`, so there is nothing to translate.
@@ -419,7 +419,7 @@ comments or key order.
 The third shape is the one that costs. A harness that reads exactly one file means sharing it
 with whatever the user wrote there, so each rule sits between `BEGIN <id>` and `END <id>`
 markers and everything between blocks survives. It is also the only render that can end up
-committed, which is why [§9](#9-keeping-the-employers-kits-in) is mostly about it.
+committed, which is why [§8](#8-keeping-the-employers-kits-in) is mostly about it.
 
 Rules are the only kind with an order. Two rules can contradict each other and something has
 to win. The order they appear in the manifest decides it, and we are not looking for a
@@ -448,18 +448,18 @@ The adapter translates what it knows. **A tool name it cannot translate stops th
 Dropping it quietly would produce an agent that fails later, somewhere else, for no visible
 reason.
 
-## 9. Keeping the employer's kits in
+## 8. Keeping the employer's kits in
 
 ### What can actually leak
 
-Almost nothing, because [§7](#7-the-manifest) says a repository commits no renders. A skill
+Almost nothing, because [§6](#6-the-manifest) says a repository commits no renders. A skill
 copied into `.claude/skills/`, an agent file, a VS Code `.instructions.md`: all ignored, none
 pushed anywhere.
 
 Two things are committed, and they are the whole risk.
 
 **A marker block inside a file somebody else owns.** This is the third shape in
-[§8](#8-rendering): a harness that reads exactly one fixed file, which is committed because
+[§7](#7-rendering): a harness that reads exactly one fixed file, which is committed because
 the user wrote the rest of it. The employer's prose is now in a public repository, and the
 diff looks like every other diff.
 
@@ -469,7 +469,7 @@ cannot clone it.
 
 ### How a source is known to be private
 
-Not by declaring it. [§6](#6-sources) says a source declares nothing, and almost every source
+Not by declaring it. [§5](#5-sources) says a source declares nothing, and almost every source
 in the world predates this idea, so anything that needs a file in the repository is a rule
 that applies to nobody.
 
@@ -506,7 +506,7 @@ the source.
 The failure it exists for is the ordinary one: you subscribed to something at work, you ran
 `akit render` in a public repository, and nothing told you.
 
-## 10. Windows, Linux, Python
+## 9. Windows, Linux, Python
 
 **Windows and Linux are equal targets.** macOS should work and is not a priority.
 
@@ -518,7 +518,7 @@ That means, concretely:
 - The config directory is looked up per platform, not spelled `~/.config`.
 - Files are written with `encoding="utf-8"` stated out loud. Windows does not default to it.
 - **No symlink is ever created.** Creating one on Windows needs developer mode or an elevated
-  shell, so rendering copies instead ([§7](#7-the-manifest)). A symlink committed to a
+  shell, so rendering copies instead ([§6](#6-the-manifest)). A symlink committed to a
   repository is worse still: a Windows clone writes it out as a text file containing a path,
   and whatever reads through it reads nonsense.
 - Two kits whose names differ only in case collide. The filesystem may not tell them apart.
@@ -535,7 +535,7 @@ There is one exception, and it is deliberate. `.scripts/linkspector.mjs` is twen
 node that pin a Chrome build and start a link checker. It runs inside a pre-commit hook,
 never anywhere else, and nothing a user of `akit` touches depends on it.
 
-## 11. Commands
+## 10. Commands
 
 ```text
 akit list                 # what you subscribed to, where it renders, whether it is current
@@ -548,7 +548,7 @@ akit doctor               # collisions, stale renders, refusals
 
 `render` doing nothing when nothing changed is what makes the other four safe to trust.
 
-## 12. The skill
+## 11. The skill
 
 Nobody reads this document before their first run, and an agent asked to "set up my kits"
 has nowhere to look. So the tool ships a skill.
@@ -587,7 +587,7 @@ you placed by hand becomes a managed one.
 A skill that has been copied somewhere cannot tell how old it is, so it carries a `VERSION`
 file. That is the only thing that survives being copied into a skills directory.
 
-## 13. Still open
+## 12. Still open
 
 None of these blocks the first piece of work.
 
@@ -615,11 +615,11 @@ today may be at `skills/prose/writing/` after an upstream tidy-up. The subscript
 kit, not a path, so it still resolves. Whether that silent move is worth reporting on the
 next `akit update` is open.
 
-## 14. Not doing
+## 13. Not doing
 
 **rulesync** renders to many harnesses from one directory, which is the rendering half of
 this. It is scoped to a single project, with no sources, no tiers and no subscriptions, so it
-would sit underneath the manifest rather than replace it. It is also node, which section 10
+would sit underneath the manifest rather than replace it. It is also node, which section 9
 rules out for anything a user has to run.
 
 **Sharing a manifest with `fkb`** would mean a colleague cloning a repository can read the
@@ -668,7 +668,7 @@ What we do instead costs nothing: an agent may name a server it expects, exactly
 skills, and `akit doctor` tells you whether you have it. Nothing is configured on your
 behalf, and no secret passes through this tool.
 
-## 15. The name
+## 14. The name
 
 The system covers three kinds of kit, so a name mentioning only rules would be wrong within
 a month. `federated-agents` reads as agents federating with each other, which is a different

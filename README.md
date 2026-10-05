@@ -57,7 +57,7 @@ nothing to install and no lockfile to go stale.
 
 **A new harness is one file.** opencode and VS Code come first. An adapter answers six
 questions about where that harness keeps things, and nothing else in the system changes.
-[DESIGN.md](DESIGN.md#5-adding-a-harness) works pi through as an example.
+[DESIGN.md](DESIGN.md#4-adding-a-harness) works pi through as an example.
 
 **The file you edit is the only copy.** Everything rendered is generated and disposable.
 

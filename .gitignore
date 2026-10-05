@@ -24,7 +24,7 @@ Thumbs.db
 
 # A scratch copy of a personal manifest, when one is kept here while working.
 # This repository's own `.akit.yaml` is committed: it is the project manifest,
-# and DESIGN.md section 7 is why.
+# and DESIGN.md section 6 is why.
 /kits.yaml
 
 # OpenCode agent session/continuation state - machine cruft, not repo content

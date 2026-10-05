@@ -42,13 +42,13 @@ A fresh session needs four things, two of which are not in this repository.
 | What | Where | Why |
 | --- | --- | --- |
 | The design | [DESIGN.md](DESIGN.md) | Every schema, path and refusal is specified there |
-| The `skills` CLI discovery rules | its npm README, section "Skill Discovery" | [§6](DESIGN.md#6-sources) follows them and does not restate the full list of directories |
-| Harness documentation | opencode, VS Code, pi | [§4](DESIGN.md#4-where-each-harness-keeps-things-today) is a summary, not a substitute |
+| The `skills` CLI discovery rules | its npm README, section "Skill Discovery" | [§5](DESIGN.md#5-sources) follows them and does not restate the full list of directories |
+| Harness documentation | opencode, VS Code, pi | [§4](DESIGN.md#4-adding-a-harness) is a summary, not a substitute |
 | The guard suite | this repository | `make bootstrap`, then `make check` |
 
 Two constraints bind every task and are easy to breach without noticing. **Python only**, and
 **Windows and Linux equally**, both spelled out in
-[§10](DESIGN.md#10-windows-linux-python). The second is not satisfied by care: it is
+[§9](DESIGN.md#9-windows-linux-python). The second is not satisfied by care: it is
 satisfied by the CI matrix that [T1](#t1---read-the-manifest-render-nothing) adds.
 
 ## T1 - Read the manifest, render nothing
@@ -59,8 +59,8 @@ satisfied by the CI matrix that [T1](#t1---read-the-manifest-render-nothing) add
 kit discovery walk, and a CI matrix on `ubuntu-latest` and `windows-latest`.
 
 **Specified by DESIGN.md.** Source forms and the directory walk
-([§6](DESIGN.md#6-sources)), the manifest schema, the two files and their precedence
-([§7](DESIGN.md#7-the-manifest)).
+([§5](DESIGN.md#5-sources)), the manifest schema, the two files and their precedence
+([§6](DESIGN.md#6-the-manifest)).
 
 **Steps.**
 
@@ -71,7 +71,7 @@ kit discovery walk, and a CI matrix on `ubuntu-latest` and `windows-latest`.
 - Implement `akit link <source> <path>` and the machine-state file it writes to. Keep that
   file separate from the lockfile from the start; they answer different questions and one of
   them is shared.
-- Walk the directories from [§6](DESIGN.md#6-sources), three levels, shallower shadowing
+- Walk the directories from [§5](DESIGN.md#5-sources), three levels, shallower shadowing
   deeper, for all three kinds.
 - Report: each subscription, which source and ref it resolved to, which kit file, and whether
   two subscriptions collide on a name.
@@ -80,7 +80,7 @@ kit discovery walk, and a CI matrix on `ubuntu-latest` and `windows-latest`.
 **Done when.** `akit list` runs against a public source and a local path on both operating
 systems, and reports a deliberate name collision.
 
-**Settles.** The CI matrix half of [§10](DESIGN.md#10-windows-linux-python).
+**Settles.** The CI matrix half of [§9](DESIGN.md#9-windows-linux-python).
 
 **Leave alone.** Every renderer. A tool that only reads is the one chance to get resolution
 right without a file-writing bug on top of it.
@@ -91,9 +91,9 @@ right without a file-writing bug on top of it.
 
 **Deliverable.** `akit render` for skills, `akit update`, `akit doctor`, and the lockfile.
 
-**Specified by DESIGN.md.** Rendering always copies ([§7](DESIGN.md#7-the-manifest)), what
-rendering a skill means ([§8](DESIGN.md#8-rendering)), no symlink is ever created
-([§10](DESIGN.md#10-windows-linux-python)).
+**Specified by DESIGN.md.** Rendering always copies ([§6](DESIGN.md#6-the-manifest)), what
+rendering a skill means ([§7](DESIGN.md#7-rendering)), no symlink is ever created
+([§9](DESIGN.md#9-windows-linux-python)).
 
 **Steps.**
 
@@ -123,8 +123,8 @@ and `akit render` being quick is what replaces it.
 real rules living in a source.
 
 **Specified by DESIGN.md.** The three shapes and the ordering rule
-([§8](DESIGN.md#8-rendering)), what each harness reads
-([§4](DESIGN.md#4-where-each-harness-keeps-things-today)).
+([§7](DESIGN.md#7-rendering)), what each harness reads
+([§4](DESIGN.md#4-adding-a-harness)).
 
 **Steps.**
 
@@ -136,7 +136,7 @@ real rules living in a source.
   three renders.
 - Honour manifest order, and prove it with a test over two rules that contradict.
 - **Write ten real rules.** Not fixtures: the rules actually wanted on this machine. This is
-  the only way [§13](DESIGN.md#13-still-open)'s `applyTo` question gets evidence instead of an
+  the only way [§12](DESIGN.md#12-still-open)'s `applyTo` question gets evidence instead of an
   opinion.
 
 **Done when.** One rule renders to all three shapes, a hand-written paragraph between two
@@ -155,7 +155,7 @@ cheap to fix if it is not.
 **Deliverable.** A pi adapter, and whatever refactor its absence of a clean seam demands.
 
 **Specified by DESIGN.md.** The six questions and the worked pi answers
-([§5](DESIGN.md#5-adding-a-harness)), invariant 6
+([§4](DESIGN.md#4-adding-a-harness)), invariant 6
 ([§3](DESIGN.md#3-rules-of-the-build)).
 
 **Steps.**
@@ -183,7 +183,7 @@ rather than described.
 five-line activation rule.
 
 **Specified by DESIGN.md.** The three layers and the two rules that keep them apart
-([§12](DESIGN.md#12-the-skill)).
+([§11](DESIGN.md#11-the-skill)).
 
 **Steps.**
 
@@ -195,7 +195,7 @@ five-line activation rule.
   describes the output, or there are two descriptions and one goes stale.
 - Ship the activation rule as text the skill offers to place, and let it ask the agent where
   its own harness keeps user-level instructions rather than carrying a list of paths.
-- Settle whether the CLI ships inside the skill ([§13](DESIGN.md#13-still-open)). The
+- Settle whether the CLI ships inside the skill ([§12](DESIGN.md#12-still-open)). The
   decision is forced here because the skill has to tell somebody how to run the thing.
 - Decide how a cold-session test gets run. The sibling project builds a throwaway agent in a
   redirected `HOME` and drives it; port that or state the gap, because prose is what regresses
@@ -220,7 +220,7 @@ remote.
 subscribing to a private source is the one thing that can do real damage.
 
 **Specified by DESIGN.md.** What can actually leak, how a source and a target are
-classified, and what the refusal covers ([§9](DESIGN.md#9-keeping-the-employers-kits-in)).
+classified, and what the refusal covers ([§8](DESIGN.md#8-keeping-the-employers-kits-in)).
 Refusals are hard ([§3](DESIGN.md#3-rules-of-the-build)).
 
 **Steps.**
@@ -253,13 +253,13 @@ genuinely want to live in two harnesses is the trigger; fewer than that and this
 translation layer maintained for nobody.
 
 **Specified by DESIGN.md.** The canonical file, the `harness:` overrides, and the hard failure
-on an unmappable tool ([§8](DESIGN.md#8-rendering)).
+on an unmappable tool ([§7](DESIGN.md#7-rendering)).
 
 **Steps.**
 
 - Translate the frontmatter per harness, body untouched.
 - Build the tool-name table by hand. Decide then whether it is per harness or per agent
-  ([§13](DESIGN.md#13-still-open)); writing three real agents is what answers it.
+  ([§12](DESIGN.md#12-still-open)); writing three real agents is what answers it.
 - **Stop the render on a tool name with no mapping.** A test asserts the failure, because the
   tempting bug is to drop it and carry on.
 - Report a skill or MCP server an agent names and you have not subscribed to. Warn, never
@@ -280,11 +280,11 @@ construction: no completion date, and its first output is evidence rather than c
 - Keep the journal running. The incidents that matter here are a render that surprised
   somebody, a kit that was edited in its rendered copy by mistake, a collision the rename did
   not solve, a source whose layout moved.
-- Settle what a moved tag should report ([§13](DESIGN.md#13-still-open)), when one moves.
+- Settle what a moved tag should report ([§12](DESIGN.md#12-still-open)), when one moves.
 - Add a harness when somebody wants one, not before. Each addition is also a test of
   [T4](#t4---add-a-third-harness)'s claim, and the first one that needs a change outside its
   own file is worth writing down.
-- Revisit MCP servers only on evidence ([§14](DESIGN.md#14-not-doing)). The entry that would
+- Revisit MCP servers only on evidence ([§13](DESIGN.md#13-not-doing)). The entry that would
   move them is an agent that is useless without one, more than once.
 
 **Done when.** Nothing, in the sense the other tasks mean it.
