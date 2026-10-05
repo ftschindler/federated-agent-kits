@@ -422,8 +422,8 @@ than for people.
 
 ### What a repository commits
 
-**The manifest, and the renders for harnesses that have no machine.** Everything else
-`akit render` writes is generated and ignored.
+**The manifest, its lockfile, and the renders for harnesses that have no machine.**
+Everything else `akit render` writes is generated and ignored.
 
 The ordinary case is ignore. A harness runs on your laptop, where `akit` also runs, so the
 files it reads can be produced on demand:
@@ -434,7 +434,8 @@ files it reads can be produced on demand:
 ```
 
 The workflow is clone, `akit render`, work. A colleague who has not installed the tool sees
-`.akit.yaml` and nothing else, which is the honest signal that a step is missing.
+`.akit.yaml` and `.akit.lock` and nothing else, which is the honest signal that a step is
+missing.
 
 **Two kinds of render have to be committed anyway.**
 
@@ -481,14 +482,14 @@ source you are writing rather than consuming.
 When you need both at once, which is a project subscribing to `owner/repo` that you also
 happen to be the author of, `akit link owner/repo ../my-kits` points this machine at your
 checkout. It redirects where a source is read from, and has nothing to do with symlinks. That
-goes in machine state beside the lockfile, never in either manifest, because it is true of one
-laptop and nothing else.
+goes in machine state beside the render record, never in either manifest, because it is true
+of one laptop and nothing else.
 
 ### Always copied
 
 **Rendering copies, on every platform, from every kind of source.** The hash of what was
-copied goes in the lockfile, which is what lets `akit doctor` spot a rendered file somebody
-has edited by mistake, and what makes an update a diff you read.
+copied is recorded, which is what lets `akit doctor` spot a rendered file somebody has edited
+by mistake, and what makes an update a diff you read.
 
 The alternative was a symlink for a source you have checked out and edit, so the harness sees
 an edit with no render in between. It bought one saved command, and cost a feature that
@@ -497,6 +498,37 @@ behaves differently on Windows, where a symlink needs developer mode or an eleva
 So editing a kit you author means running `akit render` afterwards. That makes render speed a
 real requirement rather than a nicety: it is the inner loop of writing a kit, not just
 something you run after changing the manifest.
+
+### What was pinned, and what was written
+
+Two facts have to survive between commands, and they are not the same kind of fact, so they
+live in two files.
+
+**Which commit a ref resolved to is shareable, so it is committed.** `owner/repo#v2` is a
+name that can be re-pointed. The commit it meant when you added it is what everybody should
+get, so a repository carries `.akit.lock` beside its `.akit.yaml`, listing one commit per
+source the manifest names. A colleague clones, renders, and has your commits rather than
+whatever the tag means today.
+
+This is `uv.lock`'s job, and the comparison is exact: a human-written file of loose
+requirements, a generated file of exact answers, both committed, the second never hand-edited.
+Your own manifest gets the same file beside it in the config directory, where it is nobody
+else's business.
+
+**What was written where is true of one machine, so it is not committed.** It names every
+file a render produced, the subscription that explains it, and a hash of the copy. It lives
+in the state directory with the `akit link` overrides, because the set of harnesses on this
+laptop is not a fact about the repository.
+
+That file is what makes `akit doctor` able to say anything: a hash that no longer matches is
+a rendered file somebody edited by mistake, and a file in the record that nothing explains
+any more is an orphan to delete. It also records how each source was classified when it was
+fetched ([§8](#8-keeping-the-employers-kits-in)), because needing credentials to clone is
+only observable while cloning.
+
+**`render` never moves a pin.** Only `add` and `update` write to `.akit.lock`, which is what
+makes rendering safe to run from a hook: it can change files on disk, never what a kit
+contains.
 
 ## 7. Rendering
 
@@ -646,7 +678,7 @@ hygiene suite in `governance.yml` is the same on every platform and runs on Linu
 
 **Python is the only language we write.** No TypeScript, no shell scripts, no Makefile recipe
 doing real work. Every script carries its dependencies in a PEP 723 header and runs under
-`uv run`, so there is no install step and no lockfile to go stale.
+`uv run`, so there is no install step and no dependency lockfile of our own to go stale.
 
 There is one exception, and it is deliberate. `.scripts/linkspector.mjs` is twenty lines of
 node that pin a Chrome build and start a link checker. It runs inside a pre-commit hook,
@@ -666,22 +698,23 @@ akit doctor               # what is wrong, and which command fixes it
 **Two commands touch the network, for different reasons.** `add` fetches a source this
 machine does not have yet, and skips that when the cache already holds it at the ref asked
 for. `update` fetches new commits for a source it does have. Nothing else goes near a
-network: `list`, `render` and `doctor` work from the manifests, the clones in the cache and
-the lockfile, so a render on a train produces exactly what it produced yesterday.
+network: `list`, `render` and `doctor` work from the four files below, so a render on a train
+produces exactly what it produced yesterday.
 
 Offline, `add` therefore works for a source you already have and fails cleanly for one you do
 not, saying which it was.
 
-Three files are involved throughout. The **manifests** say what you want
-([§6](#6-the-manifest)). The **cache** holds a clone of each remote source. The **lockfile**
-records what was rendered, from which commit, with the hash of each copy.
+Four files are involved throughout, all described in [§6](#6-the-manifest). The
+**manifests** say what you want. The **lockfile** beside each one says which commit every ref
+resolved to. The **cache** holds a clone of each remote source. The **render record**, in the
+state directory, says what was written where, with a hash per copy.
 
 ### `list`
 
-**Shows what is subscribed and what state it is in.** Reads the two manifests, the lockfile
-and the disk; writes nothing and fetches nothing.
+**Shows what is subscribed and what state it is in.** Reads the manifests, their lockfiles,
+the render record and the disk; writes nothing and fetches nothing.
 
-Per subscription it prints the source, the commit the lockfile recorded, the parts found in
+Per subscription it prints the source, the commit its lockfile pinned, the parts found in
 it, and where each part was rendered. A subscription that was never rendered says so, and so
 does one whose source is missing from the cache.
 
@@ -714,8 +747,8 @@ another kit, or a private source being written into a committed manifest
 author and also subscribe to, usually through a repository manifest shared with people who
 have no checkout of it.
 
-It writes one entry to machine state, beside the lockfile and never in a manifest, then
-renders. From then on every command reads that source from your working tree, so what you are
+It writes one entry to machine state, beside the render record and never in a manifest,
+then renders. From then on every command reads that source from your working tree, so what you are
 editing is what your agents get after the next render.
 
 `akit link --remove <source>` goes back to the clone.
@@ -726,7 +759,7 @@ editing is what your agents get after the next render.
 
 A call walks every subscription, and for each one copies its parts into every harness that
 takes them, translating where the harness needs it ([§7](#7-rendering)). It then deletes
-rendered files that no subscription explains any more, and rewrites the lockfile.
+rendered files that no subscription explains any more, and rewrites the render record.
 
 **A subscription renders into its own scope and no other.** Yours go to the machine-level
 harness directories, the same ones whatever directory you are standing in. A repository's go
@@ -757,8 +790,8 @@ only ones that can go stale while looking fine.
 only command that changes what a kit contains.
 
 For each source, or just the named one, it fetches, resolves the `#ref` again, and compares
-the new commit with the one in the lockfile. It prints the diff of every part you subscribe
-to, then renders.
+the new commit with the pinned one. It writes the new pin to the lockfile, prints the diff
+of every part you subscribe to, then renders.
 
 The diff is the point rather than a courtesy. A rule you have never read is text added to
 every prompt your agents see, so an update to one is a change to how they behave.
@@ -772,7 +805,8 @@ What it looks for:
 
 - two kits rendering to one name;
 - a rendered file no subscription explains;
-- a rendered file edited by hand, caught by its hash in the lockfile;
+- a rendered file edited by hand, caught by its hash in the render record;
+- a lockfile that pins a source the manifest beside it no longer names;
 - a source that no longer resolves, or a `#ref` that no longer exists;
 - a committed render that is out of date, which is `render --check` by another name;
 - an agent naming a skill or an MCP server you have not subscribed to
@@ -836,7 +870,7 @@ anything unknown. Whether that table is per harness or per agent is open. Not wo
 until three agents genuinely want to live in two places.
 
 **What does a pin mean when a source moves a tag?** `#v2` resolves to a commit, which the
-lockfile records. If upstream re-points `v2` somewhere else, the next `akit update` sees a
+lockfile pins. If upstream re-points `v2` somewhere else, the next `akit update` sees a
 different commit under the same name. Whether that is reported differently from an ordinary
 update is open.
 
