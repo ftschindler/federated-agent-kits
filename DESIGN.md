@@ -634,9 +634,14 @@ akit update [name]        # fetch, move the pins, show what moved
 akit doctor               # what is wrong, and which command fixes it
 ```
 
-**Only `update` goes to the network for new commits.** Everything else works from what is
-already on disk: the manifests, the clones in the cache, and the lockfile. So a render on a
-train produces exactly what it produced yesterday.
+**Two commands touch the network, for different reasons.** `add` fetches a source this
+machine does not have yet, and skips that when the cache already holds it at the ref asked
+for. `update` fetches new commits for a source it does have. Nothing else goes near a
+network: `list`, `render` and `doctor` work from the manifests, the clones in the cache and
+the lockfile, so a render on a train produces exactly what it produced yesterday.
+
+Offline, `add` therefore works for a source you already have and fails cleanly for one you do
+not, saying which it was.
 
 Three files are involved throughout. The **manifests** say what you want
 ([§6](#6-the-manifest)). The **cache** holds a clone of each remote source. The **lockfile**
@@ -661,8 +666,8 @@ manifest for you, so its format is something you never have to hold in your head
 
 A call does four things, in order:
 
-1. **Resolves the source.** A remote not in the cache is cloned there now. A `#ref` is
-   resolved to a commit.
+1. **Resolves the source.** A remote the cache does not hold is cloned now, which is the one
+   place `add` needs a network. A `#ref` is resolved to a commit.
 2. **Checks the kit is really there**, by the walk in [§5](#5-sources). A typo fails here,
    with a list of what the source does hold, rather than becoming a skill that silently never
    loads.
@@ -705,8 +710,8 @@ only ones that can go stale while looking fine.
 
 ### `update`
 
-**Fetches, moves the pins, and shows what moved.** The only command that changes what a kit
-contains.
+**Fetches new commits for sources already here, moves the pins, and shows what moved.** The
+only command that changes what a kit contains.
 
 For each source, or just the named one, it fetches, resolves the `#ref` again, and compares
 the new commit with the one in the lockfile. It prints the diff of every part you subscribe
