@@ -401,11 +401,13 @@ a subdirectory is normal and has to work. The walk cannot stray into somebody el
 repository, because it stops at the first worktree root, and it cannot reach the user
 manifest, which is in the config directory and never on that path.
 
-**Reading uses both, always.** `render`, `list` and `doctor` take the union, which is the
-point of there being two.
+**Reading uses both, always.** `render`, `list` and `doctor` work from the two together, with
+each subscription acting on its own scope: yours on the machine-level harness directories, a
+repository's inside that repository ([§10](#10-commands)).
 
 **Writing picks one, and gets asked.** Only `add` writes a manifest, and the flags are
-git's: `--global` for yours, `--project` for the repository's.
+git's: `--global` for yours, `--project` for the repository's. The same two flags narrow the
+reading commands when you want one scope rather than both.
 
 **With neither flag, the repository's wins.** A repository with no `.akit.yaml` is an error
 naming `--global`, rather than a quiet write to your personal file.
@@ -656,7 +658,7 @@ never anywhere else, and nothing a user of `akit` touches depends on it.
 akit list                 # what you subscribed to, and where it is
 akit add <source> <name>  # register a subscription, then render it; --global for yours
 akit link <source> <path> # read this source from a local checkout instead of a clone
-akit render               # make the harness files match the manifests
+akit render               # make the harness files match the manifests, both scopes
 akit update [name]        # fetch, move the pins, show what moved
 akit doctor               # what is wrong, and which command fixes it
 ```
@@ -726,11 +728,24 @@ A call walks every subscription, and for each one copies its parts into every ha
 takes them, translating where the harness needs it ([§7](#7-rendering)). It then deletes
 rendered files that no subscription explains any more, and rewrites the lockfile.
 
+**A subscription renders into its own scope and no other.** Yours go to the machine-level
+harness directories, the same ones whatever directory you are standing in. A repository's go
+inside that repository. So running this in a repository writes in two places, and the
+repository receives only what its own `.akit.yaml` asked for. Nothing personal of yours ends
+up in somebody's project.
+
+It does both by default because a kit you are writing is usually a global one, and you are
+usually inside some repository while writing it. A render that skipped your own subscriptions
+whenever you were in a project would mean editing a rule and not seeing it until you changed
+directory. `--global` and `--project` narrow it when you want only one half, and the output
+is grouped by scope so what went where is never a guess.
+
 It uses the commits already in the cache. Nothing is fetched, so a render never changes what
 a kit contains; only `update` does that.
 
 **Running it twice changes nothing**, which is what makes it safe from a git hook, a shell
-startup, or the end of another command.
+startup, or the end of another command. The half you did not come for is a no-op whenever
+nothing changed.
 
 `--check` performs the same walk and writes nothing, exiting non-zero if anything would have
 changed. That is for the renders a repository commits ([§6](#6-the-manifest)), which are the
