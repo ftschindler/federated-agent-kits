@@ -120,7 +120,7 @@ kits is that they cannot clone the repository.
 
 ## 4. Adding a harness
 
-Write an adapter. An adapter answers six questions, and nothing else in the system changes.
+Write an adapter. An adapter answers seven questions, and nothing else in the system changes.
 
 1. Where do skills go, for the whole machine and for one repository?
 2. How does it pick up rules: a directory we own, a directory it can be pointed at once, or
@@ -129,9 +129,20 @@ Write an adapter. An adapter answers six questions, and nothing else in the syst
 4. Where do agents go, and what are the frontmatter keys called?
 5. What are this harness's tools called?
 6. Which directory does it treat as the project, and will it read what we put there?
+7. How do I tell whether this harness is on this machine at all?
 
 "This harness has no agents" is a valid answer to question 4. The adapter declines that kind
 and the command says so.
+
+**Question 7 decides who gets rendered for**, and it is a question rather than a setting
+because of rule 8: nothing to configure after install. A harness you use has left something
+on this disk, `~/.config/opencode/`, `~/.pi/`, a VS Code profile, and the adapter knows
+which thing to look for. Finding it is the same kind of evidence as
+[§8](#8-keeping-the-employers-kits-in)'s clone test: observable at the moment it matters,
+needing nobody's cooperation. [§10](#10-commands) says what `render` does with the answer.
+
+"I am never here" is the valid answer for a harness with no machine, and it is why that kind
+has to be named in a manifest instead.
 
 **Question 6 is the one that silently renders into the wrong place.** We render a
 repository's kits next to its `.akit.yaml`, at the git root. A harness that anchors somewhere
@@ -151,12 +162,15 @@ and this harness is not reading them yet.
 
 **One property, not a question: some harnesses have no machine.** GitHub Copilot running in
 CI is a harness by every test above. It reads instruction files, it has custom agents, it
-answers all six questions. What it does not have is somewhere for `akit render` to run: it
-clones the repository and reads what is in the clone.
+answers all seven questions, though its answer to the seventh is that it is never here. What
+it does not have is somewhere for `akit render` to run: it clones the repository and reads
+what is in the clone.
 
-So an adapter declares which it is. A harness with a machine gets files rendered on demand
-and ignored by git. A harness without one gets its files committed, because for it the
-repository is the delivery mechanism ([§6](#6-the-manifest)).
+So an adapter declares which it is. A harness with a machine is detected and gets files
+rendered on demand and ignored by git. A harness without one cannot be detected by anything
+running on your laptop, so it is named in the repository's manifest, and its files are
+committed because for it the repository is the delivery mechanism
+([§6](#6-the-manifest)).
 
 **An adapter is where a harness's changes land.** When one moves its directories or replaces
 its config key, the fix is that one file, not this design.
@@ -381,6 +395,50 @@ At thirty entries the file is for editing and `akit list` is for reading. The fi
 grows a column of rendered paths or resolved commits, because those are answers the tool
 computes.
 
+### Naming the harnesses, when detection is not enough
+
+A repository's manifest may carry one more key, and most never do:
+
+```yaml
+version: 1
+harnesses: [detected, copilot-ci]
+```
+
+**The list is the whole answer, and `detected` is a member of it.** That word expands to
+every harness this machine has, by question 7 of [§4](#4-adding-a-harness). An absent key
+means `[detected]`, which is the ordinary repository.
+
+One key serves two needs, which is why it is a list of names rather than a pair of flags, and
+why the detected set had to become a name you can write down.
+
+**A harness with no machine can only arrive by being named.** Nothing on your laptop can tell
+you that GitHub Copilot in CI is in use, because the machine that runs it is a GitHub runner
+that will never run `akit`. Naming it is also the right ceremony: it is the largest leak
+surface in [§8](#8-keeping-the-employers-kits-in), and turning it on moves a directory of
+rendered rules into the repository's commits. That should be a line somebody wrote, not a
+thing that happened.
+
+**Naming one does not cost you the others**, and this is what `detected` is for. Turning on
+the cloud agent is a statement about what gets committed, not about what the people working
+on the repository have installed. A list reading `[detected, copilot-ci]` says both things at
+once: commit what the cloud agent reads, and keep rendering for whatever each colleague
+actually uses. `akit add --harness copilot-ci` writes exactly that, keeping `detected` in
+place.
+
+**Dropping `detected` is how you pin instead.** A list of named harnesses and nothing else
+means everybody working on the repository gets the same files regardless of what they have
+installed. That is a deliberate and uncommon thing to want, and it is deliberate precisely
+because a word has to be deleted for it to happen.
+
+The pinned case has a cost, which is the reason it is not the default. A colleague whose
+harness is not on the list gets nothing rendered for it, and nothing fails. `akit doctor`
+reports that: a harness detected on this machine and excluded by the manifest is worth one
+line, because the alternative is an agent that behaves as if the kits were never there.
+
+This key is for a repository. Your own manifest may carry it too, and there is rarely a
+reason: nothing at user scope is committed, so there is no machineless harness to name and
+nothing to keep out of a commit.
+
 ### Two files, one format
 
 One manifest holds what is true of you, and lives in the per-platform user config directory.
@@ -434,12 +492,29 @@ than for people.
 `akit render` writes is generated and ignored.
 
 The ordinary case is ignore. A harness runs on your laptop, where `akit` also runs, so the
-files it reads can be produced on demand:
+files it reads can be produced on demand.
+
+**Rendering maintains the ignore rules, because forgetting one is how a laptop harness's
+output gets committed.** Every render writes a marker block at the end of the repository's
+`.gitignore`, holding one line per directory it wrote into and did not mean to commit:
 
 ```gitignore
+# BEGIN akit
 .claude/skills/
 .agents/skills/
+# END akit
 ```
+
+It is a file the user owns, so it gets the same treatment as the third shape in
+[§7](#7-rendering): everything outside the markers survives untouched, and the block is
+rewritten whole each time. A directory that stops being rendered leaves the block on the next
+render, and a harness that becomes machineless-committed leaves it too, since those entries
+are exactly the inverse of what gets committed. Nobody has to keep the two lists in step by
+hand.
+
+A line the user wrote themselves that already covers one of those directories is left where
+it is, and duplicated inside the block, which costs nothing: git does not mind an entry twice.
+Removing ours is then still safe.
 
 The workflow is clone, `akit render`, work. A colleague who has not installed the tool sees
 `.akit.yaml` and nothing else, which is the honest signal that a step is missing.
@@ -454,8 +529,8 @@ The second is everything read by a harness with no machine, which is the case
 [§4](#4-adding-a-harness) describes: GitHub Copilot in CI clones the repository and reads
 what is there. Nobody runs `akit render` in that clone, so a file it is supposed to read and
 that is not committed does not exist. Its three directories, `.github/instructions/`,
-`.github/agents/` and one of the skills directories, move out of the ignore list the moment
-it is in use.
+`.github/agents/` and one of the skills directories, stay out of the ignore block from the
+moment the manifest names that harness.
 
 That overlap is convenient rather than awkward. `.github/instructions/` and `.claude/skills/`
 are also where harnesses on your laptop look, so one committed set serves both, and those
@@ -657,6 +732,10 @@ harnesses and commit the output of only one. Rendering a private kit for a lapto
 a public repository is fine: nothing is committed. Rendering the same kit for a machineless
 harness in that repository is the leak.
 
+Which makes the check a short one to run. The harnesses that can leak are the machineless
+ones, those exist only by being named in `.akit.yaml` ([§6](#6-the-manifest)), and that list
+is three lines somebody wrote on purpose.
+
 The override lives in your own manifest, never in the project one, because an override
 committed into the public repository is the leak it was guarding against.
 
@@ -758,6 +837,14 @@ It fails before step 3 if the subscription would break a rule: a name already ta
 another kit, or a private source being written into a committed manifest
 ([§8](#8-keeping-the-employers-kits-in)).
 
+**`akit add --harness <name>` is the same command pointed at the other key.** It adds a
+harness to the manifest's list rather than a subscription, leaving `detected` in place, and
+then renders ([§6](#6-the-manifest)). It exists because turning on a machineless harness
+starts committing files, and a command that says what that will do beats a key somebody
+guesses the spelling of. Its refusal is [§8](#8-keeping-the-employers-kits-in)'s: a private
+source already subscribed in this repository means the harness cannot be added until that
+subscription goes.
+
 ### `remove`
 
 **Drops a subscription and deletes what it rendered.** The other half of `add`, and the same
@@ -775,9 +862,31 @@ cannot be mistaken for a working setup.
 
 **Makes the files on disk match the manifests. The only command that writes kit files.**
 
-A call walks every subscription, and for each one copies its parts into every harness that
-takes them, translating where the harness needs it ([§7](#7-rendering)). It then deletes
-rendered files that no subscription explains any more, and rewrites the render record.
+A call walks every subscription, and for each one copies its parts into every harness in
+scope, translating where the harness needs it ([§7](#7-rendering)). It then deletes rendered
+files that no subscription explains any more, rewrites the ignore block in the repository's
+`.gitignore` ([§6](#6-the-manifest)), and rewrites the render record.
+
+**Which harnesses are in scope is one list, expanded then narrowed.**
+
+The manifest's `harnesses:` key is that list, and defaults to `[detected]`
+([§6](#6-the-manifest)). Expanding it replaces `detected` with every harness this machine
+has, by question 7 of [§4](#4-adding-a-harness). That expansion is why there is nothing to
+configure after install: you installed opencode, so opencode gets files. Every other member
+is a name, and a harness with no machine can only be one of those.
+
+So a repository that names the cloud agent still renders for whatever each colleague has, as
+long as `detected` is still in the list, and the only thing a name adds is that harness.
+
+`--no-harness <name>` then drops one from the expanded list, repeatable, and it cannot add
+one back. It is for the render you want now rather than the setup you keep, so it writes
+nothing into a manifest: a harness you never want is an edit to the manifest's list, not a
+flag you remember to type. `--harness <name>` is the opposite narrowing and exists for
+working on an adapter.
+
+Dropping a harness this way deletes nothing it rendered earlier. Those files become orphans
+that `akit doctor` reports, because a flag meant to skip work should not quietly remove
+files, and `--no-harness` on a bad day would otherwise be a delete command.
 
 **A subscription renders into its own scope and no other.** Yours go to the machine-level
 harness directories, the same ones whatever directory you are standing in. A repository's go
@@ -801,6 +910,12 @@ nothing changed.
 `--check` performs the same walk and writes nothing, exiting non-zero if anything would have
 changed. That is for the renders a repository commits ([§6](#6-the-manifest)), which are the
 only ones that can go stale while looking fine.
+
+**`--check` only ever judges committed renders, which is what keeps detection out of it.** A
+CI runner has none of the harnesses on your laptop installed, so a check that considered
+detected ones would call every repository stale forever. It does not have to: everything that
+can go stale belongs to a harness named outright in the manifest rather than detected, and
+that part of the list reads the same on every machine.
 
 ### `update`
 
@@ -835,7 +950,13 @@ What it looks for:
 - an agent naming a skill or an MCP server you have not subscribed to
   ([§1](#1-what-this-is));
 - files in place for a harness that is not reading them yet
-  ([§4](#4-adding-a-harness)).
+  ([§4](#4-adding-a-harness));
+- a harness detected on this machine that the manifest's `harnesses:` list leaves out, which
+  is the one failure that looks exactly like success ([§6](#6-the-manifest));
+- a harness named in the manifest that no adapter knows, which is a typo in a list nothing
+  else validates;
+- a rendered directory missing from the `.gitignore` block, or sitting in it while also being
+  committed.
 
 Changing nothing is what makes it the safe thing to run when you do not know what is going
 on.
