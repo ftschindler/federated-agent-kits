@@ -626,67 +626,114 @@ never anywhere else, and nothing a user of `akit` touches depends on it.
 ## 10. Commands
 
 ```text
-akit list                 # what you subscribed to, where it renders, whether it is current
-akit add <source> <name> --kind rule      # -p writes the project file instead of yours
+akit list                 # what you subscribed to, and where it is
+akit add <source> <name>  # register a subscription, then render it
 akit link <source> <path> # read this source from a local checkout instead of a clone
-akit render               # --check writes nothing and fails when stale
-akit update [name]        # re-pin what was copied, show the diff
-akit doctor               # collisions, stale renders, refusals
+akit render               # make the harness files match the manifests
+akit update [name]        # fetch, move the pins, show what moved
+akit doctor               # what is wrong, and which command fixes it
 ```
+
+**Only `update` goes to the network for new commits.** Everything else works from what is
+already on disk: the manifests, the clones in the cache, and the lockfile. So a render on a
+train produces exactly what it produced yesterday.
+
+Three files are involved throughout. The **manifests** say what you want
+([§6](#6-the-manifest)). The **cache** holds a clone of each remote source. The **lockfile**
+records what was rendered, from which commit, with the hash of each copy.
 
 ### `list`
 
-Answers "what do I actually have?" without touching anything. For each subscription: the
-source it resolved to, the commit, the parts it found, and where each one rendered.
+**Shows what is subscribed and what state it is in.** Reads the two manifests, the lockfile
+and the disk; writes nothing and fetches nothing.
 
-It is also the command a person runs when something is not working, so it reports a failure
-per line and carries on rather than stopping at the first one.
+Per subscription it prints the source, the commit the lockfile recorded, the parts found in
+it, and where each part was rendered. A subscription that was never rendered says so, and so
+does one whose source is missing from the cache.
+
+Failures are reported per line rather than stopping the command, because this is what you run
+when something is already wrong.
 
 ### `add`
 
-Edits the manifest for you, so the file's shape is something you can forget. It resolves the
-source first and fails if the kit is not there, which turns a typo into an error now rather
-than a missing skill later.
+**Registers a new subscription in a manifest, and installs it.** The one command that edits a
+manifest for you, so its format is something you never have to hold in your head.
+
+A call does four things, in order:
+
+1. **Resolves the source.** A remote not in the cache is cloned there now. A `#ref` is
+   resolved to a commit.
+2. **Checks the kit is really there**, by the walk in [§5](#5-sources). A typo fails here,
+   with a list of what the source does hold, rather than becoming a skill that silently never
+   loads.
+3. **Writes one line** into your manifest, or into the repository's with `-p`.
+4. **Renders**, so the kit is usable when the command returns.
+
+It fails before step 3 if the subscription would break a rule: a name already taken by
+another kit, or a private source being written into a committed manifest
+([§8](#8-keeping-the-employers-kits-in)).
 
 ### `link`
 
-Says "this source is on my disk, read it from there". For a repository you author and also
-subscribe to, usually through a project manifest you share with people who do not have it
-checked out. It writes to machine state, never to a manifest, because it is true of one
-laptop.
+**Points this machine at a checkout of a source, instead of the cache.** For a source you
+author and also subscribe to, usually through a repository manifest shared with people who
+have no checkout of it.
+
+It writes one entry to machine state, beside the lockfile and never in a manifest, then
+renders. From then on every command reads that source from your working tree, so what you are
+editing is what your agents get after the next render.
+
+`akit link --remove <source>` goes back to the clone.
 
 ### `render`
 
-The only command that writes kit files. Copies every subscribed part into every harness that
-takes it, and removes what no longer belongs. Running it twice changes nothing, so it is safe
-from a git hook or a shell startup.
+**Makes the files on disk match the manifests. The only command that writes kit files.**
 
-`--check` is the same walk with the writing turned off, exiting non-zero when a render is out
-of date. That is for the renders that get committed ([§6](#6-the-manifest)), which are the
-only ones that can be stale without anybody noticing.
+A call walks every subscription, and for each one copies its parts into every harness that
+takes them, translating where the harness needs it ([§7](#7-rendering)). It then deletes
+rendered files that no subscription explains any more, and rewrites the lockfile.
+
+It uses the commits already in the cache. Nothing is fetched, so a render never changes what
+a kit contains; only `update` does that.
+
+**Running it twice changes nothing**, which is what makes it safe from a git hook, a shell
+startup, or the end of another command.
+
+`--check` performs the same walk and writes nothing, exiting non-zero if anything would have
+changed. That is for the renders a repository commits ([§6](#6-the-manifest)), which are the
+only ones that can go stale while looking fine.
 
 ### `update`
 
-Moves a pin and shows what moved. `#ref` resolves to a commit, that commit is in the
-lockfile, and this is where a new one arrives. The diff is the point: an update to a rule you
-have never read is a change to what your agent is told on every message.
+**Fetches, moves the pins, and shows what moved.** The only command that changes what a kit
+contains.
+
+For each source, or just the named one, it fetches, resolves the `#ref` again, and compares
+the new commit with the one in the lockfile. It prints the diff of every part you subscribe
+to, then renders.
+
+The diff is the point rather than a courtesy. A rule you have never read is text added to
+every prompt your agents see, so an update to one is a change to how they behave.
 
 ### `doctor`
 
-Checks the setup rather than changing it. Two kits claiming one name, a rendered file nobody
-subscribes to, a rendered file somebody edited by hand, a source that will not resolve, an
-agent naming a skill you do not have, a harness that has the files but is not reading them
-([§4](#4-adding-a-harness)).
+**Lists what is wrong and names the command that fixes each one.** Reads everything, changes
+nothing, and talks to no network.
 
-Every finding names the command that fixes it. Nothing here fixes anything itself, which is
-what makes it safe to run when you are confused.
+What it looks for:
 
-### Why these six
+- two kits rendering to one name;
+- a rendered file no subscription explains;
+- a rendered file edited by hand, caught by its hash in the lockfile;
+- a source that no longer resolves, or a `#ref` that no longer exists;
+- a committed render that is out of date, which is `render --check` by another name;
+- an agent naming a skill or an MCP server you have not subscribed to
+  ([§1](#1-what-this-is));
+- files in place for a harness that is not reading them yet
+  ([§4](#4-adding-a-harness)).
 
-`render` being idempotent and cheap is what makes the rest safe to trust: nothing has to
-remember whether it ran, and no command needs an undo. The split is that `add` and `link`
-write what you meant, `render` makes it true on disk, and `list`, `update` and `doctor` tell
-you where things stand without surprising you.
+Changing nothing is what makes it the safe thing to run when you do not know what is going
+on.
 
 ## 11. The skill
 

@@ -68,13 +68,14 @@ kit discovery walk, and a CI matrix on `ubuntu-latest` and `windows-latest`.
   `.akit.yaml` in the repository root, project adding to user and winning on a clash.
 - Resolve a source key: shorthand, forge URL, git URL, subdirectory URL, local path, with an
   optional `#ref`. Clone into the platform cache when nothing says otherwise.
-- Implement `akit link <source> <path>` and the machine-state file it writes to. Keep that
-  file separate from the lockfile from the start; they answer different questions and one of
-  them is shared.
+- Implement `akit link <source> <path>`, its `--remove`, and the machine-state file it writes
+  to. Keep that file separate from the lockfile from the start; they answer different
+  questions and one of them is shared.
 - Walk the directories from [§5](DESIGN.md#5-sources), three levels, shallower shadowing
   deeper, for all three kinds.
 - Report: each subscription, which source and ref it resolved to, which kit file, and whether
-  two subscriptions collide on a name.
+  two subscriptions collide on a name. `list` fetches nothing, which is the rule
+  [§10](DESIGN.md#10-commands) states for every command except `update`.
 - Add the test workflow with both operating systems required.
 
 **Done when.** `akit list` runs against a public source and a local path on both operating
