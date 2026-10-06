@@ -49,8 +49,8 @@ sources ([§6](#6-the-manifest)).
 An agent can name skills it expects to be there. Those are not parts of it: they are a
 dependency, and we do not chase dependencies. A named skill you have not subscribed to gets
 you a warning from `akit doctor`, and nothing is installed that you did not ask for. An agent
-naming an MCP server is treated the same way, and section 13 says why that is as far as it
-goes.
+naming an MCP server is treated the same way, and [§13](#13-not-doing) says why that is as
+far as it goes.
 
 ### What it takes to move one
 
@@ -122,7 +122,7 @@ kits is that they cannot clone the repository.
 
 Write an adapter. An adapter answers seven questions, and nothing else in the system changes.
 
-1. Where do skills go, for the whole machine and for one repository?
+1. Where do skills go, and which directories does this harness also read them from?
 2. How does it pick up rules: a directory we own, a directory it can be pointed at once, or
    one fixed file we have to share ([§7](#7-rendering))?
 3. If it is the middle one, what is the pointer, and what writes it at setup?
@@ -134,12 +134,30 @@ Write an adapter. An adapter answers seven questions, and nothing else in the sy
 "This harness has no agents" is a valid answer to question 4. The adapter declines that kind
 and the command says so.
 
+**One adapter per harness, rather than one per job.** Detection, the directories a source may
+keep a part in, and the rendering of each kind are three different jobs with three different
+indexes, and splitting them into three families of file would be the obvious move. It is the
+wrong one: all three change together whenever a harness moves a directory, so the thing that
+varies together is the harness. That is rule 7, and it is why the adapter is one file with
+sections rather than several files with a registry.
+
+**Question 1 has two halves because reading and writing are different lists**
+([§5](#5-sources)). Where we put a skill is where this harness looks for one. Where a *source*
+may have left a skill is a wider set, and a repository that is its own source makes the
+difference matter.
+
 **Question 7 decides who gets rendered for**, and it is a question rather than a setting
 because of rule 8: nothing to configure after install. A harness you use has left something
 on this disk, `~/.config/opencode/`, `~/.pi/`, a VS Code profile, and the adapter knows
 which thing to look for. Finding it is the same kind of evidence as
 [§8](#8-keeping-the-employers-kits-in)'s clone test: observable at the moment it matters,
 needing nobody's cooperation. [§10](#10-commands) says what `render` does with the answer.
+
+**It asks about this machine and never about a repository.** A checkout holding
+`.github/agents/` is suggestive, and inferring a harness from it is exactly what this must
+not do: turning on a harness with no machine starts committing rendered rules, which
+[§6](#6-the-manifest) argues has to be a line somebody wrote. What a repository contains is
+discovery, and discovery never switches anything on.
 
 "I am never here" is the valid answer for a harness with no machine, and it is why that kind
 has to be named in a manifest instead.
@@ -246,7 +264,7 @@ the harness with no machine, so **everything below has to be committed or it doe
 **Skills: a directory we own, committed.** It reads `.github/skills/`, `.claude/skills/` and
 `.agents/skills/`, each a directory of `<name>/SKILL.md`. A root-level `skills/` is not among
 them, which matters for a repository that is its own source: its hand-written `skills/` is
-not what the cloud agent reads, and the rendered copy under one of the three is.
+not what the cloud agent reads, and the rendered copy in `.agents/skills/` is.
 
 **Rules: a directory we own, committed.** `.github/instructions/` takes one
 `*.instructions.md` per rule, with `applyTo` globs, and that is the shape we want everywhere.
@@ -272,7 +290,8 @@ than to pretend the repository is the whole story.
 
 A source is a git repository holding parts. Nothing is registered, nothing is declared, and a
 source never learns that you subscribed. This is what "federated" means here, and it costs one
-thing: a source cannot tell you anything about itself. Section 9 is where that hurts.
+thing: a source cannot tell you anything about itself.
+[§8](#8-keeping-the-employers-kits-in) is where that hurts.
 
 **Almost every source in the world predates this idea**, which is the case the rules below are
 written for. A repository with one skill in it was never going to add a manifest for our
@@ -306,20 +325,45 @@ shadows anything nested beneath it.
 
 | Kind | Looked for | Looked for in |
 | --- | --- | --- |
-| Skill | `SKILL.md` | the repository root, `skills/`, `skills/.curated/`, `skills/.experimental/`, `skills/.system/`, and the harness directories such as `.claude/skills/` and `.agents/skills/` |
-| Rule | `*.md` | the repository root, `rules/`, `.github/instructions/` |
-| Agent | `*.md` | the repository root, `agents/`, `.github/agents/`, `.claude/agents/`, `.opencode/agent/` |
+| Skill | `SKILL.md` | the repository root, `skills/`, and its `.curated/`, `.experimental/` and `.system/` subdirectories |
+| Rule | `*.md` | the repository root, `rules/` |
+| Agent | `*.md` | the repository root, `agents/` |
+
+Each kind then adds the directories harnesses already read for it, which every adapter
+declares and nothing here enumerates.
 
 So a repository holding one skill at its root is a source, and so is one holding sixty in
 categories, and so is one that has never heard of any of this. The first of those is also a
 kit, of one part, without anybody having decided so.
 
 **Why those, for skills:** this is what `npx skills add` already accepts, which makes it what
-repositories in the wild already look like. We follow the same rules and implement them
-ourselves, because `skills` is node and section 9 keeps node away from anything a user runs.
+repositories in the wild already look like. We follow the same convention and implement it
+ourselves, because `skills` is node and [§9](#9-windows-linux-python) keeps node away from
+anything a user runs. Following it rather than restating it is also why no harness directory
+appears in that row: when the convention grows one, we grow one.
 
-**Why those, for rules and agents:** no standard exists, so they mirror the skills layout and
-add the directories harnesses already read.
+**Why those, for rules and agents:** no standard exists, so they mirror the skills layout.
+
+### Reading is not writing
+
+**The directories a source may keep a part in are not the directories we render into**, and
+an adapter declares both ([§4](#4-adding-a-harness)).
+
+They read as one list today because a harness reads what it writes. They stop being one list
+the moment a repository is its own source: `akit render` writes a skill into
+`.agents/skills/`, and discovery that treated that directory as a source would find our own
+output and call it an input. A `"*"` subscription would then double on the second render.
+
+So discovery subtracts what the render record says we wrote
+([§6](#6-the-manifest)). The record is already the authoritative list of this tool's files,
+and this is one more thing that follows from it. A record that has been deleted takes this
+with it until the next render rebuilds one, which is the same gap [§6](#6-the-manifest)
+describes for orphans and has the same answer: `akit doctor` reports, `akit render --prune`
+acts.
+
+Which directories exist at all is a property of the adapters shipped in the package, not of
+this machine, so two people on one version of `akit` read a source identically
+([§9](#9-windows-linux-python)).
 
 ## 6. The manifest
 
@@ -350,7 +394,7 @@ agents:
 the directory, and whether order means anything. Grouping by it means no entry has to say
 which kind it is, and the three blocks can be read one at a time.
 
-**The key is the source, written out.** Any of the forms from section 6 goes there: the
+**The key is the source, written out.** Any of the forms from [§5](#5-sources) goes there: the
 shorthand above, a full forge URL, a git URL, or a local path. There is no table of
 nicknames to look up, and nothing that can go out of sync with one.
 
@@ -422,22 +466,30 @@ thing that happened.
 the cloud agent is a statement about what gets committed, not about what the people working
 on the repository have installed. A list reading `[detected, copilot-ci]` says both things at
 once: commit what the cloud agent reads, and keep rendering for whatever each colleague
-actually uses. `akit add --harness copilot-ci` writes exactly that, keeping `detected` in
+actually uses. `akit harness add copilot-ci` writes exactly that, keeping `detected` in
 place.
+
+**A named harness is rendered for unconditionally**, whether or not `detected` is in the list
+and whether or not this machine has it. `akit harness add opencode` in a repository that
+keeps `detected` therefore still means something: everybody gets opencode's files, including
+the colleague who has not installed it. The list is the whole answer, so a name on it is an
+answer and detection never overrules one.
 
 **Dropping `detected` is how you pin instead.** A list of named harnesses and nothing else
 means everybody working on the repository gets the same files regardless of what they have
-installed. That is a deliberate and uncommon thing to want, and it is deliberate precisely
-because a word has to be deleted for it to happen.
+installed. `akit harness remove detected` does it, and on a machine holding a harness the
+list does not name, it withdraws what that harness had rendered, the same as removing any
+other name ([§10](#10-commands)).
 
 The pinned case has a cost, which is the reason it is not the default. A colleague whose
 harness is not on the list gets nothing rendered for it, and nothing fails. `akit doctor`
 reports that: a harness detected on this machine and excluded by the manifest is worth one
 line, because the alternative is an agent that behaves as if the kits were never there.
 
-This key is for a repository. Your own manifest may carry it too, and there is rarely a
-reason: nothing at user scope is committed, so there is no machineless harness to name and
-nothing to keep out of a commit.
+This key is mostly for a repository, where it decides what gets committed. Your own manifest
+may carry it, and the reason is the narrower one: nothing at user scope is committed, so
+there is no machineless harness to name, and what a name buys you there is rendering for a
+harness `detected` does not find.
 
 ### Two files, one format
 
@@ -471,9 +523,10 @@ manifest, which is in the config directory and never on that path.
 each subscription acting on its own scope: yours on the machine-level harness directories, a
 repository's inside that repository ([§10](#10-commands)).
 
-**Writing picks one, and gets asked.** Only `add` writes a manifest, and the flags are
-git's: `--global` for yours, `--project` for the repository's. The same two flags narrow the
-reading commands when you want one scope rather than both.
+**Writing picks one, and gets asked.** `add`, `remove` and `akit harness` write a manifest,
+`render` never does, and the flags are git's: `--global` for yours, `--project` for the
+repository's. The same two flags narrow the reading commands when you want one scope rather
+than both.
 
 **With neither flag, the repository's wins.** A repository with no `.akit.yaml` is an error
 naming `--global`, rather than a quiet write to your personal file.
@@ -500,8 +553,8 @@ output gets committed.** Every render writes a marker block at the end of the re
 
 ```gitignore
 # BEGIN akit
-.claude/skills/
 .agents/skills/
+.opencode/agent/
 # END akit
 ```
 
@@ -515,6 +568,13 @@ hand.
 A line the user wrote themselves that already covers one of those directories is left where
 it is, and duplicated inside the block, which costs nothing: git does not mind an entry twice.
 Removing ours is then still safe.
+
+**A directory with two readers is committed if either of them commits**, because git cannot
+ignore a directory halfway. Skills share one directory ([§7](#7-rendering)), so naming the
+cloud agent takes `.agents/skills/` out of the ignore block and puts the skills every other
+harness was reading privately into the repository's history. That is the intended behaviour
+rather than a side effect, and it is why [§8](#8-keeping-the-employers-kits-in) asks which
+parts land somewhere a machineless harness reads rather than which parts it renders.
 
 The workflow is clone, `uvx akit render`, work. A colleague who has never run this tool sees
 `.akit.yaml` and nothing else, which is the honest signal that a step is missing, and that
@@ -531,10 +591,10 @@ The second is everything read by a harness with no machine, which is the case
 [§4](#4-adding-a-harness) describes: GitHub Copilot in CI clones the repository and reads
 what is there. Nobody runs `akit render` in that clone, so a file it is supposed to read and
 that is not committed does not exist. Its three directories, `.github/instructions/`,
-`.github/agents/` and one of the skills directories, stay out of the ignore block from the
+`.github/agents/` and the shared skills directory, stay out of the ignore block from the
 moment the manifest names that harness.
 
-That overlap is convenient rather than awkward. `.github/instructions/` and `.claude/skills/`
+That overlap is convenient rather than awkward. `.github/instructions/` and `.agents/skills/`
 are also where harnesses on your laptop look, so one committed set serves both, and those
 harnesses stop needing a render at all.
 
@@ -608,21 +668,31 @@ recorded to make a setup reproducible. What does need recording is what this par
 machine wrote, and that is nobody else's business.
 
 **The render record** lives in the state directory and is never committed. It names every
-file a render produced, the subscription that explains it, and a hash of the copy.
+file a render produced, every subscription and harness that explains it, and a hash of the
+copy.
+
+**Explained by a set, not by one subscription.** A shared file has several harnesses wanting
+identical bytes ([§7](#7-rendering)), so the record holds all of them and withdrawal deletes
+only when none of them is in scope any more ([§10](#10-commands)).
 
 **It is also the list of files this tool may delete, and the list is exhaustive.** A file not
 in the record was not written by us, so no command touches it, whatever directory it is
-sitting in and whatever it is called. Somebody's hand-written skill in `.claude/skills/` is
+sitting in and whatever it is called. Somebody's hand-written skill in `.agents/skills/` is
 not our business, and the record is what makes that a fact rather than a promise.
+
+That exhaustiveness has a second reader. Discovery subtracts the record before looking for
+parts ([§5](#5-sources)), so a repository that is its own source never finds its own rendered
+output and calls it an input.
 
 Within the record the hash decides. One that still matches is a copy, and deleting a copy
 destroys nothing. One that no longer matches is a rendered file somebody edited, which is the
 only file in a rendered directory that contains anything, so it is reported and left where it
 is ([§10](#10-commands)).
 
-It also records how each source was classified when it was fetched
+It also records how each remote source was classified when it was fetched
 ([§8](#8-keeping-the-employers-kits-in)), because needing credentials to clone is only
-observable while cloning.
+observable while cloning. A path is not fetched and does not need the record: it takes the
+repository's own classification, which costs nothing to work out again.
 
 It is a cache of facts about this disk, so deleting it costs one `akit render` and nothing
 else. One thing does not come back: a file rendered before the record was deleted is now
@@ -630,13 +700,39 @@ unknown rather than unexplained, so nothing will clean it up on its own. `akit d
 reports what looks like an orphan and `akit render --prune` acts on it, which is the only
 place this tool deletes a file it cannot prove it wrote.
 
-**`render` never moves a pin.** Only `add` and `update` edit a manifest, which is what makes
+**`render` never moves a pin.** Only `add` and `update` touch the pins, which is what makes
 rendering safe to run from a hook: it can change files on disk, never what a kit contains.
 
 ## 7. Rendering
 
-Skills are copied into the harness directory unchanged. Several locations across four
-harnesses already agree on `skills/<name>/SKILL.md`, so there is nothing to translate.
+### One copy where the bytes agree, one per harness where they do not
+
+**A render that produces identical bytes for several harnesses is written once. Everything
+else is written per harness.** That is the whole rule, and which case a kind falls into is
+decided by whether the render translates anything.
+
+Skills are copied unchanged, so every harness wants the same file, and writing it four times
+would mean four ignore lines and four withdrawal candidates for one subscription. They go to
+`.agents/skills/`, which opencode, pi and the cloud agent all read directly.
+
+Rules and agents are translated. The tables below show harnesses disagreeing about
+frontmatter keys, tool names and what an agent is even for, so there is no shared shape to
+write and these go to each harness's own directory.
+
+The exception proves the rule rather than bending it. VS Code and the cloud agent both read
+`.github/instructions/` in the same shape, so that render is shared for the same reason
+skills are: the output is identical, not because the directory happens to have two readers.
+
+Three things follow, all of them in [§6](#6-the-manifest). The render record explains a
+shared file by every subscription and harness that wanted it, rather than by one. Withdrawal
+deletes a shared file when no harness in scope explains it any more. And a shared directory
+read by any harness that commits is committed, because git has no way to ignore a directory
+halfway.
+
+### Skills
+
+Copied into `.agents/skills/` unchanged. Several locations across four harnesses already
+agree on `skills/<name>/SKILL.md`, so there is nothing to translate.
 
 ### Rules, and the three ways a harness can take them
 
@@ -660,8 +756,9 @@ comments or key order.
 
 The third shape is the one that costs. A harness that reads exactly one file means sharing it
 with whatever the user wrote there, so each rule sits between `BEGIN <id>` and `END <id>`
-markers and everything between blocks survives. It is also the only render that can end up
-committed, which is why [§8](#8-keeping-the-employers-kits-in) is mostly about it.
+markers and everything between blocks survives. It is committed whatever we do, because its
+host is, which makes it one of the things [§8](#8-keeping-the-employers-kits-in) counts as
+able to leak.
 
 Rules are the only kind with an order. Two rules can contradict each other and something has
 to win. The order they appear in the manifest decides it, and we are not looking for a
@@ -694,9 +791,9 @@ reason.
 
 ### What can actually leak
 
-Whatever the repository commits, and [§6](#6-the-manifest) keeps that list short. A skill
-copied into `.claude/skills/`, an agent file, anything a harness on your laptop reads: all
-ignored, none pushed anywhere.
+Whatever the repository commits, and [§6](#6-the-manifest) keeps that list short. In an
+ordinary repository a skill copied into `.agents/skills/`, an agent file, anything a harness
+on your laptop reads: all ignored, none pushed anywhere.
 
 Three things are committed, and they are the whole risk.
 
@@ -721,12 +818,23 @@ in the world predates this idea, so anything that needs a file in the repository
 that applies to nobody.
 
 **Cloning it is the test.** A source that needed credentials is private. A source that clones
-anonymously is public. A local path is unknown, and unknown is treated as private.
+anonymously is public.
 
 This costs nothing, needs no cooperation, and is true at the moment it matters, which is when
-the parts are fetched. It is also occasionally wrong in the safe direction: a public
-repository behind an authenticating proxy is treated as private, and the cost of that is a
-refusal you override once.
+the parts are fetched.
+
+**A path inside the repository is as public as the repository.** It is the same files, in the
+same commit, behind the same remote, so nothing has to be asserted and nothing has to be
+cloned. That covers the case [§6](#6-the-manifest) designs for, a repository shipping kits
+beside its own code with `.` as the key.
+
+A path outside the repository can only appear in your own manifest, because a committed
+manifest may not name one ([§6](#6-the-manifest)). Your manifest renders to machine-level
+directories, which have no remote and so no target to leak into, and the question never gets
+asked.
+
+So a source is private or it is public, and there is no third state to decide what to do
+with.
 
 ### How a target is known to be public
 
@@ -738,29 +846,38 @@ refused rather than guessed at.
 
 **A private source's parts do not render into a public target, and a private source is not
 named in a public target's committed manifest.** Both halves fail hard, with a message naming
-the source, the target and the override.
+the source and the target.
+
+There is no override and no `--force`. The two refusals this leaves are the ones worth
+keeping: a genuinely private source aimed at a public repository is the failure this section
+exists for, and a remote that cannot be reached is transient, so the answer is to try again
+when it resolves.
 
 The check is per harness, not per repository, because a repository may render to five
 harnesses and commit the output of only one. Rendering a private kit for a laptop harness in
 a public repository is fine: nothing is committed. Rendering the same kit for a machineless
 harness in that repository is the leak.
 
-Which makes the check a short one to run. The harnesses that can leak are the machineless
-ones, those exist only by being named in `.akit.yaml` ([§6](#6-the-manifest)), and that list
-is three lines somebody wrote on purpose.
+It asks which parts land somewhere a machineless harness reads, rather than which parts that
+harness renders. Skills share one directory ([§7](#7-rendering)), so a kit rendered for
+opencode in a repository that also names the cloud agent is committed by that fact alone.
 
-The override lives in your own manifest, never in the project one, because an override
-committed into the public repository is the leak it was guarding against.
+**Which is also what keeps `render` offline.** A target is classified only when the manifest
+names a machineless harness, and those exist only by being named in `.akit.yaml`
+([§6](#6-the-manifest)). An ordinary repository never asks what its remotes are, so a render
+on a train is the same render as yesterday's ([§10](#10-commands)), and the pre-commit hook
+in [§9](#9-windows-linux-python) needs a network only in the repositories that commit
+rendered files.
 
 ### What this is not
 
-A guardrail, not a boundary. It reads a remote at render time, so it cannot help with a
-repository made public next month, a file you copy by hand, or a colleague who already has
+A guardrail, not a boundary. It judges a remote at the moment it runs, so it cannot help with
+a repository made public next month, a file you copy by hand, or a colleague who already has
 the credentials. What actually keeps your employer's kits in is that nobody else can clone
 the source.
 
-The failure it exists for is the ordinary one: you subscribed to something at work, you ran
-`akit render` in a public repository, and nothing told you.
+The failure it exists for is the ordinary one: you subscribed to something at work, you
+turned on a harness that commits in a public repository, and nothing told you.
 
 ## 9. Windows, Linux, Python
 
@@ -787,7 +904,7 @@ hygiene suite in `governance.yml` is the same on every platform and runs on Linu
 doing real work. Every script carries its dependencies in a PEP 723 header and runs under
 `uv run`, so there is no install step and no dependency lockfile of our own to go stale.
 
-There is one exception, and it is deliberate. `.scripts/linkspector.mjs` is twenty lines of
+There is one exception, and it is deliberate. `.scripts/linkspector.mjs` is thirty lines of
 node that pin a Chrome build and start a link checker. It runs inside a pre-commit hook,
 never anywhere else, and nothing a user of `akit` touches depends on it.
 
@@ -814,6 +931,12 @@ what a colleague runs is a release rather than whatever is on `main` this aftern
 rendered file's shape is therefore a thing that can be versioned and a change to it is a
 release note.
 
+The adapters ship inside it, which puts their directories on the same surface. Discovery is
+the union of what they declare ([§5](#5-sources)), so adding one changes what a `"*"`
+subscription resolves to, and it changes it on upgrade rather than on anybody's machine
+drifting. Two people on one version read a source identically; that is the property worth
+having, and the release note is what it costs.
+
 **The CLI does not live inside the skill.** `fkb` puts its tool in `scripts/fkb`, which makes
 installing the skill install the tool and is the right trade there. Here it is the wrong one:
 a copy of the CLI inside a skills directory is a copy that `uvx` cannot resolve, cannot
@@ -831,24 +954,31 @@ breaking change for every hook config and every contributing guide that pinned i
 ## 10. Commands
 
 ```text
-akit list                 # what you subscribed to, and where it is
-akit add <source> <name>  # register a subscription, then render it; --global for yours
-akit remove <name>        # drop a subscription, and the files it rendered
-akit render               # make the harness files match the manifests, both scopes
-akit update [name]        # fetch, move the pins, show what moved
-akit doctor               # what is wrong, and which command fixes it
+akit list                    # what you subscribed to, and where it is
+akit add <source> <name>     # register a subscription, then render it; --global for yours
+akit remove <name>           # drop a subscription, and the files it rendered
+akit harness add <name>      # render for a harness by name, and commit what it reads
+akit harness remove <name>   # stop, and withdraw what it rendered
+akit render                  # make the harness files match the manifests, both scopes
+akit update [name]           # fetch, move the pins, show what moved
+akit doctor                  # what is wrong, and which command fixes it
 ```
 
-**Two commands touch the network, for different reasons.** `add` fetches a source this
-machine does not have yet, and skips that when the cache already holds it at the ref asked
-for. `update` fetches new commits for a source it does have. Nothing else goes near a
-network: `list`, `render` and `doctor` work from the four files below, so a render on a train
+**Two commands fetch, for different reasons.** `add` fetches a source this machine does not
+have yet, and skips that when the cache already holds it at the ref asked for. `update`
+fetches new commits for a source it does have. Nothing else fetches anything: `list`,
+`render` and `doctor` work from the three kinds of file below, so a render on a train
 produces exactly what it produced yesterday.
+
+**One check resolves a remote without fetching**, which is the leak check asking whether this
+repository is public. It runs only where something is committed, which means only in a
+repository whose manifest names a harness with no machine
+([§8](#8-keeping-the-employers-kits-in)). Ordinary repositories work offline forever.
 
 Offline, `add` therefore works for a source you already have and fails cleanly for one you do
 not, saying which it was.
 
-Three files are involved throughout, all described in [§6](#6-the-manifest). The
+Three kinds of file are involved throughout, all described in [§6](#6-the-manifest). The
 **manifests** say what you want, each subscription naming the commit it is pinned to. The
 **cache** holds a clone of each remote source. The **render record**, in the state directory,
 says what this machine wrote where, with a hash per copy.
@@ -867,8 +997,8 @@ when something is already wrong.
 
 ### `add`
 
-**Registers a new subscription in a manifest, and installs it.** The only command that edits
-a manifest, so its format is something you never have to hold in your head.
+**Registers a new subscription in a manifest, and installs it.** The only command that writes
+a subscription, so the manifest's format is something you never have to hold in your head.
 
 A call does four things, in order:
 
@@ -887,13 +1017,34 @@ It fails before step 3 if the subscription would break a rule: a name already ta
 another kit, or a private source being written into a committed manifest
 ([§8](#8-keeping-the-employers-kits-in)).
 
-**`akit add --harness <name>` is the same command pointed at the other key.** It adds a
-harness to the manifest's list rather than a subscription, leaving `detected` in place, and
-then renders ([§6](#6-the-manifest)). It exists because turning on a machineless harness
-starts committing files, and a command that says what that will do beats a key somebody
-guesses the spelling of. Its refusal is [§8](#8-keeping-the-employers-kits-in)'s: a private
-source already subscribed in this repository means the harness cannot be added until that
-subscription goes.
+**`add` only ever adds a subscription.** Naming a harness is a different operation, with
+different arguments and a different effect on the repository, so it has its own verb rather
+than a flag on this one.
+
+### `harness add` and `harness remove`
+
+**Edit the manifest's `harnesses:` list, the way `add` and `remove` edit subscriptions.**
+The same `--global` and `--project` flags decide which manifest, and the project one is the
+default for the same reason ([§6](#6-the-manifest)).
+
+`harness add` writes the name, leaves `detected` where it is, and renders. The harness is
+then rendered for unconditionally, whether or not this machine has it, which is what makes
+`akit harness add opencode` meaningful in a repository that already detects opencode: it
+says every colleague gets those files, installed or not.
+
+It exists because turning on a harness with no machine starts committing files, and a command
+that says what that will do beats a key somebody guesses the spelling of. Its refusal is
+[§8](#8-keeping-the-employers-kits-in)'s: a private source already subscribed in this
+repository means the harness cannot be added until that subscription goes.
+
+`harness remove` drops the name and withdraws what it rendered, by the rules below. Without
+it the only way to turn the cloud agent off would be a hand edit that left a directory of
+committed rules in the repository with nothing to explain them, still being read by the
+harness you meant to stop using.
+
+**`detected` is a name like any other here.** `akit harness remove detected` is how a
+repository pins ([§6](#6-the-manifest)), and on a machine holding a harness the list does not
+name, it withdraws that harness's files as any other removal would.
 
 ### `remove`
 
@@ -919,8 +1070,9 @@ cannot be mistaken for a working setup.
 **Makes the files on disk match the manifests. The only command that writes kit files.**
 
 A call walks every subscription, and for each one copies its parts into every harness in
-scope, translating where the harness needs it ([§7](#7-rendering)). It then withdraws what no
-subscription explains any more, rewrites the ignore block in the repository's `.gitignore`
+scope, translating where the harness needs it and writing once where several harnesses want
+identical bytes ([§7](#7-rendering)). It then withdraws what nothing in scope explains any
+more, rewrites the ignore block in the repository's `.gitignore`
 ([§6](#6-the-manifest)), and rewrites the render record.
 
 **Withdrawal deletes copies, and only copies.** A kit you unsubscribed from, or renamed with
@@ -935,9 +1087,13 @@ What makes it safe is that the render record is the whole candidate list
 
 | The file | What render does |
 | --- | --- |
-| In the record, hash matches, nothing explains it | deletes it, and says so |
+| In the record, hash matches, no subscription and harness in scope explains it | deletes it, and says so |
 | In the record, hash differs | leaves it, names it, and points at `doctor` |
 | Not in the record | nothing, ever |
+
+The first row says "no subscription and harness" because a shared file has several of each
+([§6](#6-the-manifest)). One copy of a skill serves opencode and pi, so it survives
+unsubscribing from it for opencode alone, and goes when the last thing wanting it does.
 
 The middle row is the one worth arguing about. A rendered file whose hash has drifted is the
 only file in a rendered directory that contains something somebody wrote, and a render is a
@@ -958,21 +1114,28 @@ deletion this tool cannot prove is safe.
 The manifest's `harnesses:` key is that list, and defaults to `[detected]`
 ([§6](#6-the-manifest)). Expanding it replaces `detected` with every harness this machine
 has, by question 7 of [§4](#4-adding-a-harness). That expansion is why there is nothing to
-configure after install: you installed opencode, so opencode gets files. Every other member
-is a name, and a harness with no machine can only be one of those.
+configure after install: you installed opencode, so opencode gets files. Every name beside it
+is rendered for whether or not this machine has it, and a harness with no machine can only
+arrive that way.
 
 So a repository that names the cloud agent still renders for whatever each colleague has, as
 long as `detected` is still in the list, and the only thing a name adds is that harness.
 
 `--no-harness <name>` then drops one from the expanded list, repeatable, and it cannot add
 one back. It is for the render you want now rather than the setup you keep, so it writes
-nothing into a manifest: a harness you never want is an edit to the manifest's list, not a
-flag you remember to type. `--harness <name>` is the opposite narrowing and exists for
-working on an adapter.
+nothing into a manifest: a harness you never want is `akit harness remove`, not a flag you
+remember to type. `--harness <name>` is the opposite narrowing, and it is how you see what
+one harness gets without reading the whole render.
+
+**Narrowing means less than it sounds for a shared file.** Skills land in one directory that
+several harnesses read ([§7](#7-rendering)), so `--no-harness opencode` does not stop that
+directory being written while pi is still in scope. What it skips is everything written for
+opencode alone.
 
 Dropping a harness this way deletes nothing it rendered earlier. Those files become orphans
 that `akit doctor` reports, because a flag meant to skip work should not quietly remove
-files, and `--no-harness` on a bad day would otherwise be a delete command.
+files, and `--no-harness` on a bad day would otherwise be a delete command. Withdrawing them
+on purpose is `akit harness remove`.
 
 **A subscription renders into its own scope and no other.** Yours go to the machine-level
 harness directories, the same ones whatever directory you are standing in. A repository's go
@@ -1002,6 +1165,10 @@ CI runner has none of the harnesses on your laptop installed, so a check that co
 detected ones would call every repository stale forever. It does not have to: everything that
 can go stale belongs to a harness named outright in the manifest rather than detected, and
 that part of the list reads the same on every machine.
+
+**So `--check` refuses the narrowing flags.** `--no-harness copilot-ci` excludes the only
+harness committing anything, leaving a check with nothing to look at, which then passes. That
+would happen inside a pre-commit hook, which is the one place a false pass costs something.
 
 ### `update`
 
@@ -1049,29 +1216,37 @@ quietly.
 **At a pinned commit this can never be wrong**, which is worth saying because it is what
 makes the rest safe. `add` checked the part was there, and a commit is immutable, so the only
 way a pinned part goes missing is the history being rewritten underneath it, and that is
-already `akit doctor`'s "a commit that is no longer in it".
+already `akit doctor`'s "pinned to a commit the cache does not hold".
 
 Rewriting a key means rewriting YAML somebody hand-wrote, so the writer preserves comments and
-layout. That is the one place this tool edits a file a person owns, and the reason the pin
-lives in a comment rather than in a second file.
+layout. Elsewhere this tool only ever replaces a block of its own inside a file a person owns,
+the `.gitignore` markers and the third rule shape ([§6](#6-the-manifest),
+[§7](#7-rendering)); here it edits their content in place, which is the reason the pin lives
+in a comment rather than in a second file.
 
 The diff is the point rather than a courtesy. A rule you have never read is text added to
 every prompt your agents see, so an update to one is a change to how they behave.
 
 ### `doctor`
 
-**Lists what is wrong and names the command that fixes each one.** Reads everything, changes
-nothing, and talks to no network.
+**Lists what is wrong and names the command that fixes each one.** Reads everything and
+changes nothing.
+
+It goes near a network in the one case `render` does, and for the same reason: a repository
+whose manifest names a harness with no machine has a leak check to run, and that check asks
+whether the repository is public ([§8](#8-keeping-the-employers-kits-in)). Everywhere else it
+works from the manifests, the cache and the render record.
 
 What it looks for:
 
 - two kits rendering to one name;
-- a rendered file no subscription explains, where the next `render` will withdraw it;
+- a rendered file that no subscription and harness in scope explains, where the next `render`
+  will withdraw it;
 - a rendered file edited by hand, caught by its hash in the render record, which is also the
   file `render` and `remove` refuse to delete until you say what you meant by it;
 - a file that looks like a render nothing knows about, which is what a lost render record
   leaves behind, and what `render --prune` is for;
-- a source that no longer resolves, or a commit that is no longer in it;
+- a source that is missing from the cache, or pinned to a commit the cache does not hold;
 - a committed manifest naming a path that leaves the repository, which is somebody's laptop
   written into a shared file;
 - a committed render that is out of date, which is `render --check` by another name;
@@ -1150,8 +1325,8 @@ until three agents genuinely want to live in two places.
 
 **rulesync** renders to many harnesses from one directory, which is the rendering half of
 this. It is scoped to a single project, with no sources, no tiers and no subscriptions, so it
-would sit underneath the manifest rather than replace it. It is also node, which section 9
-rules out for anything a user has to run.
+would sit underneath the manifest rather than replace it. It is also node, which
+[§9](#9-windows-linux-python) rules out for anything a user has to run.
 
 **Sharing a manifest with `fkb`** would mean a colleague cloning a repository can read the
 path to your private knowledge bundle. Different question, different file.
