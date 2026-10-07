@@ -23,6 +23,10 @@ pytestmark = pytest.mark.unit
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO_ROOT / ".scripts"
 
+#: The commit before `12b5c4f`, which is where the uvx guard was added. The
+#: documents at this revision are the ones it was written against.
+BEFORE_THE_GUARD = "cf2618e32d55972757ea0b3fe139aed22979ffa9"
+
 
 def load(name: str) -> ModuleType:
     path = SCRIPTS / name
@@ -283,16 +287,23 @@ class TestTheUvxInvocationGuard:
     def test_it_would_have_caught_the_documents_it_was_written_for(self) -> None:
         # Evidence rather than assertion: the guard is run against the content
         # that was committed before it existed.
+        #
+        # The ref is the parent of the commit that introduced the guard, and not
+        # `main`. `main` was the first version of this and it is a test that
+        # passes until the thing it is about is fixed: once the fixing commit
+        # merged, `main:README.md` stopped offending and this started failing on
+        # every later branch. A commit that is already in the history cannot
+        # move, which is what a test about the past needs.
         for path in ("README.md", "DESIGN.md", "IMPLEMENTATION.md"):
             shown = subprocess.run(
-                ["git", "show", f"main:{path}"],
+                ["git", "show", f"{BEFORE_THE_GUARD}:{path}"],
                 capture_output=True,
                 text=True,
                 check=False,
                 cwd=str(REPO_ROOT),
             )
-            if shown.returncode != 0:  # pragma: no cover - a clone with no `main` ref
-                pytest.skip("no `main` to compare against")
+            if shown.returncode != 0:  # pragma: no cover - a shallow clone without that commit
+                pytest.skip(f"no {BEFORE_THE_GUARD} to compare against")
             assert check_uvx.offences(shown.stdout), f"{path} should have offended"
 
     def test_a_binary_file_is_skipped_rather_than_crashing(self, monkeypatch: pytest.MonkeyPatch) -> None:
