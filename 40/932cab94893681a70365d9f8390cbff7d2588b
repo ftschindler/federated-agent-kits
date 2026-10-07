@@ -1,0 +1,25 @@
+tests/test_support_scripts.py
+  s_f115d136685063::t_ab54fabff42773 19,83-90,92-93,95-96,99-101,103-104,106-112,114-116,118-124
+  s_f115d136685063::t_92e88bb28cc869 91,113
+  s_f115d136685063::t_a449913e07cb6b 94,97-98,102,105,117
+JOURNAL.md
+  s_f115d136685063::t_92e88bb28cc869 83-109
+.scripts/version.py
+  s_f115d136685063::t_ab54fabff42773 78,83-90,99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "40932cab94893681a70365d9f8390cbff7d2588b",
+  "prompts": {},
+  "sessions": {
+    "s_f115d136685063": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_eead1a06effeIi7XIPmYw3qDEi",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Felix Schindler <107669806+ftschindler@users.noreply.github.com>"
+    }
+  }
+}
