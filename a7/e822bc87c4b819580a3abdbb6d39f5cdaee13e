@@ -1,0 +1,54 @@
+src/federated_agent_kits/sources.py
+  s_2f75f7d4ce3beb::t_8df78b236e0fc6 146-159,202-206,213,242
+  s_2f75f7d4ce3beb::t_cb55baa4ac8f77 52-55,219,243
+  s_2f75f7d4ce3beb::t_c9f736ef9774ca 1-25,27-51,56-145,160-201,207-212,214-218,220-241,244-324
+  s_2f75f7d4ce3beb::t_dffdd5d10b5f41 26
+tests/test_discovery.py
+  s_2f75f7d4ce3beb::t_dc29ebce3fac0b 1-11,13-75,102-199
+  s_2f75f7d4ce3beb::t_86d232559d786b 76-87
+  s_2f75f7d4ce3beb::t_dffdd5d10b5f41 12
+  s_2f75f7d4ce3beb::t_b1dec876a2b425 88-101
+src/federated_agent_kits/cache.py
+  s_2f75f7d4ce3beb::t_4e85e2e7a27c77 1-68,73-171,180-182,189-351
+  s_2f75f7d4ce3beb::t_8706f4d16ecba5 69-72
+  s_2f75f7d4ce3beb::t_f126449446642e 172-179,183-188
+src/federated_agent_kits/discovery.py
+  s_2f75f7d4ce3beb::t_79050329474d68 89-95,97
+  s_2f75f7d4ce3beb::t_bb3ee996598404 1-49,62-88,96,98-105,140-143,147-148,150-151,154,156-157,185-204,206,208,211-241
+  s_2f75f7d4ce3beb::t_9f5b7d3414e92d 58-61
+  s_2f75f7d4ce3beb::t_96bf4c1f9a8c62 173-184,210
+  s_2f75f7d4ce3beb::t_fed4a2101fbedf 133-135,139
+  s_2f75f7d4ce3beb::t_8eada78d02450e 50-57
+  s_2f75f7d4ce3beb::t_2b8e211a5ad0c9 158-172
+  s_2f75f7d4ce3beb::t_cb55baa4ac8f77 106-132,138,144-146,149,152-153,155,205,207,209
+  s_2f75f7d4ce3beb::t_118b03efdf45da 136-137
+tests/test_sources.py
+  s_2f75f7d4ce3beb::t_a706419e752e3b 113
+  s_2f75f7d4ce3beb::t_ef6bba9ce0c994 1-11,13-112,114-171
+  s_2f75f7d4ce3beb::t_dffdd5d10b5f41 12
+tests/test_cache.py
+  s_2f75f7d4ce3beb::t_dffdd5d10b5f41 19-20,133
+  s_2f75f7d4ce3beb::t_86d232559d786b 185-212
+  s_2f75f7d4ce3beb::t_4504b6c92145d3 261-273,277,286
+  s_2f75f7d4ce3beb::t_50805a5ca459cf 41
+  s_2f75f7d4ce3beb::t_c4c375949f82f5 1-18,21-40,42-132,134-184,213-260,274-276,278-285,287-333
+tests/test_resolution_in_a_fake_home.py
+  s_2f75f7d4ce3beb::t_f9e03cabbcafbb 1-81,83-116
+  s_2f75f7d4ce3beb::t_dffdd5d10b5f41 82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "a7e822bc87c4b819580a3abdbb6d39f5cdaee13e",
+  "prompts": {},
+  "sessions": {
+    "s_2f75f7d4ce3beb": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee9a7d874ffe123GcNHsWVMEKQ",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Felix Schindler <107669806+ftschindler@users.noreply.github.com>"
+    }
+  }
+}
