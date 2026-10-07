@@ -1,0 +1,54 @@
+JOURNAL.md
+  s_bc02109dad44c1::t_7e971be96a1977 221-276
+IMPLEMENTATION.md
+  s_bc02109dad44c1::t_cdba3bbfdec2b8 155-156
+  s_bc02109dad44c1::t_c7a69c4a4d602f 32-33
+  s_bc02109dad44c1::t_912f85fcd9f3bf 700-701
+  s_bc02109dad44c1::t_651aad33351507 711-712
+.pre-commit-config.yaml
+  s_bc02109dad44c1::t_d98720b53ad72d 152-156,158
+  s_bc02109dad44c1::t_c8a96ca96d70dc 157,159-163
+DESIGN.md
+  s_bc02109dad44c1::t_2be1604d700b10 914-915
+  s_bc02109dad44c1::t_f4d92959fa4504 957,962-966,968-972,975-981
+  s_bc02109dad44c1::t_33a34d3d2a5470 958-961,967,973-974
+  s_bc02109dad44c1::t_6ac3ed2d6f36dc 579-580
+  s_bc02109dad44c1::t_912625e4373b2a 931-932
+.github/workflows/release.yml
+  s_bc02109dad44c1::t_fe727ed940eaa4 209
+tests/test_entry_point.py
+  s_bc02109dad44c1::t_1e86c32e5e54dd 3-5
+pyproject.toml
+  s_bc02109dad44c1::t_ace8a61f21e476 47-48
+  s_bc02109dad44c1::t_31316c48a90bf2 49-51
+.scripts/check_uvx_invocation.py
+  s_bc02109dad44c1::t_94fe94f8d13167 1-29,33-51,62-118
+  s_bc02109dad44c1::t_76b216f8651271 52-61
+  s_bc02109dad44c1::t_7987cc8c4580d8 30-32
+README.md
+  s_bc02109dad44c1::t_bc7bfdb184a2cf 56-57
+  s_bc02109dad44c1::t_f9bbdfcc5cd9bc 70,73-75
+  s_bc02109dad44c1::t_ad550a0a0c451d 52,55,58-60
+tests/test_support_scripts.py
+  s_bc02109dad44c1::t_49f10d758a556c 234,236-237,240-247,250-251,253-254,257-266,268-269,279-282,298-304,308,310-313,321-333
+  s_bc02109dad44c1::t_b03f2c0fa5a02c 39
+  s_bc02109dad44c1::t_23b098d9ff7072 288
+  s_bc02109dad44c1::t_c11d59727d91e2 235,238-239,248-249,252,255-256,267,270-278,283-287,289-297,305-307,309,314
+  s_bc02109dad44c1::t_425d70180e9685 315-320
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "12b5c4fc90925fe983c8c8cb3eb190c9c0370296",
+  "prompts": {},
+  "sessions": {
+    "s_bc02109dad44c1": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee9e68ad2ffeD9WnC5z8SI0vy9",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Felix Schindler <107669806+ftschindler@users.noreply.github.com>"
+    }
+  }
+}
