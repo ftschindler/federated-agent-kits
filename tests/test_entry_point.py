@@ -1,7 +1,8 @@
 """The entry point, met the way a user meets it: a built wheel, run by `uvx`.
 
-An import is not an entry point. `akit` reaches a colleague as `uvx akit render`
-in a contributing guide or a pre-commit hook, and everything between the console
+An import is not an entry point. `akit` reaches a colleague as
+`uvx --from federated-agent-kits akit render` in a contributing guide or a
+pre-commit hook, and everything between the console
 script and the module is configuration nothing else in this suite touches: the
 `[project.scripts]` name, the packages hatchling puts in the wheel, and whether
 the metadata the version is read from survives the build. All three fail at

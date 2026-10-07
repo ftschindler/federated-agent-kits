@@ -206,7 +206,7 @@ jobs:
 
     - name: Build the distribution
       if: steps.bump.outputs.level != 'none'
-      # Both artefacts: the wheel is what `uvx akit` resolves, and the sdist is
+      # Both artefacts: the wheel is what uvx resolves and runs, and the sdist is
       # what anybody packaging this downstream needs.
       run: uv build --out-dir dist
 
