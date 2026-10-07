@@ -33,6 +33,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from platformdirs import user_state_path
 
@@ -254,7 +255,7 @@ def load(state_root: Path | None = None) -> Record:
     )
 
 
-def payload(record: Record) -> dict[str, object]:
+def payload(record: Record) -> dict[str, Any]:
     """The record as the JSON it is stored as, sorted so two equal records are equal files.
 
     Sorted rather than in the order the render happened to walk: the file is

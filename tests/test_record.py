@@ -184,8 +184,7 @@ class TestWritingTheRecord:
         second = record.payload(record.Record(path=None, written=tuple(reversed(entries))))
 
         assert first == second
-        assert json.dumps(first) == json.dumps(second)
-        assert str(tmp_path / "a.md") in json.dumps(first).split(str(tmp_path / "b.md"))[0]
+        assert [entry["path"] for entry in first["written"]] == [str(tmp_path / "a.md"), str(tmp_path / "b.md")]
 
     def test_a_first_render_creates_the_state_directory(self, tmp_path: Path):
         written = record.save(record.Record(path=None), tmp_path / "never" / "existed")
@@ -211,7 +210,7 @@ class TestWritingTheRecord:
 class TestWhetherACopyIsStillACopy:
     def test_the_bytes_we_wrote_are_still_a_copy(self, tmp_path: Path):
         rendered = tmp_path / "SKILL.md"
-        rendered.write_text("# writing\n", encoding="utf-8")
+        rendered.write_bytes(b"# writing\n")
 
         entry = record.Written(path=rendered, digest=record.digest(b"# writing\n"))
 
@@ -219,7 +218,7 @@ class TestWhetherACopyIsStillACopy:
 
     def test_bytes_somebody_edited_are_not(self, tmp_path: Path):
         rendered = tmp_path / "SKILL.md"
-        rendered.write_text("# mine now\n", encoding="utf-8")
+        rendered.write_bytes(b"# mine now\n")
 
         assert not record.Written(path=rendered, digest=record.digest(b"# writing\n")).still_a_copy()
 
