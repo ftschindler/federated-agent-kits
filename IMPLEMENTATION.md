@@ -178,12 +178,33 @@ tested, released package.
 - `tests.yml`: a job per marker across `ubuntu-latest` and `windows-latest`, plus a fixed-name
   `tests` job that fails unless every matrix job succeeded, which is the one branch protection
   requires.
+- **The naming pattern every workflow follows**, because a required check is named after the
+  job and a job whose name moves is a protection rule that silently stops protecting. A
+  workflow's `name:` is one short noun, `Governance`, `Tests`, `Release`. A job's `name:` is an
+  emoji, a space, and a lowercase description in brackets: `🩺 (run governance checks)`,
+  `🛠 (Tests)`. The aggregate job's name is fixed and the matrix jobs' names are not, which is
+  the whole reason the aggregate exists: a matrix job's check is named after the axis it ran
+  on, so requiring one directly means editing the rule every time the matrix changes, and a
+  job that stops being produced does not fail the rule, it stops being required.
+- **Add `🛠 (Tests)` to the ruleset on `main` when that job first reports.** The ruleset exists
+  and currently requires only `🩺 (run governance checks)`, because a required check that never
+  reports blocks every merge. This is a by-hand, admin-only step and it is part of this task
+  rather than a follow-up.
 - `governance.yml` gains ruff and a strict type check over `src/` and `tests/`.
 - `release.yml`, copied from the sibling and retargeted: exactly one of `major`, `minor`,
   `patch`, `no-release` on every pull request; on merge the bot writes the version, tags it,
   and publishes to PyPI with trusted publishing. The version lives in `pyproject.toml` and is
   readable at runtime from package metadata, so `akit --version` and the skill's `VERSION`
   file ([T11](#t11---the-skill-and-the-rule)) cannot disagree.
+- **The release job needs a bypass actor, and nothing else does.** `main` requires a pull
+  request, and this job pushes a version commit and a tag straight to it, so the token it is
+  handed by default is refused: that token is deliberately not allowed to bypass rules, which
+  is the right default everywhere except here. The arrangement, copied from the sibling, is a
+  GitHub App installed on this repository holding `contents: write`, two secrets carrying its
+  client id and private key, and an entry for the app in the ruleset's bypass list. The last
+  of those is not a permission, is the one that gets forgotten, and without it the job pushes
+  and is declined. All four steps are by hand, once, by somebody with admin, and they are part
+  of this task: a release pipeline that cannot push is not a release pipeline.
 - Publish `0.1.0` at the end of this task, to TestPyPI and then to PyPI. An unpublished
   package is an untested release pipeline, and the first real publish is the one that finds
   the misconfigured name, the missing classifier and the trusted-publisher mismatch.
