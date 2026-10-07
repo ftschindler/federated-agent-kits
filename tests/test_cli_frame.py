@@ -181,10 +181,10 @@ class TestNotImplementedYet:
     """
 
     def test_the_list_is_exactly_what_has_not_landed(self) -> None:
-        assert unimplemented() == ["list", "add", "remove", "harness", "render", "update", "doctor"]
+        assert unimplemented() == ["add", "remove", "harness", "render", "update", "doctor"]
 
-    def test_help_is_the_one_verb_that_works(self) -> None:
-        assert [command.name for command in COMMANDS if command.implemented] == ["help"]
+    def test_the_verbs_that_work_are_exactly_the_ones_whose_tasks_landed(self) -> None:
+        assert [command.name for command in COMMANDS if command.implemented] == ["list", "help"]
 
     @pytest.mark.parametrize("name", unimplemented())
     def test_each_one_names_its_task(self, name: str) -> None:

@@ -23,6 +23,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as installed_version
 from typing import Any, TextIO
 
+from federated_agent_kits import listing
 from federated_agent_kits.commands import COMMANDS, TOPICS, TOPICS_BY_NAME, Argument, Command
 from federated_agent_kits.exits import AkitError, Exit, NotImplementedYetError
 
@@ -181,6 +182,8 @@ def dispatch(arguments: argparse.Namespace, out: TextIO) -> Exit:
     """Run the chosen verb, or say which task it is waiting for."""
     if arguments.command == "help":
         return show_topic(arguments.topic, arguments.json, out)
+    if arguments.command == "list":
+        return listing.run(out, as_json=arguments.json)
     command = next(entry for entry in COMMANDS if entry.name == arguments.command)
     raise NotImplementedYetError(command.name, command.task or "")
 

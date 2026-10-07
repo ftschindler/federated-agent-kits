@@ -89,7 +89,9 @@ class FakeHome:
         merged.update(chosen)
         return merged
 
-    def run(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    def run(
+        self, *args: str, env: dict[str, str] | None = None, cwd: Path | None = None
+    ) -> subprocess.CompletedProcess[str]:
         """Run `akit` inside this house, as a subprocess, the way a person meets it.
 
         `-m federated_agent_kits` against the source tree rather than an
@@ -97,10 +99,16 @@ class FakeHome:
         and installing a wheel per test would make it slow enough to skip. That
         the entry point itself works is a separate, deliberate test
         (`test_entry_point.py`), because an import is not an entry point.
-        """
-        return self.run_python("-m", "federated_agent_kits", *args, env=env)
 
-    def run_python(self, *args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+        `cwd` defaults to the house and is a parameter because several commands
+        read the repository they were run in. It is still inside the house: a
+        directory outside it would defeat the isolation this module is for.
+        """
+        return self.run_python("-m", "federated_agent_kits", *args, env=env, cwd=cwd)
+
+    def run_python(
+        self, *args: str, env: dict[str, str] | None = None, cwd: Path | None = None
+    ) -> subprocess.CompletedProcess[str]:
         """Run this interpreter inside the house, with `src/` importable."""
         merged = self.environment(env)
         merged["PYTHONPATH"] = str(SOURCE)
@@ -110,7 +118,7 @@ class FakeHome:
             text=True,
             check=False,
             env=merged,
-            cwd=str(self.root),
+            cwd=str(self.root if cwd is None else cwd),
         )
 
 

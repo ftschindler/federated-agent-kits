@@ -39,7 +39,7 @@ builds a part of it or keeps it releasable.
 - [x] **[T1](#t1---the-package-the-cli-frame-and-ci)** - The package, the CLI frame, and CI
 - [x] **[T2](#t2---manifests)** - Manifests
 - [x] **[T3](#t3---sources-resolution-cache-discovery)** - Sources: resolution, cache, discovery
-- [ ] **[T4](#t4---adapters-detection-and-akit-list)** - Adapters, detection, and `akit list`
+- [x] **[T4](#t4---adapters-detection-and-akit-list)** - Adapters, detection, and `akit list`
 - [ ] **[T5](#t5---the-render-engine-and-skills)** - The render engine, and skills
 - [ ] **[T6](#t6---rules)** - Rules
 - [ ] **[T7](#t7---add-remove-update-harness)** - `add`, `remove`, `update`, `harness`
@@ -383,8 +383,15 @@ ever touched.
 
 **Needs.** [T4](#t4---adapters-detection-and-akit-list).
 
-**Deliverable.** `akit render` for skills, the render record, the `.gitignore` block,
+**Deliverable.** `akit render` for skills, the render record's writer, the `.gitignore` block,
 withdrawal, `--prune`, and the scope and narrowing flags.
+
+**The record's schema and its reader already exist**, in
+`src/federated_agent_kits/record.py`, because `akit list` is specified to read one and
+[T4](#t4---adapters-detection-and-akit-list) could not answer "was this rendered?" from the
+disk without inventing a second, quieter definition of the word. This task adds the writer and
+owns every decision about when the record changes. Changing the schema is allowed and means
+changing T4's tests in the same diff.
 
 **Specified by DESIGN.md.** Rendering always copies, the render record and its exhaustiveness
 ([§6](DESIGN.md#what-a-render-leaves-behind)); one copy where the bytes agree
@@ -394,8 +401,12 @@ withdrawal, `--prune`, and the scope and narrowing flags.
 
 **Build.**
 
-- Copy skills into `.agents/skills/`, once, for every harness that reads it. Never translate,
-  never link.
+- Copy skills into the directory each harness reads, once per directory rather than once per
+  harness. Never translate, never link. **This is not one directory**: opencode reads
+  `.agents/skills/` and VS Code reads `.claude/skills/`, so a machine with both gets two
+  copies, which [§7](DESIGN.md#one-copy-where-the-bytes-agree-one-per-harness-where-they-do-not)
+  permits and [JOURNAL.md](JOURNAL.md) records as the cost of
+  [T4](#t4---adapters-detection-and-akit-list)'s answer to VS Code's weak leg.
 - The render record in the state directory: every file written, every subscription and harness
   that explains it, and a hash of the copy. Explained by a set, not by one subscription.
 - Withdrawal, exactly three outcomes: in the record and unexplained and matching, deleted and

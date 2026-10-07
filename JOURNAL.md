@@ -496,3 +496,54 @@ worth losing.
 The general lesson is the one the Windows job exists for. This is not a bug care would have
 avoided, it is one a second operating system found, and it surfaced two layers away from where
 it was made.
+
+## 2026-10-08 - A test about the past that pinned a moving ref
+
+Three tests failed on the branch for [T4](IMPLEMENTATION.md#t4---adapters-detection-and-akit-list)
+before a line of T4 was written, and one of them had nothing to do with T4:
+
+```text
+FAILED tests/test_support_scripts.py::TestTheUvxInvocationGuard::
+  test_it_would_have_caught_the_documents_it_was_written_for
+AssertionError: README.md should have offended
+```
+
+The test runs `.scripts/check_uvx_invocation.py` against `git show main:README.md` and asserts
+it finds the bare `uvx akit` form, which is the thing the guard was written to catch. It was
+true when it was written, on a branch whose `main` still carried the offending sentences. Then
+that branch merged, `main` stopped offending, and the test became an assertion that this
+repository has never been fixed.
+
+The failure mode is worth naming because it is quiet in the other direction: the test went red
+on the next branch somebody opened, two tasks later, with a message about a document that
+branch did not touch. A test about history has to name a commit that is already history, so it
+now reads `cf2618e3`, the parent of the commit that added the guard. The documents at that
+revision offend on nine lines between them, and they will offend on those nine lines forever.
+
+## 2026-10-08 - Two decisions T4 made that DESIGN.md left to whoever got there first
+
+**VS Code's user-wide skills directory.** [DESIGN.md](DESIGN.md#what-vs-code-looks-like) marks
+this "varies, and this is the weak leg", which is accurate about the documentation and not an
+answer an adapter can hold: a kit subscribed in your own manifest has to land *somewhere* or
+user-scope subscriptions silently do nothing for anybody using VS Code. The adapter writes
+`~/.claude/skills/`, which is the Claude-compatible directory the same harness already reads at
+project scope, and lists `~/.copilot/skills/` and `~/.agents/skills/` beside it as read-only
+candidates. If that is wrong it is one line in `src/federated_agent_kits/adapters/vscode.py`,
+which is the only claim an adapter actually makes.
+
+The cost is visible in `akit list` and is worth stating: opencode writes skills to
+`.agents/skills/` and VS Code to `.claude/skills/`, so a machine with both gets two copies of
+one skill. [DESIGN.md](DESIGN.md#one-copy-where-the-bytes-agree-one-per-harness-where-they-do-not)
+permits that - one copy per harness where the directories do not agree - but
+[T5](IMPLEMENTATION.md#t5---the-render-engine-and-skills) is written as though
+`.agents/skills/` were the single destination, and it is not. The first evidence that VS Code
+reads `.agents/skills/` collapses the two.
+
+**The render record arrived half a task early.** `akit list` is specified to read the render
+record, and nothing writes one until [T5](IMPLEMENTATION.md#t5---the-render-engine-and-skills).
+The alternative was for `list` to decide "rendered" from whether the target path happens to
+exist, which is a second and quieter definition of the word: it says yes to a skill somebody
+copied in by hand, and the two definitions would disagree the first time that happened. So
+`src/federated_agent_kits/record.py` ships with T4 holding the schema and the reader, T5 adds
+the writer, and the fixtures in `tests/test_record.py` are the JSON written out by hand -
+which is the point rather than a shortcut, since what two tasks have to agree on is the file.

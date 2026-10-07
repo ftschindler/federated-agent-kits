@@ -12,10 +12,11 @@ its own filename.
 This subscribes you to the kits you want, from wherever they live, and writes them where each
 harness looks.
 
-**Status: the frame is up.** [DESIGN.md](DESIGN.md) is the source of truth for what gets
-built, [IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets built in. `akit` installs
-and runs today, and every verb below says which task it is waiting for rather than pretending
-to work.
+**Status: it reads, and does not yet write.** [DESIGN.md](DESIGN.md) is the source of truth
+for what gets built, [IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets built in.
+`akit list` works today, against both manifests, every source form and the opencode and VS
+Code adapters. Every other verb says which task it is waiting for rather than pretending to
+work.
 
 ## What it is for
 
@@ -39,6 +40,7 @@ gets out of the way.
 
 ```text
 akit add owner/repo writing      # this repository's manifest; --global for yours
+akit list            # what you subscribed to, where it is, and where it would land
 akit render          # safe to run from a git hook
 akit doctor          # name collisions, stale renders, refusals
 ```
