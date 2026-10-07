@@ -36,7 +36,7 @@ builds a part of it or keeps it releasable.
 
 ## Status
 
-- [ ] **[T1](#t1---the-package-the-cli-frame-and-ci)** - The package, the CLI frame, and CI
+- [x] **[T1](#t1---the-package-the-cli-frame-and-ci)** - The package, the CLI frame, and CI
 - [x] **[T2](#t2---manifests)** - Manifests
 - [ ] **[T3](#t3---sources-resolution-cache-discovery)** - Sources: resolution, cache, discovery
 - [ ] **[T4](#t4---adapters-detection-and-akit-list)** - Adapters, detection, and `akit list`
