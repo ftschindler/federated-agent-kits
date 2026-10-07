@@ -1,0 +1,75 @@
+src/federated_agent_kits/adapters/__init__.py
+  s_d0908a042c0e8c::t_0b9d838edb2b2b 1-96
+tests/test_record.py
+  s_d0908a042c0e8c::t_4de9f0508291e6 104
+  s_d0908a042c0e8c::t_80942790c96326 1-103,105-136
+tests/test_adapters.py
+  s_d0908a042c0e8c::t_0cb54fdb8e10ee 1-234
+src/federated_agent_kits/adapters/adapter.py
+  s_d0908a042c0e8c::t_47ad282ab8a060 1-138,140-180
+  s_d0908a042c0e8c::t_258aaf59c3fa65 139
+tests/fake_home.py
+  s_d0908a042c0e8c::t_4de9f0508291e6 92-94
+  s_d0908a042c0e8c::t_9b75828f90c578 102-105,107,109-111,121
+src/federated_agent_kits/adapters/opencode.py
+  s_d0908a042c0e8c::t_d13f1fe55f695f 1-73
+tests/test_cli_frame.py
+  s_d0908a042c0e8c::t_ad473c001f05f3 184,186-187
+src/federated_agent_kits/cli.py
+  s_d0908a042c0e8c::t_1a0b00eca6725e 26
+  s_d0908a042c0e8c::t_2581d64e7dc500 185-186
+src/federated_agent_kits/listing.py
+  s_d0908a042c0e8c::t_f0b11794fb49af 24
+  s_d0908a042c0e8c::t_557cac68f35a73 315,321,323,325
+  s_d0908a042c0e8c::t_16f9d914a75987 266-267
+  s_d0908a042c0e8c::t_7f6b6f72fdf09f 44-46,49,53-59
+  s_d0908a042c0e8c::t_3c3f3b874ae6bb 50-52
+  s_d0908a042c0e8c::t_3a530fc44ab818 298-301
+  s_d0908a042c0e8c::t_b2faa37cbf6cc1 351,353
+  s_d0908a042c0e8c::t_f74a5ae53af4bf 139-146,148-168,170-199,201-204,208-210
+  s_d0908a042c0e8c::t_cd0f484f9f306d 27,356
+  s_d0908a042c0e8c::t_d9e452972ee337 1-23,25-26,28-43,47-48,60-138,147,200,211-265,268-297,302-314,316-320,322,324,326-350,352,354-355,357-426
+  s_d0908a042c0e8c::t_35a0eccb86f0ea 169,205-207
+tests/test_support_scripts.py
+  s_d0908a042c0e8c::t_328d3da21b8c55 26-29
+  s_d0908a042c0e8c::t_055b99abb6a200 290-296,299,305-306
+tests/test_listing.py
+  s_d0908a042c0e8c::t_e3a8c676c139b9 1-15,17-24,26,28-110,112-118,120-144,146-160,162-211,213-251,253-337,339-369,373-379,381-389,494,497-500,504-508,510-513
+  s_d0908a042c0e8c::t_5bdc28fb7b429a 16,25,27
+  s_d0908a042c0e8c::t_e7a0b9f313d44e 464-465
+  s_d0908a042c0e8c::t_4de9f0508291e6 111,119,145,161,212,252,338,370-372,380
+  s_d0908a042c0e8c::t_08ee40e976eeb1 390-400,412-452,467-493,495-496,501-503,509,514-519
+  s_d0908a042c0e8c::t_ac3e513b5de1a5 401-411
+  s_d0908a042c0e8c::t_5713c33cf911ee 453-463,466
+src/federated_agent_kits/adapters/vscode.py
+  s_d0908a042c0e8c::t_c3d20cf3d1a7fe 1-79
+src/federated_agent_kits/record.py
+  s_d0908a042c0e8c::t_5c628e240b16e0 1-130
+src/federated_agent_kits/commands.py
+  s_d0908a042c0e8c::t_eb4622872a2d4e 96-98
+tests/test_list_command.py
+  s_d0908a042c0e8c::t_9907d0ab59f9ff 18,143,147,154
+  s_d0908a042c0e8c::t_c98cf0a2b66bfa 110-111
+  s_d0908a042c0e8c::t_4de9f0508291e6 132-134,170,172,183,205-210,215
+  s_d0908a042c0e8c::t_c20c30038310a7 151
+  s_d0908a042c0e8c::t_ea664c768989bc 1-17,19-47,49-109,112-131,135-142,144-146,148-150,153,156-169,171,173-182,184-204,211-214,216-220
+  s_d0908a042c0e8c::t_fedd38b5bdd98f 152
+  s_d0908a042c0e8c::t_ff3699868b5dfd 155
+  s_d0908a042c0e8c::t_6407e4074640d3 48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "7344ca646ed42b55e696b7c7a3fc46ef503f5e34",
+  "prompts": {},
+  "sessions": {
+    "s_d0908a042c0e8c": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee8fdd847ffea9YmNtUcikZW1k",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Felix Schindler <107669806+ftschindler@users.noreply.github.com>"
+    }
+  }
+}
