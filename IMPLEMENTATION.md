@@ -29,7 +29,8 @@ pi as its worked example. Shipping a pi adapter this project does not use would 
 with no user.
 
 **The end state is a published package.** `federated-agent-kits` on PyPI, exposing one entry
-point named `akit`, so that `uvx akit render` works in a fresh clone with nothing installed
+point named `akit`, so that `uvx --from federated-agent-kits akit render` works in a fresh
+clone with nothing installed
 ([§9](DESIGN.md#how-it-ships)). That is a contract, not a milestone: every task below either
 builds a part of it or keeps it releasable.
 
@@ -151,7 +152,8 @@ of the diff, never a follow-up.
 
 ## T1 - The package, the CLI frame, and CI
 
-**Goal.** `uvx akit --help` works from a clone, and everything a later task writes lands in a
+**Goal.** `uvx --from federated-agent-kits akit --help` works from a clone, and everything a
+later task writes lands in a
 tested, released package.
 
 **Needs.** Nothing.
@@ -695,7 +697,8 @@ skills and rules, and every adapter declines agents.
 **Build.**
 
 - A `uvx` smoke job in CI on both operating systems: from a clean runner with nothing
-  installed, clone a fixture repository carrying an `.akit.yaml`, run `uvx akit render`, and
+  installed, clone a fixture repository carrying an `.akit.yaml`, run
+  `uvx --from federated-agent-kits akit render`, and
   assert the files a harness reads are in place. That is the exact sentence the README and
   every contributing guide make, so it is a test rather than a claim.
 - README and `CONTRIBUTING.md` updated to the shipped reality, with the design and this plan
@@ -705,7 +708,8 @@ skills and rules, and every adapter declines agents.
 - The "not implemented yet" list from T1 is empty, asserted by the test written then.
 - Publish `1.0.0`.
 
-**Done when.** `uvx akit render` works in a fresh clone on both operating systems, in CI,
+**Done when.** `uvx --from federated-agent-kits akit render` works in a fresh clone on both
+operating systems, in CI,
 without this repository being present.
 
 ## T13 - Agents

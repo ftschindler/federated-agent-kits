@@ -44,7 +44,11 @@ Source = "https://github.com/ftschindler/federated-agent-kits"
 Issues = "https://github.com/ftschindler/federated-agent-kits/issues"
 
 # One entry point, and renaming it is a major: every pre-commit config and every
-# contributing guide that said `uvx akit render` pinned this name.
+# contributing guide that said `uvx --from federated-agent-kits akit render`
+# pinned this name. The distribution is named something else, so that `--from` is
+# required rather than cosmetic: uvx resolves its first argument as a
+# distribution, and under this command's own name that is a different project.
+# `.scripts/check_uvx_invocation.py` fails the suite on the short form.
 [project.scripts]
 akit = "federated_agent_kits.cli:run"
 

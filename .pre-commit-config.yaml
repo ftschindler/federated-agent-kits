@@ -149,6 +149,18 @@ repos:
     files: \.md$
     pass_filenames: true
 
+  # No instruction names only the command when invoking it through uvx. The
+  # distribution is `federated-agent-kits` and the command is `akit`, and uvx
+  # resolves its first argument as a distribution, so the short form reaches an
+  # unrelated project on PyPI. It reads correctly, which is why it survived in
+  # the README, DESIGN.md and IMPLEMENTATION.md until somebody ran it.
+  - id: check-uvx-invocation
+    name: Every uvx invocation names the distribution
+    entry: uv run --script .scripts/check_uvx_invocation.py
+    language: system
+    pass_filenames: false
+    always_run: true
+
   # Keep author attribution canonical: fail if any commit author is missing
   # from .mailmap, or the file has duplicate emails / unsorted lines.
   - id: check-mailmap

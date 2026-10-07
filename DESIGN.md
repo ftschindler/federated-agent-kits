@@ -576,7 +576,8 @@ harness was reading privately into the repository's history. That is the intende
 rather than a side effect, and it is why [§8](#8-keeping-the-employers-kits-in) asks which
 parts land somewhere a machineless harness reads rather than which parts it renders.
 
-The workflow is clone, `uvx akit render`, work. A colleague who has never run this tool sees
+The workflow is clone, `uvx --from federated-agent-kits akit render`, work. A colleague who
+has never run this tool sees
 `.akit.yaml` and nothing else, which is the honest signal that a step is missing, and that
 step is one command with no install in front of it
 ([§9](#9-windows-linux-python)).
@@ -910,7 +911,8 @@ never anywhere else, and nothing a user of `akit` touches depends on it.
 
 ### How it ships
 
-**A package on PyPI, so `uvx akit render` works in a clone with nothing installed first.**
+**A package on PyPI, so `uvx --from federated-agent-kits akit render` works in a clone with
+nothing installed first.**
 
 That is a constraint rather than a packaging preference, and it comes from
 [§6](#6-the-manifest). A repository's `.akit.yaml` says what an agent working on that
@@ -926,7 +928,8 @@ line.
 
 Three things follow.
 
-**The package is the unit, not the repository.** `uvx akit` resolves a published version, so
+**The package is the unit, not the repository.** `uvx --from federated-agent-kits akit`
+resolves a published version, so
 what a colleague runs is a release rather than whatever is on `main` this afternoon. A
 rendered file's shape is therefore a thing that can be versioned and a change to it is a
 release note.
@@ -950,6 +953,31 @@ as every other hook in this repository's own config does.
 
 An entry point named `akit` is therefore part of the package's contract, and renaming it is a
 breaking change for every hook config and every contributing guide that pinned it.
+
+**The distribution and the command have different names, and every published instruction has
+to carry both.** `uvx <name>` reads `<name>` as a distribution to resolve, not as a command to
+find, and infers the command from it. So naming only the command asks the index for a
+distribution called `akit`, which exists and is not this one. The correct spelling names the
+distribution with `--from` and the command after it:
+
+```sh
+uvx --from federated-agent-kits akit render
+```
+
+The short spelling was in this document, in the README and in the implementation plan before
+anybody ran it, which is the failure worth recording rather than the typo. It was wrong in the
+one place being wrong costs the most, since the sentence it appears in is the one a colleague
+copies on the day they first touch the repository, and what they would have got is an unrelated
+package. Today that package ships no console script, so the instruction fails confusingly; it
+is one release by its owner away from running somebody else's code instead. A guard in this
+repository's pre-commit suite now fails on the short form anywhere in the tree, because this is
+a mistake that reads correctly and is only caught by executing it.
+
+Renaming the distribution to match the command would remove the flag and is not available:
+`akit` on PyPI is taken by a real project rather than an abandoned squat. Adding a second
+console script named after the distribution would also remove it, at the cost of two names to
+document and keep in step, and `akit` is still what somebody types once it is installed. So
+the flag stays, and `uv tool install federated-agent-kits` is what the daily user does instead.
 
 ## 10. Commands
 

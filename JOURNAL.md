@@ -218,3 +218,59 @@ from it needs PyPI as a second index, which means the dependency-resolution leg 
 like the real thing. And a pull request from a fork cannot be given an OIDC token, so there
 the job builds and checks and says in an annotation that it uploaded nothing. Both are stated
 in the workflow rather than left to be discovered.
+
+## 2026-10-08 - The invocation in the README resolved somebody else's package
+
+Every document in this repository told a reader to run the CLI through uvx by naming only the
+command. The distribution is `federated-agent-kits` and the command inside it is `akit`, and
+uvx reads its first argument as a distribution rather than as a command. So the instruction
+asked PyPI for a project called `akit`, which exists, is at version 0.0.1, is by `lqxnjk`, and
+is described as "a Python package for intelligent information bagging system".
+
+Nobody had run it. The whole of [T1](IMPLEMENTATION.md#t1---the-package-the-cli-frame-and-ci)
+went by, including a real publish and a round trip through TestPyPI, with the wrong form in
+the README the entire time. What it does today is:
+
+```text
+Package `akit` does not provide any executables.
+```
+
+That is the lucky outcome. The project ships no console script, so the instruction fails
+confusingly instead of running. Its owner adding one would turn the first line of this
+repository's README into third-party code execution on the machine of every colleague
+following a contributing guide.
+
+**CI was never wrong, which is why nothing caught it.** `.scripts/verify-published.py` has
+always built `uvx --index ... --from federated-agent-kits==<version> akit --version`, because
+it had to pin an exact version to verify a release, and pinning a version forces `--from`.
+The release notes in `release.yml` were correct for the same reason.
+`tests/test_entry_point.py` passes a built wheel to `--from`. So every automated path
+exercised the correct spelling and every human-facing sentence carried the wrong one, which
+is the shape of failure worth writing down: the tests were not weak, they were testing a
+different invocation from the one being documented.
+
+**The guard, and the version of it that did not work.** The first attempt distinguished an
+instruction from a mention by markup: a fenced code block is something a reader copies, an
+inline code span is something a sentence is talking about, so a document could explain the
+mistake without committing it. Run against `main` it found the two fenced blocks in
+`README.md` and nothing in `DESIGN.md` or `IMPLEMENTATION.md`, because their occurrences were
+inline. One of them was:
+
+> **A package on PyPI, so `uvx akit render` works in a clone with nothing installed first.**
+
+which is inline, is a promise, and is the sentence that caused all of this. Markup does not
+separate a warning from a claim. So the rule became literal with no opt-out, the three
+passages that explain the mistake were reworded to describe it rather than spell it, and the
+only exemptions are the guard and its own test, which have to contain the form in order to
+catch it.
+
+Made literal, it immediately found an eighth site nobody had counted: a comment in
+`release.yml` saying which artefact uvx resolves. Seven had been found by reading.
+
+**What was considered and rejected.** Leading with `uv tool install federated-agent-kits`
+reads better at every call site and costs the promise in [§9](DESIGN.md#how-it-ships) that a
+colleague needs no install step, which is load-bearing for the clone-render-work workflow.
+Renaming the distribution to match the command is not available, because the name is taken by
+a real project rather than an abandoned squat. A second console script named after the
+distribution would make a bare invocation work, at the price of two names to keep in step
+documentation-wide, and `akit` remains what anybody types once it is installed.

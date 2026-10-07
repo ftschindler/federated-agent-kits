@@ -49,8 +49,15 @@ documentation, and `akit help manifest`, `akit help sources`, `akit help harness
 `akit help privacy` cover the four things that are not commands.
 
 ```sh
-uvx akit --help
+uvx --from federated-agent-kits akit --help
 ```
+
+**The `--from` is not decoration.** The distribution is `federated-agent-kits` and the command
+it installs is `akit`, and `uvx` reads its first argument as a distribution rather than as a
+command. Naming only the command therefore asks the index for a project called `akit`, which
+belongs to somebody else. `--from` names the distribution and `akit` names the command inside
+it. If you run this daily and would rather type four words fewer, `uv tool install
+federated-agent-kits` puts `akit` on your `PATH` for good.
 
 A source is an ordinary git repository with `skills/`, `rules/` or `agents/` in it. It needs
 no manifest and no registration, and it never learns that you subscribed.
@@ -60,11 +67,12 @@ you. A committed one in a repository says what that repository expects, so a col
 it and runs one command:
 
 ```text
-uvx akit render
+uvx --from federated-agent-kits akit render
 ```
 
-**Nothing to install first.** `akit` ships on PyPI, so the step between a fresh clone and a
-working set of kits is that one line, in a contributing guide or in a pre-commit hook.
+**Nothing to install first.** `federated-agent-kits` ships on PyPI, so the step between a
+fresh clone and a working set of kits is that one line, in a contributing guide or in a
+pre-commit hook.
 
 ## What it promises
 

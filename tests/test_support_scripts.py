@@ -36,6 +36,7 @@ def load(name: str) -> ModuleType:
 version = load("version.py")
 run_tests = load("run-tests.py")
 verify_published = load("verify-published.py")
+check_uvx = load("check_uvx_invocation.py")
 
 
 class TestNextVersion:
@@ -228,6 +229,106 @@ class TestTheVersionGuard:
         before = '[project]\nname = "x"\nversion = "0.1.0"\n'
         after = before + 'description = "y"\n'
         assert self.diff_of(tmp_path, before, after, monkeypatch) is False
+
+
+class TestTheUvxInvocationGuard:
+    """uvx resolves its first argument as a distribution, and the short form reads fine.
+
+    The cases that matter are not the obvious one. They are the correct spelling
+    with other flags in between, which must pass, and a flag that could swallow
+    the command name and hide the match, which must not.
+    """
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "uvx akit render",
+            "uvx akit --help",
+            "    uvx akit doctor --json",
+            # `--quiet` can take a value, so the pattern must backtrack rather
+            # than let the flag consume the command name and miss the line.
+            "uvx --quiet akit render",
+            "$ uvx akit render",
+            "Run `uvx akit render` in a fresh clone.",
+        ],
+    )
+    def test_an_invocation_without_the_distribution_is_caught(self, line: str) -> None:
+        assert check_uvx.offences(f"{line}\n") == [1]
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "uvx --from federated-agent-kits akit render",
+            "uvx --from federated-agent-kits==0.2.1 akit --version",
+            "uvx --from dist/x.whl akit --help",
+            "uvx --index https://x --from federated-agent-kits akit --version",
+            "uv tool install federated-agent-kits",
+            "akit render",
+            "uvx ruff check",
+        ],
+    )
+    def test_a_correct_invocation_passes(self, line: str) -> None:
+        assert check_uvx.offences(f"{line}\n") == []
+
+    def test_prose_is_not_exempt(self) -> None:
+        # The first version of this guard let an inline code span through, on the
+        # theory that a sentence mentioning the form is not an instruction. It
+        # then passed on the DESIGN.md sentence that caused all of this, which
+        # promised inline that the short form works in a fresh clone.
+        assert check_uvx.offences("It is a package on PyPI, so `uvx akit render` works.\n") == [1]
+
+    def test_this_repository_passes_its_own_guard(self) -> None:
+        assert check_uvx.main() == 0
+
+    def test_it_would_have_caught_the_documents_it_was_written_for(self) -> None:
+        # Evidence rather than assertion: the guard is run against the content
+        # that was committed before it existed.
+        for path in ("README.md", "DESIGN.md", "IMPLEMENTATION.md"):
+            shown = subprocess.run(
+                ["git", "show", f"main:{path}"],
+                capture_output=True,
+                text=True,
+                check=False,
+                cwd=str(REPO_ROOT),
+            )
+            if shown.returncode != 0:  # pragma: no cover - a clone with no `main` ref
+                pytest.skip("no `main` to compare against")
+            assert check_uvx.offences(shown.stdout), f"{path} should have offended"
+
+    def test_a_binary_file_is_skipped_rather_than_crashing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class Shown:
+            stdout = b"\xff\xfe\x00"
+
+        monkeypatch.setattr(check_uvx.subprocess, "run", lambda *_a, **_k: Shown())
+        assert check_uvx.committed_text("x.png") is None
+
+    def test_it_reports_the_file_and_the_line(
+        self, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(check_uvx, "tracked_files", lambda: ["README.md"])
+        monkeypatch.setattr(check_uvx, "committed_text", lambda _path: "\nuvx akit render\n")
+        assert check_uvx.main() == 1
+        printed = capsys.readouterr().out
+        assert "README.md:2" in printed
+        assert check_uvx.SUGGESTION in printed
+
+    def test_only_files_that_instruct_nobody_are_exempt(self) -> None:
+        assert check_uvx.EXEMPT == (
+            ".scripts/check_uvx_invocation.py",
+            "tests/test_support_scripts.py",
+            "JOURNAL.md",
+        )
+
+    def test_git_failing_is_an_error_rather_than_a_pass(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A guard that passes when it could not read the tree is worse than none.
+        class Failed:
+            returncode = 1
+            stdout = ""
+            stderr = "not a repository"
+
+        monkeypatch.setattr(check_uvx.subprocess, "run", lambda *_a, **_k: Failed())
+        with pytest.raises(SystemExit):
+            check_uvx.tracked_files()
 
 
 class TestRunTests:
