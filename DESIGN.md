@@ -506,8 +506,39 @@ A repository's renders inside that repository. There is no `scope:` key, because
 third answer.
 
 The project file adds to yours rather than replacing it. Your subscriptions do not stop being
-true because you changed directory. Where both name the same kit, the repository wins, which
-is how a repository pins something different without you unsubscribing.
+true because you changed directory.
+
+**Neither file overrules the other, because they never write to the same place.** Yours
+renders into the machine-level harness directories and a repository's renders inside that
+repository ([§10](#render)), so a name used in both produces two copies in two directories
+and neither can overwrite the other. There is no precedence rule here, and an earlier draft
+of this section claimed one.
+
+What a shared name does produce is a harness holding two kits under one name, which opencode
+refuses and pi resolves by keeping whichever it found first. So the collision is reported
+rather than resolved: `akit list` names both subscriptions and both scopes, `akit doctor`
+reports it with the fix, and the fix is `as:`, which is the thing the manifest is the only
+place able to do ([§6](#when-a-kit-needs-more-than-its-name)).
+
+**`akit add` refuses the collision it can see you making.** Typing `akit add` for a name you
+already subscribe to fails before the manifest is touched, naming the other subscription and
+`--as`, the same way it fails when the kit is not in the source ([§10](#add)). That is a
+usage error and not a refusal in the sense of [§8](#8-keeping-the-employers-kits-in): there
+is something to type instead, and reserving the refusal exit code for the cases with no
+override is what keeps it worth reading.
+
+A collision that arrives by cloning a repository, or by `update` moving a pin onto a source
+that renamed something, is nobody-present and is not refused. `render` writes both copies and
+says what it did. It runs from a git hook and does both scopes at once, so refusing would let
+a repository you are only passing through stop your own kits from rendering, over a condition
+that puts no file at risk.
+
+**Rules are the one kind where reading the two files in order means anything**, since order
+is what decides a contradiction ([§7](#rules-and-the-three-ways-a-harness-can-take-them)).
+Yours come first and the repository's come after, so a repository that disagrees with you
+about something gets the last word on its own ground. Within each file the order is the order
+you wrote. This is the one place the two manifests form a single sequence, and it costs
+nothing elsewhere: the other two kinds have no order to merge.
 
 ### Finding them
 
