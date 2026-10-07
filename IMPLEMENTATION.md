@@ -209,14 +209,17 @@ tested, released package.
   and the first real publish is the one that finds the misconfigured name, the missing
   classifier and the trusted-publisher mismatch. It found a fourth thing, which
   [JOURNAL.md](JOURNAL.md) records.
-- **To PyPI only, and in an order that makes a refused release free.** An earlier draft of
-  this bullet said TestPyPI and then PyPI, which is right for a one-off dry run before the
-  first upload and wrong as a permanent step in every release: allowed to fail it protects
-  nothing, and not allowed to fail it blocks releases on an index that expires its projects.
-  What replaces it is the job writing the version, building, checking and publishing before
-  it commits or tags anything, so a release that cannot be published leaves no trace and is
-  retried by merging the fix. A broken-but-accepted upload is caught instead by the `cli`
-  layer, which installs the built wheel and runs it on both operating systems.
+- **The rehearsal upload belongs on a pull request, not in the release.** An earlier draft of
+  this bullet said TestPyPI and then PyPI, in the release job. Allowed to fail, such a step
+  protects nothing, because its failure cannot stop the upload that follows it. Not allowed
+  to fail, it blocks releases on an index that expires its projects. On a pull request it is
+  free and it gates something: `rehearsal.yml` publishes `<next>.dev<run id>` to TestPyPI,
+  installs it back from there and runs it, which is the only way to learn before merging
+  whether an index will accept this package at all.
+- **The release publishes last.** The upload is the only step that cannot be undone, so the
+  version is written, built, checked, committed and tagged first, and published after. A
+  failure then leaves a deletable tag and a version number still free, which is the cheaper
+  of the two orphans available: there is no transaction across an index and a git remote.
 
 **Tests.** The help contract over every registered command. `--version` matches the installed
 metadata. Every exit code. The fake home cannot see the real `HOME` on either platform, with

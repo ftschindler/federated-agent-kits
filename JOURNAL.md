@@ -153,43 +153,68 @@ TestPyPI failed separately, with `invalid-publisher`, because its pending publis
 been added yet. That step is `continue-on-error` precisely so a rehearsal index cannot block a
 release, and it behaved as designed.
 
-## 2026-10-07 - A rehearsal that cannot stop anything, and the ordering that made it look necessary
+## 2026-10-07 - A rehearsal that cannot stop anything, and an ordering argument I got backwards
 
-Reviewing the fix above, the question was asked directly: why publish to TestPyPI at all if
-the step is allowed to fail. It does not survive the question.
+Two corrections in one sitting, and the second is to the first.
 
-A rehearsal index is useful when a candidate can be published, inspected, and then promoted.
-This pipeline has no such gap. The same commit goes to both indexes seconds apart with
-nothing in between, and because the step is `continue-on-error` its failure cannot stop the
-upload that follows. What it produces is a red step inside a run that succeeded, which is the
-kind of signal people learn to ignore. Removing `continue-on-error` does not rescue it:
-TestPyPI expires projects, so a real gate there blocks releases on an index nobody depends
-on, which is why the flag was added and is what hollowed the step out.
+**The rehearsal step was incoherent.** Asked directly why publish to TestPyPI at all if the
+step is allowed to fail, it does not survive the question: its failure cannot stop the upload
+that follows, so what it produces is a red step inside a run that succeeded, which is the
+kind of signal people learn to ignore. Removing `continue-on-error` does not rescue it,
+because TestPyPI expires projects and a real gate there blocks releases on an index nobody
+depends on. That is why the flag was added, and adding it is what hollowed the step out.
 
 How it got there: [T1](IMPLEMENTATION.md#t1---the-package-the-cli-frame-and-ci) asked to
 publish the first version "to TestPyPI and then to PyPI", which is sensible as a one-off dry
-run before the first real upload. That was turned into a permanent step in every release and
-then defanged. The plan's bullet now says so.
+run. It became a permanent step in every release and was then defanged.
 
-**The ordering is the actual finding.** A rehearsal earns its keep when failure is expensive,
-and failure was expensive here for exactly one reason: the job wrote the version, committed
-it and tagged it *before* publishing, so a refused upload burned a number and left `v0.2.0`
-pointing at something nobody can install. With the write moved after the upload, a release
-that cannot be published leaves nothing behind and is retried by merging the fix.
+**Then I moved the upload before the commit and the tag, and that was wrong.** The reasoning
+was that the morning's failure "burned a version number". It did not. `0.2.0` was refused, so
+`0.2.0` was never consumed and is still free. What it actually cost was a tag to delete.
 
-The risk moves to the other end rather than disappearing: if the push fails after a
-successful upload, PyPI holds a version this repository has not recorded. That is
-recoverable by hand, and the previous arrangement was not. Everything that could plausibly
-fail in that step - minting the token, resolving the bot's identity - now happens before the
-upload, so what is left after it is a commit and two pushes with a token already proven to
-work.
+The principle that decides the order is that the irreversible step goes last. The upload is
+the only one: PyPI has no delete-and-reuse, only yank. Writing a version, committing it,
+tagging it and pushing are all revocable.
 
-What replaces the rehearsal, in two parts. `twine check --strict` before anything is
-committed, which is the half of the upload's validation that needs no index. And the `cli`
-test layer, which already installs the built wheel and runs `akit --help` from it on both
-operating systems on every pull request, which is the half that catches an upload that would
-be accepted and broken.
+- Commit and tag, then publish: a refused upload leaves a deletable tag and a free number.
+- Publish, then commit and tag: a declined push leaves PyPI holding a version this repository
+  never recorded, permanently. And a push to `main` declined by the ruleset is exactly the
+  failure the bypass list exists to prevent, which is to say it is the plausible one.
 
-What nothing now catches before the upload is a server-side rejection: a classifier warehouse
+So the order is back to where it started, and what actually fixed the morning was
+`twine check --strict` before anything is written, plus the action bump. There is no
+transaction across an index and a git remote; something has to be the orphan, and a deletable
+tag is a better orphan than an unpublishable version.
+
+**Where the rehearsal went instead.** Onto pull requests, as `rehearsal.yml`, where it is
+free and where it gates something. It publishes `<next>.dev<run id>` to TestPyPI, installs it
+back from there, and runs `akit --version` and `akit --help` against what the index served.
+What that catches and nothing else does is an index saying no: a classifier warehouse
 dislikes, a licence expression it will not parse, a name that normalises onto an existing
-one. That is deliberate. Discovering those from the upload is now free.
+project, a metadata version the upload path does not know. That last one is this morning,
+caught before a merge instead of after a tag.
+
+It is a separate workflow file rather than a job in `release.yml` because a trusted publisher
+is matched on the filename. One file reaches TestPyPI on a pull request, one reaches PyPI on
+a push to `main`, and a rehearsal that could authenticate as the release would not be one.
+
+**The version could not carry a sha, which was the first instinct and is worth writing down.**
+PEP 440 wants a number in a dev segment, so `0.2.1.dev6ec3cb1` does not parse at all. The
+other spelling does parse and is refused on upload:
+
+```python
+# warehouse/forklift/metadata.py
+if metadata.version.local:
+    errors.append(InvalidMetadata("version", f"The use of local versions in '{metadata.version}' is not allowed."))
+```
+
+A run id is the better answer regardless. An index accepts a given version exactly once and
+never again, even after a deletion, so a serial that changes when a workflow is re-run on an
+unchanged commit is a requirement rather than a preference. The run id links to the run,
+which names the sha, so what is lost is one click.
+
+**What the rehearsal still does not prove.** TestPyPI does not mirror PyPI, so installing
+from it needs PyPI as a second index, which means the dependency-resolution leg is not shaped
+like the real thing. And a pull request from a fork cannot be given an OIDC token, so there
+the job builds and checks and says in an annotation that it uploaded nothing. Both are stated
+in the workflow rather than left to be discovered.

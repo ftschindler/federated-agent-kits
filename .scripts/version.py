@@ -6,6 +6,7 @@
 
   version.py current                 # what shipped last
   version.py next <level>            # what a major, minor or patch would make it
+  version.py dev <level> <serial>    # the same, as a throwaway rehearsal version
   version.py write <version>         # put it in pyproject.toml
   version.py check-untouched <base>  # refuse a pull request that edited it
 
@@ -36,6 +37,12 @@ from pathlib import Path
 
 LEVELS = ("major", "minor", "patch")
 SEMVER = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
+#: What may be written into `pyproject.toml`: a release, or a release with a dev
+#: segment behind it. The dev segment is numeric because PEP 440 says so, and
+#: because the obvious thing to put there instead - a commit sha - is not a
+#: number. The other obvious spelling, `0.2.1+g6ec3cb1`, parses fine and is
+#: refused by both indexes: warehouse forbids local versions outright.
+WRITABLE = re.compile(r"^(\d+)\.(\d+)\.(\d+)(\.dev\d+)?$")
 #: Anchored to the start of a line and to the `[project]` spelling, so a
 #: `requires-python` or a dependency specifier carrying a version is not matched.
 VERSION_LINE = re.compile(r'^version = "(?P<version>[^"]+)"$', re.MULTILINE)
@@ -51,9 +58,22 @@ def read_version(text: str) -> str:
     return match.group("version")
 
 
+def dev_version(current: str, level: str, serial: str) -> str:
+    """The version this change would release, marked as a rehearsal of it.
+
+    The serial is a run id rather than a commit sha, and not by preference. An
+    index accepts a given version exactly once and never again, even after a
+    deletion, so re-running a workflow on the same commit has to produce a
+    different string - which a sha does not, and a run id does.
+    """
+    if not serial.isdigit():
+        sys.exit(f"version: {serial!r} is not a number, and a dev segment has to be one")
+    return f"{next_version(current, level)}.dev{serial}"
+
+
 def replace_version(text: str, new: str) -> str:
-    if not SEMVER.match(new):
-        sys.exit(f"version: {new!r} is not a version of the form 1.2.3")
+    if not WRITABLE.match(new):
+        sys.exit(f"version: {new!r} is not a version of the form 1.2.3 or 1.2.3.dev4")
     replaced, count = VERSION_LINE.subn(f'version = "{new}"', text, count=1)
     if count != 1:
         sys.exit('version: no `version = "..."` line in pyproject.toml')
@@ -105,6 +125,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("current", help="print the version in pyproject.toml")
     following = sub.add_parser("next", help="print what the next version would be")
     following.add_argument("level", choices=LEVELS)
+    rehearsal = sub.add_parser("dev", help="print a throwaway version for a rehearsal upload")
+    rehearsal.add_argument("level", choices=LEVELS)
+    rehearsal.add_argument("serial", help="a number unique to this run, such as a run id")
     write = sub.add_parser("write", help="write a version into pyproject.toml")
     write.add_argument("version")
     check = sub.add_parser("check-untouched", help="fail if the diff from <base> edits the version")
@@ -117,6 +140,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if arguments.action == "next":
         print(next_version(read_version(text), arguments.level))
+        return 0
+    if arguments.action == "dev":
+        print(dev_version(read_version(text), arguments.level, arguments.serial))
         return 0
     if arguments.action == "write":
         PYPROJECT.write_text(replace_version(text, arguments.version), encoding="utf-8")

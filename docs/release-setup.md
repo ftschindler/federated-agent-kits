@@ -14,13 +14,17 @@ because a required check that never reports blocks every merge and there was not
 reporting yet.
 
 Once `.github/workflows/tests.yml` has run on one pull request, add `🛠 (Tests)` to the same
-ruleset.
+ruleset, and `🧪 (publish a rehearsal and install it)` alongside it.
 
-That exact name, and only that one. It is the aggregate job, it has a fixed name, and it
+`🛠 (Tests)` is the aggregate job, and that exact name, not the matrix jobs beneath it. It is the aggregate job, it has a fixed name, and it
 fails unless every matrix job succeeded. The matrix jobs are named after the axis they ran on
 (`🛠 (Tests, unit, ubuntu-latest)` and so on), so requiring one of those directly means
 editing the rule every time the matrix changes. Worse, a matrix job that stops being produced
 does not fail the rule: it silently stops being required.
+
+The rehearsal job is safe to require even though a pull request from a fork cannot upload
+anything: it still builds and checks the distribution, reports success, and says in a warning
+annotation that it did not upload.
 
 ## 2. The release app
 
@@ -43,14 +47,14 @@ Step 4 is not a permission, is the one that gets forgotten, and is the reason th
 exists. Without it the job mints a valid token, pushes, and is declined by the ruleset. The
 error says nothing about bypass lists.
 
-## 3. Trusted publishing on PyPI
+## 3. Trusted publishing, on both indexes but not for the same thing
 
-One index. There is no TestPyPI step: one that is allowed to fail protects nothing, and one
-that is not blocks releases on an index that expires its projects. What makes a rehearsal
-unnecessary here is the order of the release job, which commits and tags only after the
-upload has succeeded, so a refused release costs nothing and is retried by merging the fix.
+Two publishers, matched on two different workflow filenames, because that is what keeps them
+apart. `release.yml` can reach PyPI and runs only on a push to `main`. `rehearsal.yml` can
+reach TestPyPI and runs only on a pull request. A rehearsal that could authenticate as the
+release would not be a rehearsal.
 
-On [pypi.org](https://pypi.org/manage/account/publishing/), add a pending publisher:
+On [pypi.org](https://pypi.org/manage/account/publishing/):
 
 | Field | Value |
 | --- | --- |
@@ -60,12 +64,24 @@ On [pypi.org](https://pypi.org/manage/account/publishing/), add a pending publis
 | Workflow name | `release.yml` |
 | Environment name | `pypi` |
 
-Then create a repository environment named `pypi`. It needs no secrets: trusted publishing
+And on [test.pypi.org](https://test.pypi.org/manage/account/publishing/), the same but for
+the other workflow:
+
+| Field | Value |
+| --- | --- |
+| PyPI project name | `federated-agent-kits` |
+| Owner | `ftschindler` |
+| Repository name | `federated-agent-kits` |
+| Workflow name | `rehearsal.yml` |
+| Environment name | `testpypi` |
+
+Then create the two repository environments, `pypi` and `testpypi`. It needs no secrets: trusted publishing
 exchanges the workflow's OIDC token for a short-lived upload token, so there is no API token
 to leak, rotate or forget.
 
 ```sh
 gh api --method PUT repos/ftschindler/federated-agent-kits/environments/pypi
+gh api --method PUT repos/ftschindler/federated-agent-kits/environments/testpypi
 ```
 
 The environment name has to match on both sides, and it names the GitHub environment rather
