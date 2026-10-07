@@ -623,3 +623,54 @@ they were in code, and T4 copied them faithfully. "Every path in §4 will move" 
 two places in IMPLEMENTATION.md, and what neither said is that an adapter task has to go and
 look. It now says so in "What every task delivers", so it binds every task rather than only
 the one that writes the guide.
+
+## 2026-10-08 - Rendering in one repository deleted another repository's files
+
+[T5](IMPLEMENTATION.md#t5---the-render-engine-and-skills)'s withdrawal rule was written
+against the scope a file belongs to, which is what the render record carries. The unit layer
+agreed with it for twelve tests. The `cli` layer, which renders twice in two repositories in
+one fake home, did not:
+
+```text
+E       AssertionError: assert {} == {'writing/SKILL.md': ...}
+E         Right contains 2 more items
+```
+
+The empty side is the repository rendered *first*. Both checkouts are project scope, both
+their rendered files were in the record, and the second render found the first one's files
+sitting in the record with a scope it was rendering and nothing in *this* repository's
+manifest explaining them. So it deleted them, reported the deletion in full sentences, and
+exited 0.
+
+The rule was right about scope and silent about place. A record is machine-wide and a render
+happens somewhere: your home directory holds one set of directories, and every repository on
+this disk holds its own. `render._territory` is the missing half - the directories this
+particular run is responsible for, computed from every registered adapter anchored at this
+render's roots - and withdrawal now needs a file to be inside it as well as in a scope it is
+rendering.
+
+Every registered adapter rather than the chosen ones, deliberately. Withdrawal has to reach
+the files of a harness that has just left the `harnesses:` list, which is exactly the moment
+the chosen list stops naming it, and that is what `akit harness remove` will be in
+[T7](IMPLEMENTATION.md#t7---add-remove-update-harness).
+
+**What found it was a layer, not a test.** Nothing in the unit layer renders twice in two
+places, because a unit test builds the setup it is about and this bug needs two setups that
+have nothing to do with each other. The `cli` layer gets that for free: one fake home, several
+repositories in it, which is also what a laptop is.
+
+## 2026-10-08 - The ignore block listed a directory that had stopped being rendered
+
+A smaller correction from the same test run, and the first version of it read reasonably.
+The `.gitignore` block was computed from the directories the adapters in scope declare, which
+is a list that changes only when a harness is installed or named.
+
+[DESIGN.md](DESIGN.md#what-a-repository-commits) asks for something else: "a directory that
+stops being rendered leaves the block on the next render". An adapter-shaped list cannot do
+that. It would go on ignoring `.agents/skills/` for as long as opencode was installed, whether
+or not anything of ours had ever been in it, which makes the block a statement about this
+machine rather than about this repository.
+
+So the block is now computed from the render record: a directory is listed when something the
+record explains is inside it. The two differ only in the case that matters, which is why the
+first version passed every test except the one that withdrew everything and then looked.

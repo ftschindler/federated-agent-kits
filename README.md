@@ -12,11 +12,14 @@ its own filename.
 This subscribes you to the kits you want, from wherever they live, and writes them where each
 harness looks.
 
-**Status: it reads, and does not yet write.** [DESIGN.md](DESIGN.md) is the source of truth
+**Status: it reads, and it renders skills.** [DESIGN.md](DESIGN.md) is the source of truth
 for what gets built, [IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets built in.
-`akit list` works today, against both manifests, every source form and the opencode and VS
-Code adapters. Every other verb says which task it is waiting for rather than pretending to
-work.
+`akit list` and `akit render` work today, against both manifests, every source form and the
+opencode and GitHub Copilot in VS Code adapters. A render copies the skills you subscribed to
+into the directory both harnesses read, maintains the `.gitignore` block, and deletes a
+rendered copy only while its bytes are still the ones it wrote. Rules wait for T6 and agents
+for T13, so a subscription to either says which task it is waiting for, and so does every
+verb that has not landed.
 
 ## What it is for
 

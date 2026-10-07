@@ -40,7 +40,7 @@ builds a part of it or keeps it releasable.
 - [x] **[T2](#t2---manifests)** - Manifests
 - [x] **[T3](#t3---sources-resolution-cache-discovery)** - Sources: resolution, cache, discovery
 - [x] **[T4](#t4---adapters-detection-and-akit-list)** - Adapters, detection, and `akit list`
-- [ ] **[T5](#t5---the-render-engine-and-skills)** - The render engine, and skills
+- [x] **[T5](#t5---the-render-engine-and-skills)** - The render engine, and skills
 - [ ] **[T6](#t6---rules)** - Rules
 - [ ] **[T7](#t7---add-remove-update-harness)** - `add`, `remove`, `update`, `harness`
 - [ ] **[T8](#t8---the-machineless-harness-and-the-leak-refusal)** - The machineless harness, and the leak refusal
