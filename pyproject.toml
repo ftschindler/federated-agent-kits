@@ -1,0 +1,84 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "federated-agent-kits"
+# Written by the release job on merge, never in a pull request: a hand-bumped
+# version disagrees with its tag the first time somebody forgets, and every
+# concurrent pull request touches this one line and conflicts on merge. What a
+# pull request carries instead is a label saying how big it is.
+version = "0.1.0"
+description = "Subscribe to agent kits from wherever they live, and render them where each harness looks"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Felix Tschindler" }]
+keywords = ["agents", "skills", "prompts", "opencode", "copilot"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Build Tools",
+]
+dependencies = [
+  # A round-tripper rather than PyYAML: the manifest is a file a person owns, and
+  # a command that writes it has to give back the comments, the key order and the
+  # layout it was handed. DESIGN.md section 6.
+  "ruamel.yaml>=0.18",
+  # The config, cache and state directories are looked up per platform rather than
+  # spelled `~/.config`, which is the Linux answer written down as if it were the
+  # only one. DESIGN.md section 9.
+  "platformdirs>=4.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/ftschindler/federated-agent-kits"
+Source = "https://github.com/ftschindler/federated-agent-kits"
+Issues = "https://github.com/ftschindler/federated-agent-kits/issues"
+
+# One entry point, and renaming it is a major: every pre-commit config and every
+# contributing guide that said `uvx akit render` pinned this name.
+[project.scripts]
+akit = "federated_agent_kits.cli:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/federated_agent_kits"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src", "tests", "README.md", "LICENSE", "DESIGN.md"]
+
+[tool.coverage.run]
+branch = true
+source = ["src/federated_agent_kits"]
+# `python -m federated_agent_kits` is a three-line shim whose only job is to be a
+# process. The `cli` layer runs it as one, which is the only way it can be run,
+# and coverage cannot see inside a subprocess. Measuring it here would mean
+# either a permanent 0% or a `pragma` on every line of it.
+omit = ["*/federated_agent_kits/__main__.py"]
+
+[tool.coverage.report]
+# 100% of `src/`, with `# pragma: no cover` allowed only on a line whose comment
+# says why. A task that cannot reach this says so in JOURNAL.md rather than
+# lowering it here.
+fail_under = 100
+show_missing = true
+skip_covered = false
+exclude_lines = ["pragma: no cover"]
+
+[tool.ty.environment]
+# `src/` because the package is not installed when the checker runs, and
+# `tests/` because the test harnesses are imported by bare name: pytest puts a
+# `conftest.py`'s directory on `sys.path`, which a type checker has no reason to
+# know about.
+extra-paths = ["src", "tests"]
+
+[tool.ty.rules]
+possibly-unresolved-reference = "error"
+unused-ignore-comment = "error"

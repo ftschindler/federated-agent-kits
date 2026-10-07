@@ -16,6 +16,34 @@ guard-%:
 		exit 1; \
 	}
 
+## Run every test layer that does not need an API key
+test: test_unit test_cli
+
+# Each layer is one call into .scripts/run-tests.py, which composes the `uv`
+# invocation in Python. Doing it here would make `make` and a POSIX shell
+# prerequisites of running the tests at all, and the script runs the same on
+# Windows, where make usually is not installed.
+
+## Test the library in-process; this is the layer the coverage gate applies to
+test_unit: | guard-uv
+	uv run .scripts/run-tests.py unit
+
+## Test `akit` as a subprocess in a fake home (needs git)
+test_cli: | guard-git guard-uv
+	uv run .scripts/run-tests.py cli
+
+## Test `akit` against two real public repositories (needs network)
+test_federation: | guard-git guard-uv
+	uv run .scripts/run-tests.py federation
+
+## Test the skill by driving a disposable agent (slow, needs network + node)
+test_agent: | guard-node guard-uv
+	uv run .scripts/run-tests.py agent
+
+## Build the wheel and the sdist into dist/
+build: | guard-uv
+	uv build --out-dir dist
+
 ## Run the full pre-commit guard suite against all files
 check: | guard-uvx
 	uvx prek run --all-files
@@ -24,4 +52,4 @@ check: | guard-uvx
 bootstrap: | guard-git guard-uvx
 	uvx prek install
 
-.PHONY: help check bootstrap
+.PHONY: help test test_unit test_cli test_federation test_agent build check bootstrap

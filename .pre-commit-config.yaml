@@ -131,6 +131,16 @@ repos:
 
 - repo: local
   hooks:
+  # Types over src/ and tests/. The dependencies are passed explicitly because
+  # the package is not installed when the hook runs, and a checker that cannot
+  # resolve an import reports that instead of the error you wanted.
+  - id: ty
+    name: Type check src/ and tests/
+    entry: uvx --with pytest --with ruamel.yaml --with platformdirs ty check src tests
+    language: system
+    pass_filenames: false
+    files: \.py$
+
   # House style for markdown: no `---` separators, no em dashes.
   - id: markdown-style
     name: Markdown has no `---` separators or em dashes

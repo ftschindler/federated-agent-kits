@@ -12,8 +12,10 @@ its own filename.
 This subscribes you to the kits you want, from wherever they live, and writes them where each
 harness looks.
 
-**Status: design only.** [DESIGN.md](DESIGN.md) is the source of truth for what gets built,
-[IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets built in. There is no CLI yet.
+**Status: the frame is up.** [DESIGN.md](DESIGN.md) is the source of truth for what gets
+built, [IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets built in. `akit` installs
+and runs today, and every verb below says which task it is waiting for rather than pretending
+to work.
 
 ## What it is for
 
@@ -39,6 +41,15 @@ gets out of the way.
 akit add owner/repo writing      # this repository's manifest; --global for yours
 akit render          # safe to run from a git hook
 akit doctor          # name collisions, stale renders, refusals
+```
+
+Every command explains itself, because the agent-facing skill is deliberately thin: it says
+run `akit list` and never describes the output. So `akit <command> --help` is the
+documentation, and `akit help manifest`, `akit help sources`, `akit help harnesses` and
+`akit help privacy` cover the four things that are not commands.
+
+```sh
+uvx akit --help
 ```
 
 A source is an ordinary git repository with `skills/`, `rules/` or `agents/` in it. It needs
