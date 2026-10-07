@@ -1,0 +1,22 @@
+tests/test_manifest.py
+  s_bc02109dad44c1::t_ad2ce5b6534dab 93-158,161-170
+  s_bc02109dad44c1::t_140a65bc5870b9 159-160
+JOURNAL.md
+  s_bc02109dad44c1::t_36816d8991d2f0 325-367
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "f4348489aff9281fdc77dab48a1622f7424850d5",
+  "prompts": {},
+  "sessions": {
+    "s_bc02109dad44c1": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee9e68ad2ffeD9WnC5z8SI0vy9",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Felix Schindler <107669806+ftschindler@users.noreply.github.com>"
+    }
+  }
+}

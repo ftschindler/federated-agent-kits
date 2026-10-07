@@ -1,0 +1,45 @@
+JOURNAL.md
+  s_bc02109dad44c1::t_e83230c1be2909 277-324
+src/federated_agent_kits/manifest.py
+  s_bc02109dad44c1::t_4e635f5ea16836 163-171,174,179
+  s_bc02109dad44c1::t_0f99b70da2db3e 247
+  s_bc02109dad44c1::t_eca32d6d55d07b 389
+  s_bc02109dad44c1::t_4e522521580ebc 242
+  s_bc02109dad44c1::t_3d7cd124af546f 340
+  s_bc02109dad44c1::t_b4763510f51c55 182-185,188-194,198-199
+  s_bc02109dad44c1::t_d76587a1197c60 398
+  s_bc02109dad44c1::t_e501aa90d65c9f 236,300
+  s_bc02109dad44c1::t_086f2b9ce47e97 1-86,88-92,94-162,172-173,175-178,180-181,200-234,237-241,243-246,248-299,301-339,341-353,355-388,390-397,399-574
+  s_bc02109dad44c1::t_930f4f69c956bb 235
+  s_bc02109dad44c1::t_648271696de188 354
+  s_bc02109dad44c1::t_2e4f563dd0e550 186-187,195-197
+  s_bc02109dad44c1::t_9ce3f2abfdd441 87,93
+IMPLEMENTATION.md
+  s_bc02109dad44c1::t_283a52c2748a5d 40
+DESIGN.md
+  s_bc02109dad44c1::t_13ff8c6c7995ce 509-534
+  s_bc02109dad44c1::t_34028886a4fc9e 536-541
+tests/test_manifest_locations.py
+  s_bc02109dad44c1::t_0035faeca74c54 1-99
+tests/test_manifest.py
+  s_bc02109dad44c1::t_cd2d73a341041f 1-212,223-417
+  s_bc02109dad44c1::t_e11c9d9f15dfa8 213-222
+src/federated_agent_kits/commands.py
+  s_bc02109dad44c1::t_cb6b0d73248ca4 292-293,295-304
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "66a544027c1775779e38d4ee6942c3b4f5ffbdde",
+  "prompts": {},
+  "sessions": {
+    "s_bc02109dad44c1": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee9e68ad2ffeD9WnC5z8SI0vy9",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Felix Schindler <107669806+ftschindler@users.noreply.github.com>"
+    }
+  }
+}
