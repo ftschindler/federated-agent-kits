@@ -1,0 +1,28 @@
+tests/test_adapters.py
+  s_d0908a042c0e8c::t_0cb54fdb8e10ee 1-234
+src/federated_agent_kits/adapters/__init__.py
+  s_d0908a042c0e8c::t_0b9d838edb2b2b 1-96
+src/federated_agent_kits/adapters/opencode.py
+  s_d0908a042c0e8c::t_d13f1fe55f695f 1-73
+src/federated_agent_kits/adapters/adapter.py
+  s_d0908a042c0e8c::t_47ad282ab8a060 1-138,140-180
+  s_d0908a042c0e8c::t_258aaf59c3fa65 139
+src/federated_agent_kits/adapters/vscode.py
+  s_d0908a042c0e8c::t_c3d20cf3d1a7fe 1-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "f6a9b9e2d1a014dc300e17c8b7e612b488909d3c",
+  "prompts": {},
+  "sessions": {
+    "s_d0908a042c0e8c": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee8fdd847ffea9YmNtUcikZW1k",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Felix Schindler <107669806+ftschindler@users.noreply.github.com>"
+    }
+  }
+}
