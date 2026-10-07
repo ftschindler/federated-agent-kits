@@ -1,0 +1,124 @@
+---
+name: Rehearsal
+
+# Publish every pull request to TestPyPI under a throwaway version, then install
+# it from there and run it.
+#
+# What this catches and nothing else does is an index saying no. A classifier
+# warehouse dislikes, a licence expression it will not parse, a name that
+# normalises onto an existing project, a metadata version the upload path does
+# not know. Those are answered by an upload and by nothing before it, and the
+# first release of this package was stopped by the last of them, on `main`,
+# after a tag had been pushed.
+#
+# It is a separate workflow from `release.yml` rather than a job inside it,
+# because a trusted publisher is matched on the workflow's filename. One file
+# can reach TestPyPI and one can reach PyPI, and the one that can reach PyPI
+# runs only on a push to `main`. A rehearsal that could authenticate as the
+# release would not be a rehearsal.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rehearsal_${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  rehearsal:
+    name: 🧪 (publish a rehearsal and install it)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: testpypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      with:
+        fetch-depth: 0
+
+    - name: Setup uv
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+      with:
+        cache-dependency-glob: |
+          pyproject.toml
+          .scripts/*.py
+
+    - name: Work out a version nobody will want
+      id: version
+      # The version this pull request would release if it merged next, with a
+      # dev segment behind it, so what gets uploaded is shaped like what would
+      # be. The level comes from the bump label, which the release workflow
+      # already insists on exactly one of; without one, `patch` stands in,
+      # because the point here is the upload path rather than the number.
+      #
+      # The serial is the run id. Not a commit sha, which is the obvious choice
+      # and is not available: PEP 440 wants a number in a dev segment, and the
+      # other spelling, `0.2.1+g6ec3cb1`, is refused by both indexes because
+      # warehouse forbids local versions. A run id is also the better answer
+      # anyway, because an index accepts a version exactly once and never again,
+      # so re-running this workflow on the same commit has to produce a new
+      # string.
+      env:
+        LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+        SERIAL: ${{ github.run_id }}
+      run: |
+        set -euo pipefail
+        level="patch"
+        for label in ${LABELS}; do
+          case "${label}" in
+            major|minor|patch) level="${label}" ;;
+          esac
+        done
+        rehearsal=$(uv run .scripts/version.py dev "${level}" "${SERIAL}")
+        echo "rehearsal=${rehearsal}" >> "${GITHUB_OUTPUT}"
+        echo "Rehearsing ${level} as ${rehearsal}."
+
+    - name: Write it into the working tree
+      # Written, never committed. The release workflow refuses a pull request
+      # that edits the version line, and this does not: nothing here is pushed.
+      env:
+        REHEARSAL: ${{ steps.version.outputs.rehearsal }}
+      run: uv run .scripts/version.py write "${REHEARSAL}"
+
+    - name: Build the distribution
+      run: uv build --out-dir dist
+
+    - name: Check the distribution
+      # The same `--strict` gate the release runs, here so that the cheap
+      # failure is reported before the slow one.
+      run: uvx twine check --strict dist/*
+
+    - name: Publish to TestPyPI
+      # Skipped for a pull request from a fork, which cannot be given
+      # `id-token: write` and therefore cannot authenticate. The job still
+      # reports, having built and checked, so this can be a required check
+      # without a fork's pull request being unmergeable.
+      if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+      uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+      with:
+        repository-url: https://test.pypi.org/legacy/
+
+    - name: Install it from TestPyPI and run it
+      # A green publish means an index accepted some bytes. It does not mean
+      # anybody can install them, and it does not mean what they install works.
+      if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+      env:
+        REHEARSAL: ${{ steps.version.outputs.rehearsal }}
+      run: uv run .scripts/verify-published.py "${REHEARSAL}" https://test.pypi.org/simple/
+
+    - name: Say why nothing was uploaded
+      if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+      # Out loud, because a silently skipped step in a green job is how a gate
+      # stops being a gate without anybody noticing.
+      run: |-
+        echo "::warning::This pull request is from a fork, which cannot be given an OIDC token."
+        echo "::warning::The distribution was built and checked; it was not uploaded or installed."

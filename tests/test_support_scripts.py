@@ -35,6 +35,7 @@ def load(name: str) -> ModuleType:
 
 version = load("version.py")
 run_tests = load("run-tests.py")
+verify_published = load("verify-published.py")
 
 
 class TestNextVersion:
@@ -55,6 +56,111 @@ class TestNextVersion:
     def test_something_that_is_not_a_version_is_refused(self) -> None:
         with pytest.raises(SystemExit):
             version.next_version("v1.2", "patch")
+
+
+class TestTheRehearsalVersion:
+    """What a pull request uploads to TestPyPI, and why it cannot carry a sha.
+
+    PEP 440 wants a number in a dev segment. The other spelling that would carry
+    a sha, `0.2.1+g6ec3cb1`, parses and is refused by both indexes, because
+    warehouse forbids local versions outright. Both halves are asserted here so
+    that the next person to reach for a sha finds the reason rather than the
+    rule.
+    """
+
+    def test_it_is_the_version_this_change_would_release(self) -> None:
+        assert version.dev_version("0.2.0", "patch", "37611306651") == "0.2.1.dev37611306651"
+        assert version.dev_version("0.2.0", "minor", "7") == "0.3.0.dev7"
+
+    def test_a_sha_is_refused_with_the_reason(self) -> None:
+        with pytest.raises(SystemExit) as raised:
+            version.dev_version("0.2.0", "patch", "6ec3cb1")
+        assert "number" in str(raised.value)
+
+    def test_a_dev_version_may_be_written(self) -> None:
+        sample = '[project]\nversion = "0.2.0"\n'
+        assert 'version = "0.2.1.dev9"' in version.replace_version(sample, "0.2.1.dev9")
+
+    def test_a_local_version_may_not_be(self) -> None:
+        # Not a style preference: warehouse rejects it, so writing one would
+        # build an artefact no index will take.
+        with pytest.raises(SystemExit):
+            version.replace_version('[project]\nversion = "0.2.0"\n', "0.2.1+g6ec3cb1")
+
+
+class TestVerifyPublished:
+    def captured(self, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+        """The command `run` would have executed, without executing it."""
+        seen: list[str] = []
+
+        class Result:
+            returncode = 0
+            stdout = ""
+            stderr = ""
+
+        def record(command: list[str], **_options: object) -> Result:
+            seen.extend(command)
+            return Result()
+
+        monkeypatch.setattr(verify_published.subprocess, "run", record)
+        verify_published.run("0.2.1.dev9", "https://test.pypi.org/simple/", "--version")
+        return seen
+
+    def test_it_pins_the_exact_version(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert "federated-agent-kits==0.2.1.dev9" in self.captured(monkeypatch)
+
+    def test_it_asks_the_rehearsal_index_first(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        command = self.captured(monkeypatch)
+        indexes = [command[position + 1] for position, item in enumerate(command) if item == "--index"]
+        assert indexes == ["https://test.pypi.org/simple/", verify_published.PYPI]
+
+    def test_it_runs_the_entry_point_rather_than_importing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        command = self.captured(monkeypatch)
+        assert command[-2:] == ["akit", "--version"]
+
+    def test_both_indexes_are_offered_because_testpypi_does_not_mirror(self) -> None:
+        source = (SCRIPTS / "verify-published.py").read_text(encoding="utf-8")
+        assert "unsafe-best-match" in source
+        assert "does not mirror" in source
+
+    def test_it_retries_while_the_index_catches_up(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        attempts = []
+
+        class Result:
+            def __init__(self, code: int) -> None:
+                self.returncode = code
+                self.stdout = ""
+                self.stderr = ""
+
+        def flaky(_version: str, _index: str, *_arguments: str) -> Result:
+            attempts.append(1)
+            return Result(1 if len(attempts) < 3 else 0)
+
+        monkeypatch.setattr(verify_published, "run", flaky)
+        monkeypatch.setattr(verify_published.time, "sleep", lambda _seconds: None)
+        assert verify_published.wait_for("0.2.1.dev9", "https://test.pypi.org/simple/").returncode == 0
+        assert len(attempts) == 3
+
+    def test_it_gives_up_rather_than_waiting_forever(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class Result:
+            returncode = 1
+            stdout = ""
+            stderr = ""
+
+        monkeypatch.setattr(verify_published, "run", lambda *_args: Result())
+        monkeypatch.setattr(verify_published.time, "sleep", lambda _seconds: None)
+        assert verify_published.wait_for("0.2.1.dev9", "x").returncode == 1
+
+    def test_a_package_that_misreports_its_own_version_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The failure this exists for: the index served something, it installed,
+        # and it is not what was uploaded.
+        class Result:
+            returncode = 0
+            stdout = "akit 0.1.0\n"
+            stderr = ""
+
+        monkeypatch.setattr(verify_published, "wait_for", lambda *_args: Result())
+        assert verify_published.main(["0.2.1.dev9", "https://test.pypi.org/simple/"]) == 1
 
 
 class TestTheVersionLine:
