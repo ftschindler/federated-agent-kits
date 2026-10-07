@@ -1,0 +1,24 @@
+tests/test_sources.py
+  s_2f75f7d4ce3beb::t_7540fe16bf0bfa 110-113,116-130
+JOURNAL.md
+  s_2f75f7d4ce3beb::t_fa5c5f9374ab51 469-498
+src/federated_agent_kits/sources.py
+  s_2f75f7d4ce3beb::t_7540fe16bf0bfa 62-71
+  s_2f75f7d4ce3beb::t_7d234240727399 125,128-133,135-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "e9bd419a849a7e973bcace2176ef35576747e5e9",
+  "prompts": {},
+  "sessions": {
+    "s_2f75f7d4ce3beb": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee9a7d874ffe123GcNHsWVMEKQ",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Felix Schindler <107669806+ftschindler@users.noreply.github.com>"
+    }
+  }
+}
