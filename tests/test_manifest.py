@@ -90,6 +90,84 @@ class TestTheRoundTrip:
         assert dump(parsed(long)) == long
 
 
+class TestEditingInPlace:
+    """What T7 leans on: changing one thing leaves everything else alone.
+
+    Every other round-trip test here parses and dumps an untouched document,
+    which proves the library can echo a file and not that it can edit one. The
+    guarantee `akit add` and `akit remove` actually need is this one, so it is
+    tested against a mutated document rather than assumed from the echo.
+
+    The mutations are made on `document` directly because the API that will make
+    them is T7's. What is being pinned down is the writer underneath it.
+    """
+
+    def content(self, text: str) -> list[str]:
+        """The lines that carry something, with alignment padding collapsed.
+
+        Column alignment is cosmetic and ruamel re-flows it when the line it is
+        on changes width. What must survive is the content and the comment.
+        """
+        return [" ".join(line.split()) for line in text.splitlines() if line.strip()]
+
+    def test_appending_a_kit_keeps_the_pin_comment(self) -> None:
+        manifest = parsed(CORPUS)
+        manifest.document["skills"]["owner/repo#9f2c1ab"].append("newkit")
+        written = dump(manifest)
+        assert "# frozen: v2" in written
+        assert "[writing, caveman, newkit]" in written
+
+    def test_appending_a_kit_leaves_every_other_line_alone(self) -> None:
+        manifest = parsed(CORPUS)
+        manifest.document["skills"]["owner/repo#9f2c1ab"].append("newkit")
+        before = self.content(CORPUS)
+        after = self.content(dump(manifest))
+        changed = [(old, new) for old, new in zip(before, after, strict=True) if old != new]
+        assert len(changed) == 1, f"one line should have changed, these did: {changed}"
+
+    def test_removing_a_kit_leaves_its_neighbours_alone(self) -> None:
+        manifest = parsed(CORPUS)
+        manifest.document["skills"]["owner/repo#9f2c1ab"].remove("caveman")
+        after = dump(manifest)
+        assert "[writing]" in after
+        assert "# frozen: v2" in after
+        # The entry beneath it, comment and all, is byte-identical.
+        assert '  acme/kits#4d7e08b: ["*"]                 # frozen: main, 2026-10-05' in after
+
+    def test_a_new_source_key_keeps_every_line_that_was_already_there(self) -> None:
+        manifest = parsed(CORPUS)
+        manifest.document["skills"]["new/source#deadbee"] = ["thing"]
+        after = self.content(dump(manifest))
+        for line in self.content(CORPUS):
+            assert line in after, f"adding a key lost: {line}"
+
+    def test_a_new_source_key_moves_the_blank_line_that_followed_the_block(self) -> None:
+        """A known sharp edge, pinned down here so T7 meets it as a decision.
+
+        ruamel attaches the blank line separating two blocks to whatever now
+        follows it, so inserting at the end of `skills:` puts the new key after
+        that blank line and leaves `rules:` without its separator. No content is
+        lost and the file still parses; what changes is somebody's spacing.
+
+        Asserted rather than fixed because the insertion API that should decide
+        where a new key goes belongs to T7, and a writer that silently
+        reformatted to compensate would be the opposite of boring.
+        """
+        manifest = parsed(CORPUS)
+        manifest.document["skills"]["new/source#deadbee"] = ["thing"]
+        written = dump(manifest)
+        assert "- thing\nrules:" in written, "the blank line before `rules:` should have moved"
+        assert "\n\n  new/source#deadbee:" in written, "and should now sit above the new key"
+        assert parse(written, scope=Scope.PROJECT).of_kind(Kind.SKILL)[-1].name == "thing"
+
+    def test_an_edited_manifest_still_parses(self) -> None:
+        # The whole point of writing it back is reading it again.
+        manifest = parsed(CORPUS)
+        manifest.document["skills"]["owner/repo#9f2c1ab"].append("newkit")
+        reparsed = parse(dump(manifest), scope=Scope.PROJECT)
+        assert [s.name for s in reparsed.of_kind(Kind.SKILL)] == ["writing", "caveman", "newkit", "*"]
+
+
 class TestWhatItReads:
     def test_every_subscription_in_the_corpus(self) -> None:
         found = [(s.kind, s.source, s.pin, s.name) for s in parsed(CORPUS).subscriptions]

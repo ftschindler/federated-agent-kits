@@ -322,3 +322,46 @@ turn on a harness for your whole machine.
 written back as LF. Preserving it would be the consistent answer and would make every later
 one-line edit by `akit add` a whole-file diff, in a repository whose `.gitattributes` already
 says LF.
+
+## 2026-10-08 - The round-trip tests proved the wrong thing
+
+[T2](IMPLEMENTATION.md#t2---manifests) says the writer is "the only code that edits a file a
+person owns in place, and [T7](IMPLEMENTATION.md#t7---add-remove-update-harness) depends on it
+being boring". The tests written for it all parsed a corpus and dumped it unchanged, asserting
+the bytes came back identical. Every one passed, and together they proved that ruamel can echo
+a file, which is not the property T7 needs. The property T7 needs is that changing one thing
+leaves the other thirty lines alone, and nothing tested it.
+
+Mutating the document and dumping it found three different behaviours:
+
+**Appending a kit to an existing entry is boring**, which is the common case for `akit add`.
+The pin's comment survives, every neighbour is untouched, and the only change is that the
+column padding collapses because the line it sits on got wider:
+
+```yaml
+  owner/repo#9f2c1ab: [writing, caveman, newkit] # frozen: v2
+  acme/kits#4d7e08b: ["*"]                 # frozen: main, 2026-10-05
+```
+
+**Removing one is boring too**, with the alignment and the comment both intact.
+
+**Adding a new source key is not.** ruamel attaches the blank line between two blocks to
+whatever follows it, so inserting at the end of `skills:` lands the new key after that blank
+line and leaves `rules:` without its separator:
+
+```yaml
+  acme/kits#4d7e08b: ["*"]                 # frozen: main, 2026-10-05
+
+  new/source#deadbee:
+  - thing
+rules:                                     # order matters here, and nowhere else
+```
+
+No content is lost, the file parses, and what moved is somebody's spacing. It is left as it
+is rather than fixed, for two reasons. The API that decides where a new key goes is T7's, not
+T2's, and a writer that reformatted to compensate would be exactly the opposite of boring.
+`tests/test_manifest.py::TestEditingInPlace` pins all three behaviours down so T7 meets the
+third as a decision rather than as a surprise in a diff.
+
+The general lesson is cheaper than the specific one: a round-trip test over an unmodified
+input is a test of the library you depend on, not of the thing you are building with it.
