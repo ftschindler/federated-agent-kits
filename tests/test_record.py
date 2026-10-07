@@ -14,7 +14,9 @@ from pathlib import Path
 import pytest
 
 from federated_agent_kits import record
+from federated_agent_kits.cache import Privacy
 from federated_agent_kits.exits import Exit
+from federated_agent_kits.manifest import Kind, Scope
 
 pytestmark = pytest.mark.unit
 
@@ -134,3 +136,92 @@ class TestWhereItLives:
 
         assert record.root().name == record.APPLICATION
         assert record.location().name == record.RECORD
+
+
+class TestAnExplanation:
+    def test_it_is_one_string_that_gives_its_parts_back(self):
+        explanation = record.Explanation(scope=Scope.PROJECT, kind=Kind.SKILL, source="acme/kits", name="house-style")
+
+        assert record.Explanation.parse(str(explanation)) == explanation
+
+    @pytest.mark.parametrize(
+        "text",
+        ["skills:writing", "project|skills|acme/kits", "nowhere|skills|acme/kits|writing", "project|songs|a|b"],
+    )
+    def test_one_this_build_cannot_read_explains_nothing_rather_than_refusing(self, text: str):
+        assert record.Explanation.parse(text) is None
+
+    def test_an_unreadable_explanation_puts_a_file_in_no_scope_at_all(self, tmp_path: Path):
+        one(tmp_path / "state", tmp_path / "a.md")
+
+        assert record.load(tmp_path / "state").written[0].scopes == frozenset()
+
+
+class TestWritingTheRecord:
+    def test_what_it_wrote_is_what_loads_back(self, tmp_path: Path):
+        rendered = tmp_path / ".agents" / "skills" / "writing" / "SKILL.md"
+        explanation = str(record.Explanation(scope=Scope.USER, kind=Kind.SKILL, source="acme/kits", name="writing"))
+        written = record.Written(
+            path=rendered,
+            digest=record.digest(b"# writing\n"),
+            explained_by=frozenset({explanation}),
+            harnesses=frozenset({"opencode"}),
+        )
+
+        record.save(record.Record(path=None, written=(written,), sources={"acme/kits": Privacy.PRIVATE}), tmp_path)
+        loaded = record.load(tmp_path)
+
+        assert loaded.written == (written,)
+        assert loaded.sources == {"acme/kits": Privacy.PRIVATE}
+
+    def test_two_equal_records_are_the_same_file_whatever_order_they_were_built_in(self, tmp_path: Path):
+        entries = [
+            record.Written(path=tmp_path / name, digest="0", explained_by=frozenset({"b", "a"}))
+            for name in ("b.md", "a.md")
+        ]
+
+        first = record.payload(record.Record(path=None, written=tuple(entries)))
+        second = record.payload(record.Record(path=None, written=tuple(reversed(entries))))
+
+        assert first == second
+        assert json.dumps(first) == json.dumps(second)
+        assert str(tmp_path / "a.md") in json.dumps(first).split(str(tmp_path / "b.md"))[0]
+
+    def test_a_first_render_creates_the_state_directory(self, tmp_path: Path):
+        written = record.save(record.Record(path=None), tmp_path / "never" / "existed")
+
+        assert written.is_file()
+
+    @pytest.mark.parametrize(
+        ("document", "says"),
+        [
+            ({"version": 1, "written": [], "sources": []}, "`sources` that is not an object"),
+            ({"version": 1, "written": [], "sources": {"acme/kits": "maybe"}}, "neither public nor private"),
+        ],
+    )
+    def test_a_classification_it_cannot_read_is_refused_rather_than_forgiven(
+        self, tmp_path: Path, document: object, says: str
+    ):
+        write(tmp_path, document)
+
+        with pytest.raises(record.RecordError, match=says):
+            record.load(tmp_path)
+
+
+class TestWhetherACopyIsStillACopy:
+    def test_the_bytes_we_wrote_are_still_a_copy(self, tmp_path: Path):
+        rendered = tmp_path / "SKILL.md"
+        rendered.write_text("# writing\n", encoding="utf-8")
+
+        entry = record.Written(path=rendered, digest=record.digest(b"# writing\n"))
+
+        assert entry.still_a_copy()
+
+    def test_bytes_somebody_edited_are_not(self, tmp_path: Path):
+        rendered = tmp_path / "SKILL.md"
+        rendered.write_text("# mine now\n", encoding="utf-8")
+
+        assert not record.Written(path=rendered, digest=record.digest(b"# writing\n")).still_a_copy()
+
+    def test_a_file_that_is_gone_hashes_to_nothing_rather_than_raising(self, tmp_path: Path):
+        assert record.digest_of(tmp_path / "absent.md") is None
