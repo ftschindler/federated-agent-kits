@@ -17,6 +17,7 @@ import json
 import re
 import subprocess
 import textwrap
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
@@ -25,27 +26,51 @@ from git_environment import local_remote
 
 pytestmark = pytest.mark.cli
 
+
+@dataclass(frozen=True)
+class Places:
+    """A fake machine, and the two per-platform directories it actually uses."""
+
+    home: FakeHome
+    manifest: Path
+    cache: Path
+
+
 #: Enough to put the source in the cache, which `add` will do from T7. Until
 #: then `list` has to be given a machine that has already fetched something,
 #: because a `list` that fetched would be the bug this command is defined
-#: against.
+#: against. It also reports the two per-platform directories, because a fixture
+#: that spelled `~/.config/akit` would be writing the Linux answer down as if it
+#: were the only one: on Windows the manifest is under `%APPDATA%` and the cache
+#: under `%LOCALAPPDATA%`, and the test would silently stop reading either.
 PREFETCH = textwrap.dedent(
     """
-    import sys
+    import json, sys
     from pathlib import Path
-    from federated_agent_kits import cache, sources
+    from federated_agent_kits import cache, manifest, sources
 
     cache.resolve(sources.parse(sys.argv[1]), anchor=Path(sys.argv[2]))
+    print(json.dumps({
+        "manifest": str(manifest.user_manifest_path()),
+        "cache": str(cache.root()),
+    }))
     """
 )
 
 
 def fixed(text: str, replacements: dict[str, str]) -> str:
-    """Every path that changes per run, replaced by what it is."""
+    """Every path that changes per run, replaced by what it is.
+
+    Separators are normalised last and wholesale. What this snapshot is for is
+    the report's shape and its sentences; that a path on Windows is spelled with
+    backslashes is `pathlib`'s business and is asserted where it belongs, in the
+    tests that compare paths rather than prose.
+    """
     for actual, name in sorted(replacements.items(), key=lambda pair: -len(pair[0])):
         text = text.replace(actual, name)
         text = text.replace(str(Path(actual)), name)
-    text = re.sub(r"(sources[\\/])[A-Za-z0-9._-]+", r"\1<slug>", text)
+    text = text.replace("\\", "/")
+    text = re.sub(r"(<cache>/)[A-Za-z0-9._-]+", r"\1<slug>", text)
     return re.sub(r"\b[0-9a-f]{40}\b", "<commit>", text)
 
 
@@ -95,25 +120,25 @@ def repository(fake_home: FakeHome, remote: str, nearby: Path, tmp_path: Path) -
 
 
 @pytest.fixture
-def machine(fake_home: FakeHome, remote: str, nearby: Path, repository: Path) -> FakeHome:
+def machine(fake_home: FakeHome, remote: str, nearby: Path, repository: Path) -> Places:
     """opencode installed, the remote already in the cache, and a user manifest."""
     (fake_home.root / ".config" / "opencode").mkdir(parents=True)
-    (fake_home.root / ".config" / "akit").mkdir(parents=True)
-    (fake_home.root / ".config" / "akit" / "manifest.yaml").write_text(
-        f"version: 1\nskills:\n  {nearby}: [writing]\n", encoding="utf-8"
-    )
     prefetched = fake_home.run_python("-c", PREFETCH, remote, str(repository))
     assert prefetched.returncode == 0, prefetched.stderr
-    return fake_home
+    reported = json.loads(prefetched.stdout)
+    user_manifest = Path(reported["manifest"])
+    user_manifest.parent.mkdir(parents=True, exist_ok=True)
+    user_manifest.write_text(f"version: 1\nskills:\n  {nearby}: [writing]\n", encoding="utf-8")
+    return Places(home=fake_home, manifest=user_manifest, cache=Path(reported["cache"]))
 
 
-def listed(machine: FakeHome, repository: Path, *extra: str) -> subprocess.CompletedProcess[str]:
-    return machine.run("list", *extra, cwd=repository)
+def listed(machine: Places, repository: Path, *extra: str) -> subprocess.CompletedProcess[str]:
+    return machine.home.run("list", *extra, cwd=repository)
 
 
 class TestListInAFakeHome:
     def test_it_reads_the_whole_setup_and_says_so(
-        self, machine: FakeHome, repository: Path, remote: str, nearby: Path, tmp_path: Path
+        self, machine: Places, repository: Path, remote: str, nearby: Path, tmp_path: Path
     ):
         result = listed(machine, repository)
 
@@ -122,7 +147,9 @@ class TestListInAFakeHome:
             result.stdout,
             {
                 str(repository): "<repo>",
-                str(machine.root): "<home>",
+                str(machine.manifest): "<user-manifest>",
+                str(machine.cache): "<cache>",
+                str(machine.home.root): "<home>",
                 str(nearby): "<my-kits>",
                 remote: "<remote>",
                 str(tmp_path / "gone"): "<gone>",
@@ -132,7 +159,7 @@ class TestListInAFakeHome:
         assert (
             shown
             == textwrap.dedent("""
-            Your subscriptions (<home>/.config/akit/manifest.yaml)
+            Your subscriptions (<user-manifest>)
               skills writing, from <my-kits>, unpinned
                 read from <my-kits>
                 writing, at skills/writing in the source
@@ -140,18 +167,18 @@ class TestListInAFakeHome:
 
             This repository's subscriptions (<repo>/.akit.yaml)
               skills writing, from <remote>, at <commit>
-                read from <home>/.cache/akit/sources/<slug>
+                read from <cache>/<slug>
                 writing, at skills/writing in the source
                   opencode: <repo>/.agents/skills/writing (not rendered)
               skills fkb as "knowledge", from <remote>, at <commit>
-                read from <home>/.cache/akit/sources/<slug>
+                read from <cache>/<slug>
                 knowledge (found as fkb), at skills/fkb in the source
                   opencode: <repo>/.agents/skills/knowledge (not rendered)
               skills missing, from <gone>, unpinned
                 problem: <gone>: there is no directory at <gone>
                     A path source is read where it is. Check the path, or subscribe to the repository instead.
               rules prose-style, from <remote>, at <commit>
-                read from <home>/.cache/akit/sources/<slug>
+                read from <cache>/<slug>
                 prose-style, at rules/prose-style.md in the source
                   opencode: <repo>/.opencode/instructions/prose-style.md (not rendered)
 
@@ -169,15 +196,16 @@ class TestListInAFakeHome:
             """).lstrip()
         )
 
-    def test_nothing_was_written_and_nothing_was_fetched(self, machine: FakeHome, repository: Path, tmp_path: Path):
-        before = sorted(path.relative_to(machine.root) for path in machine.root.rglob("*"))
+    def test_nothing_was_written_and_nothing_was_fetched(self, machine: Places, repository: Path, tmp_path: Path):
+        root = machine.home.root
+        before = sorted(path.relative_to(root) for path in root.rglob("*"))
 
         assert listed(machine, repository).returncode == 0
 
-        assert sorted(path.relative_to(machine.root) for path in machine.root.rglob("*")) == before
+        assert sorted(path.relative_to(root) for path in root.rglob("*")) == before
 
     def test_a_source_the_cache_does_not_hold_is_a_line_rather_than_an_ending(
-        self, machine: FakeHome, repository: Path, tmp_path: Path
+        self, machine: Places, repository: Path, tmp_path: Path
     ):
         elsewhere = local_remote(tmp_path / "second", {"skills/other/SKILL.md": "# other"})
         repository.joinpath(".akit.yaml").write_text(f"version: 1\nskills:\n  {elsewhere}: [other]\n", encoding="utf-8")
@@ -188,7 +216,7 @@ class TestListInAFakeHome:
         assert "not in the cache" in result.stdout
         assert "akit add" in result.stdout
 
-    def test_the_same_answer_as_data(self, machine: FakeHome, repository: Path):
+    def test_the_same_answer_as_data(self, machine: Places, repository: Path):
         result = listed(machine, repository, "--json")
 
         assert result.returncode == 0, result.stderr
@@ -209,7 +237,7 @@ class TestListInAFakeHome:
             for target in part["targets"]
         )
 
-    def test_a_declined_kind_appears_and_crashes_nothing(self, machine: FakeHome, repository: Path, nearby: Path):
+    def test_a_declined_kind_appears_and_crashes_nothing(self, machine: Places, repository: Path, nearby: Path):
         (nearby / "agents").mkdir()
         (nearby / "agents" / "reviewer.md").write_text("# reviewer", encoding="utf-8")
         repository.joinpath(".akit.yaml").write_text(f"version: 1\nagents:\n  {nearby}: [reviewer]\n", encoding="utf-8")

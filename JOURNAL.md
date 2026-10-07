@@ -547,3 +547,32 @@ copied in by hand, and the two definitions would disagree the first time that ha
 `src/federated_agent_kits/record.py` ships with T4 holding the schema and the reader, T5 adds
 the writer, and the fixtures in `tests/test_record.py` are the JSON written out by hand -
 which is the point rather than a shortcut, since what two tasks have to agree on is the file.
+
+## 2026-10-08 - The Windows job found a fixture that only knew where Linux keeps things
+
+The `cli` layer's snapshot of `akit list` passed on Linux and failed on the Windows runner
+twice over, and only one of the two was about separators.
+
+The loud half was cosmetic. The snapshot was written with `/` in it and Windows prints
+`<repo>\.agents\skills\writing`. `fixed()` now normalises separators wholesale before
+comparing: what the snapshot is for is the report's sentences, and that a path is spelled with
+backslashes is `pathlib`'s business and is asserted in the tests that compare paths.
+
+The quiet half was a real bug in the fixture, and it is the one worth the entry:
+
+```text
+-   skills "writing" is wanted by <my-kits> (your manifest) and <remote> (this repository)
++   none
+```
+
+The user manifest had vanished, taking the collision and a whole subscription with it. The
+fixture wrote it to `<home>/.config/akit/manifest.yaml`, which is where it lives on Linux.
+`manifest.user_manifest_path()` asks `platformdirs` with `roaming=True`, so on Windows it is
+under `%APPDATA%`, and the file the fixture wrote was simply never read. Nothing failed: the
+command reported a machine with no personal manifest, which is an ordinary state.
+
+This is the failure mode [DESIGN.md](DESIGN.md#9-windows-linux-python) names - the Linux answer
+written down as if it were the only one - committed in a test rather than in `src/`, which is
+the place it cannot be caught by the thing it is testing. The fixture now asks the package
+where both the manifest and the cache go and uses the answer, so the test reads whatever the
+platform decided.
