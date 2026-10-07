@@ -365,3 +365,104 @@ third as a decision rather than as a surprise in a diff.
 
 The general lesson is cheaper than the specific one: a round-trip test over an unmodified
 input is a test of the library you depend on, not of the thing you are building with it.
+
+## 2026-10-08 - Walking the root three levels deep made every rule an agent
+
+[T3](IMPLEMENTATION.md#t3---sources-resolution-cache-discovery) implements
+[§5](DESIGN.md#finding-parts-inside-one): each kind has a fixed set of directories, "each of
+those is walked up to three levels deep", and the repository root is one of them for all three
+kinds. Written literally, that is wrong, and the test that caught it was the dullest one in the
+file:
+
+```text
+>       assert names(discovery.parts(root, Kind.AGENT)) == ["reviewer"]
+E       AssertionError: assert ['prose-style', 'reviewer'] == ['reviewer']
+```
+
+The fixture holds `agents/reviewer.md` and `rules/prose-style.md`. The root is a base directory
+for agents, `rules/` is one level under the root, and a rule is a markdown file, so the rule was
+an agent as well. The same walk would have made every markdown file within three levels of the
+root a part of two kinds: `docs/`, `.github/ISSUE_TEMPLATE/`, a vendored dependency's
+`CHANGELOG.md`.
+
+What the root is in that list for is the other sentence in the same section: a repository
+holding one skill at its root is a source, "and a kit, of one part, without anybody having
+decided so". That needs one level, not three. So `discovery.ROOT_LEVELS` is 1 and the three
+levels apply to the named directories, which is where a `<category>/<name>` layout actually
+appears.
+
+Two consequences worth stating. A repository's own `README.md` is a rule named `README`, which
+follows from the convention and is harmless: a subscription names a kit, and nobody names that
+one. And a skill directory at the root of a source ties with one under `skills/`, which the
+earlier entry in the list wins, because `KIND_DIRECTORIES` is written root-first.
+
+## 2026-10-08 - The `unit` layer had to be allowed to run git
+
+The four markers say `unit` is "the library, in a tmp_path, no network, no subprocess". T3's
+three modules are a key parser, a clone cache and a directory walk, and the middle one is git.
+The coverage gate is 100% branch over `src/`, measured on the `unit` layer alone, because the
+other layers run the same code inside a subprocess where coverage cannot see it. Those two
+sentences cannot both hold: resolution would have been either uncovered or covered against a
+faked git, and a faked git proves nothing about `--depth 1`, `--unshallow` or what a credential
+helper does.
+
+So `unit` now means "no network", and it builds its repositories in its own `tmp_path` and
+clones them over `file://`. That covers cloning, pinning, deepening, the offline refusals and
+the privacy classification, in the fast layer, with no server. `tests/pytest.toml`,
+`CONTRIBUTING.md` and the `test_unit` make target say so, the last of them because the layer
+now has a prerequisite it did not have yesterday.
+
+What stayed in `cli` is the thing a subprocess is actually needed for: that a clone lands in
+*this* machine's cache directory and nowhere else, which is decided by `platformdirs` reading
+the environment of the process it is in.
+
+## 2026-10-08 - Which clone is the test, and what it costs
+
+[§8](DESIGN.md#how-a-source-is-known-to-be-private) says cloning is the test: a source that
+needed credentials is private, one that clones anonymously is public. Git offers no flag that
+answers this, so it is two attempts, and the order is a trade.
+
+Anonymous first. The first attempt runs with `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM` at the
+null device, `credential.helper=` and `core.askPass=` on the command line, and
+`GIT_TERMINAL_PROMPT=0`. If that works the source is public and nothing was wasted. If it fails
+the same clone is tried again with the user's git as they configured it, and a source that then
+succeeds is private. A private source therefore pays for one failed attempt, which dies during
+the handshake before an object moves; the reverse order would have made every public source pay
+for an extra round trip.
+
+Every clone is `--depth 1 --no-tags`, because the cache exists to hold the parts a kit is made
+of rather than the history they arrived with. A pin outside that one-commit window is fetched by
+name, and the forges that decline to send a commit by name get asked for the whole history
+instead.
+
+That fall back has no fixture. Fetching a commit by name is allowed by every transport a test
+can build on disk, including `file://`, even with `uploadpack.allowAnySHA1InWant` explicitly
+off:
+
+```text
+$ git clone -q --depth 1 --no-tags file:///tmp/dp/src c2 && cd c2
+$ git fetch --depth 1 --quiet origin $FIRST; echo "rc=$?"
+rc=0
+```
+
+So the test that covers it replaces `cache._git` for one call, declines the first fetch the way
+a forge would, and asserts the clone still ends up holding the pin. It simulates the answer
+rather than the forge, and it says so in its own docstring.
+
+## 2026-10-08 - The federation layer reads the branch under test, not `main`
+
+T3 is where the `federation` marker gets its first tests. Two repositories, for two different
+reasons: `federated-knowledge-skills` is a layout this project does not control, and this
+repository is one it does, so `tests/fixtures/kit` can be asserted by name without the test
+breaking when somebody else renames a directory.
+
+Reading this repository at `main` would have asserted about the fixture kit as it was *before*
+the pull request that adds it, which is the one version guaranteed not to contain the thing
+being tested. GitHub builds a pull request's checks from a branch pushed to this same
+repository, so the branch is there to be cloned: the test takes `GITHUB_HEAD_REF`, falls back to
+whatever is checked out locally, and skips with a reason when that branch is not on the remote
+yet. Locally, before a push, four tests skip. In CI they run.
+
+It also turned out to be the only place the subdirectory form gets exercised against a real
+forge. A `file://` URL has no forge layout, so `.../tree/main/skills/writing` is not read as a
+subdirectory there and the `unit` test assembles the key directly instead.

@@ -27,15 +27,20 @@ Four layers, each in its own marker, each a separate job in CI on both Linux and
 
 | Marker | What it is | Needs |
 | --- | --- | --- |
-| `unit` | the library, in-process | nothing |
+| `unit` | the library, in-process | git |
 | `cli` | `akit` as a subprocess in a fake home | git |
 | `federation` | the same commands against two real public repositories | network |
 | `agent` | a disposable agent that reads the skill and types what it says | network, node |
 
-The last two have no tests yet; they arrive with
-[T3](IMPLEMENTATION.md#t3---sources-resolution-cache-discovery) and
-[T11](IMPLEMENTATION.md#t11---the-skill-and-the-rule). Their jobs exist already so the matrix
+The `agent` layer has no tests yet; it arrives with
+[T11](IMPLEMENTATION.md#t11---the-skill-and-the-rule). Its jobs exist already so the matrix
 does not change shape on the day they do.
+
+**The `unit` layer runs git, against repositories it builds in its own `tmp_path` and clones
+over `file://`.** That is a deliberate reading of "no network" rather than a loophole: cloning,
+pinning and the credential test are a third of what this package does, they are gated at 100%
+branch coverage, and coverage cannot see into the subprocess the `cli` layer would run them in.
+A local repository keeps them in the fast layer without anybody's server.
 
 **Branch coverage of `src/` is gated at 100%, on the `unit` layer only.** The other layers run
 the same code through a subprocess, where coverage cannot see it, so gating them on a

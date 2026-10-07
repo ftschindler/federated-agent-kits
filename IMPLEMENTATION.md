@@ -38,7 +38,7 @@ builds a part of it or keeps it releasable.
 
 - [x] **[T1](#t1---the-package-the-cli-frame-and-ci)** - The package, the CLI frame, and CI
 - [x] **[T2](#t2---manifests)** - Manifests
-- [ ] **[T3](#t3---sources-resolution-cache-discovery)** - Sources: resolution, cache, discovery
+- [x] **[T3](#t3---sources-resolution-cache-discovery)** - Sources: resolution, cache, discovery
 - [ ] **[T4](#t4---adapters-detection-and-akit-list)** - Adapters, detection, and `akit list`
 - [ ] **[T5](#t5---the-render-engine-and-skills)** - The render engine, and skills
 - [ ] **[T6](#t6---rules)** - Rules

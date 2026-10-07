@@ -25,7 +25,7 @@ test: test_unit test_cli
 # Windows, where make usually is not installed.
 
 ## Test the library in-process; this is the layer the coverage gate applies to
-test_unit: | guard-uv
+test_unit: | guard-git guard-uv
 	uv run .scripts/run-tests.py unit
 
 ## Test `akit` as a subprocess in a fake home (needs git)

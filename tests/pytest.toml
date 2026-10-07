@@ -15,7 +15,7 @@ python_files = ["test_*.py"]
 # in a per-marker CI matrix is a layer that stops being tested without failing.
 addopts = ["--strict-markers"]
 markers = [
-  "unit: the library, in a tmp_path, no network, no subprocess",
+  "unit: the library, in a tmp_path, no network (may run git against a local repository)",
   "cli: akit as a subprocess in a fake home, against local file:// sources (needs git)",
   "federation: the same commands against two real public repositories (needs network)",
   "agent: a disposable agent that reads the skill and types what it says (needs network + node)",
