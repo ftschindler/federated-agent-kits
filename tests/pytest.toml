@@ -1,0 +1,22 @@
+# Its own file rather than a `[tool.pytest.ini_options]` block in pyproject.toml:
+# the four layers are run as four separate CI jobs through
+# `.scripts/run-tests.py`, and a config that travels with the tests is one fewer
+# thing for a packaged sdist to carry opinions about.
+#
+# pytest reads a `.toml` config as TOML, and in a file that is not
+# `pyproject.toml` the table it looks in is `[pytest]` rather than
+# `[tool.pytest.ini_options]`. Getting that wrong is silent: the file parses,
+# nothing is applied, and `--strict-markers` stops being enforced without saying
+# so. A marker typo then runs nothing, in a per-marker CI matrix.
+[pytest]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+# A marker that is not declared here is a typo that silently runs nothing, which
+# in a per-marker CI matrix is a layer that stops being tested without failing.
+addopts = ["--strict-markers"]
+markers = [
+  "unit: the library, in a tmp_path, no network, no subprocess",
+  "cli: akit as a subprocess in a fake home, against local file:// sources (needs git)",
+  "federation: the same commands against two real public repositories (needs network)",
+  "agent: a disposable agent that reads the skill and types what it says (needs network + node)",
+]

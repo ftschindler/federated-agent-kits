@@ -46,14 +46,19 @@ jobs:
     - name: Setup uv
       uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
       with:
-        # This repository has no pyproject.toml and no lockfile: every script
-        # carries its own dependencies in a PEP 723 header, so those files are
-        # what a cache here has to be keyed on. Left to the default globs the
-        # action matches nothing, says so, and keeps a cache that can never be
-        # invalidated - which is worse than none, because it goes stale in
-        # silence.
+        # There is no lockfile here on purpose (DESIGN.md section 9), so the
+        # cache is keyed on the files that actually name a dependency: the
+        # project's own metadata and the PEP 723 headers in `.scripts/`. Left to
+        # the default globs the action matches a lockfile that does not exist,
+        # says so, and keeps a cache that can never be invalidated - which is
+        # worse than none, because it goes stale in silence.
         cache-dependency-glob: |
+          pyproject.toml
           .scripts/*.py
 
+    # The suite includes ruff over every Python file and `ty` over `src/` and
+    # `tests/`, so the type check is one hook rather than a second job: a
+    # contributor who runs `make check` gets the same answer CI does, which is
+    # the property worth having.
     - name: Run pre-commit hooks
       run: uvx prek run --show-diff-on-failure --color=always --all-files

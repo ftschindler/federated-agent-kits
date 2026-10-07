@@ -8,6 +8,14 @@ npm-debug.log*
 .biome-cache/
 
 # Python
+dist/
+*.egg-info/
+.coverage
+.coverage.*
+# uv writes one when a command is run against this project rather than with
+# `--no-project`. DESIGN.md section 9 refuses a lockfile of ours, so a stray one
+# is cruft rather than content.
+uv.lock
 __pycache__/
 *.py[cod]
 .pytest_cache/

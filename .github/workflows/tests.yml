@@ -1,0 +1,107 @@
+---
+name: Tests
+
+# Pull requests only, and deliberately. GitHub builds a pull request's checks
+# against the head merged into `main`, so what these jobs run on is already the
+# merge result rather than the branch in isolation - running them again after
+# the merge tests a tree that passed a minute earlier.
+#
+# It also keeps the release job out of the way: that job pushes a version commit
+# seconds behind every merge, and a push-triggered suite would land in the same
+# concurrency group as the merge itself and cancel its checks, leaving every
+# merge commit showing a cancelled run forever.
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests_${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  layer:
+    # One job per test layer per operating system. The layers are separate
+    # markers so a slow one cannot hide behind a fast one, and both operating
+    # systems because the failures portability costs us are exactly the ones a
+    # single-platform matrix cannot see: a `file://` URL git reads as a
+    # hostname, a `HOME` redirect that leaves `Path.home()` pointing at the real
+    # one, a file written in the console's code page rather than UTF-8.
+    #
+    # `federation` and `agent` have no tests yet; they arrive in T3 and T11. The
+    # jobs exist now so that the matrix, and therefore the aggregate below, does
+    # not change shape on the day they do.
+    name: 🛠 (Tests, ${{ matrix.marker }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        marker: [unit, cli, federation, agent]
+    # Generous because the `agent` layer's duration swings with the tool path a
+    # model picks. Anything past this is a problem, not a slow runner.
+    timeout-minutes: 20
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+    - name: Setup node
+      if: matrix.marker == 'agent'
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+      with:
+        node-version: "24"
+
+    - name: Setup uv
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+      with:
+        # There is no lockfile here on purpose (DESIGN.md section 9), so the
+        # cache is keyed on the files that actually name a dependency: the
+        # project's own metadata and the PEP 723 headers in `.scripts/`. Left to
+        # the default globs the action would match a lockfile that does not
+        # exist, say so, and keep a cache that can never be invalidated.
+        cache-dependency-glob: |
+          pyproject.toml
+          .scripts/*.py
+
+    - name: Refuse a checkout whose symlinks did not survive
+      # A Windows runner clones without `core.symlinks`, so a committed symlink
+      # arrives as a text file holding its target path and everything reading
+      # through it reads that string. The guard runs here as well as in
+      # pre-commit so the job says which failure it is.
+      run: uv run --script .scripts/check_no_symlinks.py
+
+    - name: Run the ${{ matrix.marker }} layer
+      # `make` is a convenience, not a dependency, and Windows runners have no
+      # GNU make. The target is one line either way.
+      run: uv run .scripts/run-tests.py ${{ matrix.marker }}
+
+  tests:
+    name: 🛠 (Tests)
+    # The single job branch protection requires. A matrix job's check is named
+    # after the axis it ran on, so requiring those directly means editing the
+    # protection rule every time the matrix changes - and, worse, a job that
+    # stops being produced does not fail the rule, it silently stops being
+    # required. This one has a fixed name and fails unless every job above
+    # actually succeeded.
+    runs-on: ubuntu-latest
+    needs: [layer]
+    # `always()`, or this job is skipped the moment anything it needs fails, and
+    # a skipped required check is one that never reports.
+    if: always()
+    timeout-minutes: 2
+    steps:
+
+    - name: Report what each job did
+      run: echo '${{ toJSON(needs) }}'
+
+    - name: Fail unless every job above succeeded
+      # `skipped` and `cancelled` are failures here as much as `failure` is: the
+      # question this job answers is whether the suite ran and passed, and a
+      # layer that did not run has not passed.
+      if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        }}
+      run: exit 1
