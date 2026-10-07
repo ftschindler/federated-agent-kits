@@ -317,11 +317,28 @@ TOPICS: tuple[Topic, ...] = (
             "\n"
             "Parts are found by walking the fixed directories for each kind, three levels\n"
             "deep, plus whatever directories an installed adapter declares. A part nearer the\n"
-            "top shadows a deeper one of the same name. A path source is read where it is and\n"
-            "is never cached or pinned."
+            "top shadows a deeper one of the same name. The root of the source is read one\n"
+            "level deep rather than three, so a repository that is one skill is a source and a\n"
+            "repository's `rules/` does not also become its agents.\n"
+            "\n"
+            "A remote source is cloned into your platform's cache directory, shallow, the\n"
+            "first time anything needs it, and every spelling of one repository shares that\n"
+            "one entry. A pin is checked out there, and a commit the shallow clone does not\n"
+            "hold is fetched when it is asked for. Only `akit add` and `akit update` fetch:\n"
+            "everything else works from the cache, so a command run offline either answers\n"
+            "from what this machine already has or says which source it was missing.\n"
+            "\n"
+            "A path source is read where it is and is never cloned, cached or pinned, which is\n"
+            "what makes it the right key for a kit you are writing. A relative one resolves\n"
+            "against the repository root, so it means the same on every machine, and a\n"
+            "committed manifest may only name one that stays inside the repository.\n"
+            "\n"
+            "Cloning is also how a source is known to be private: the first attempt is made\n"
+            "with your credentials taken away, and a source that needs them back is private\n"
+            "from then on. See `akit help privacy` for what that classification is used for."
         ),
         following="akit add, which is how a source becomes a subscription",
-        see_also=("manifest",),
+        see_also=("manifest", "privacy"),
     ),
     Topic(
         name="harnesses",
