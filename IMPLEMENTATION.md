@@ -9,12 +9,24 @@
 This plan assumes nothing from this repository except [DESIGN.md](DESIGN.md) and this file. A
 fresh session should be able to start at any unticked task and know what it owns.
 
-**Three harnesses ship with 1.0**: opencode, VS Code, and GitHub Copilot in CI. The first two
-are built in [T4](#t4---adapters-detection-and-akit-list), the third in
+**Two kinds and three harnesses ship with 1.0.** Skills and rules, into opencode, VS Code and
+GitHub Copilot in CI. The first two harnesses are built in
+[T4](#t4---adapters-detection-and-akit-list), the third in
 [T8](#t8---the-machineless-harness-and-the-leak-refusal), and between them they cover both
-halves of [§4](DESIGN.md#4-adding-a-harness): a harness with a machine and one without. pi is
-in [DESIGN.md](DESIGN.md) as a worked example and is a fourth adapter afterwards
-([T10](#t10---a-fourth-harness)), not a release blocker.
+halves of [§4](DESIGN.md#4-adding-a-harness): a harness with a machine and one without.
+
+**Agents come after the release**, in [T13](#t13---agents). They are the kind that does not
+travel: [§7](DESIGN.md#agents-are-the-hard-one) has every harness disagreeing about frontmatter
+keys, tool names and what an agent is even for, while a kit is made of skills and rules almost
+every time. Every adapter shipped in 1.0 therefore declines the agent kind, which
+[§4](DESIGN.md#4-adding-a-harness) already calls a valid answer, and the CLI says so rather
+than failing.
+
+**A fourth harness is a guide rather than an adapter.** What makes "a harness is a file, not a
+branch" useful is somebody else being able to write one, so
+[T10](#t10---adding-an-adapter-documented) ships the how-to and the test that enforces it, with
+pi as its worked example. Shipping a pi adapter this project does not use would be maintenance
+with no user.
 
 **The end state is a published package.** `federated-agent-kits` on PyPI, exposing one entry
 point named `akit`, so that `uvx akit render` works in a fresh clone with nothing installed
@@ -32,10 +44,10 @@ builds a part of it or keeps it releasable.
 - [ ] **[T7](#t7---add-remove-update-harness)** - `add`, `remove`, `update`, `harness`
 - [ ] **[T8](#t8---the-machineless-harness-and-the-leak-refusal)** - The machineless harness, and the leak refusal
 - [ ] **[T9](#t9---doctor)** - `doctor`
-- [ ] **[T11](#t11---agents)** - Agents
-- [ ] **[T12](#t12---the-skill-and-the-rule)** - The skill, and the rule
-- [ ] **[T13](#t13---publish-10)** - Publish 1.0
-- [ ] **[T10](#t10---a-fourth-harness)** - A fourth harness, *after 1.0, proves the adapter claim*
+- [ ] **[T10](#t10---adding-an-adapter-documented)** - Adding an adapter, documented
+- [ ] **[T11](#t11---the-skill-and-the-rule)** - The skill, and the rule
+- [ ] **[T12](#t12---publish-10)** - Publish 1.0
+- [ ] **[T13](#t13---agents)** - Agents, *after 1.0*
 - [ ] **[T14](#t14---iterate-on-what-use-earns)** - Iterate on what use earns, *open-ended*
 
 ## How to use it
@@ -43,7 +55,7 @@ builds a part of it or keeps it releasable.
 **Build the whole package first, iterate afterwards.** An earlier version of this plan gated
 each task on weeks of real use. That is the right habit for a tool somebody already depends
 on and the wrong one for a tool that does not exist yet: it would leave a half-built CLI on
-disk for a month. So T1 to T13 are written to be implemented in short order, each in its own
+disk for a month. So T1 to T12 are written to be implemented in short order, each in its own
 session, and the evidence that a task is done is its test suite rather than a fortnight of
 usage. [T14](#t14---iterate-on-what-use-earns) is where usage gets to change things.
 
@@ -156,7 +168,7 @@ tested, released package.
 - The CLI frame: `akit` with subcommands registered in one place, `--version`, `--json`,
   `--verbose`, and the help contract above. Argument parsing only; every verb prints "not
   implemented yet" and exits 2 until its task lands, and a test asserts that list shrinks to
-  empty by [T13](#t13---publish-10).
+  empty by [T12](#t12---publish-10).
 - Exit codes, defined once and tested: 0 fine, 1 something is wrong, 2 usage, 3 a refusal
   ([§8](DESIGN.md#8-keeping-the-employers-kits-in)). A refusal is not a usage error and the
   caller has to be able to tell.
@@ -171,7 +183,7 @@ tested, released package.
   `patch`, `no-release` on every pull request; on merge the bot writes the version, tags it,
   and publishes to PyPI with trusted publishing. The version lives in `pyproject.toml` and is
   readable at runtime from package metadata, so `akit --version` and the skill's `VERSION`
-  file ([T12](#t12---the-skill-and-the-rule)) cannot disagree.
+  file ([T11](#t11---the-skill-and-the-rule)) cannot disagree.
 - Publish `0.1.0` at the end of this task, to TestPyPI and then to PyPI. An unpublished
   package is an untested release pipeline, and the first real publish is the one that finds
   the misconfigured name, the missing classifier and the trusted-publisher mismatch.
@@ -302,6 +314,10 @@ adapter per harness, rule 7 ([§3](DESIGN.md#3-rules-of-the-build)).
   shapes it is and what the pointer is if it is the second, the frontmatter keys and tool
   names for agents, how it computes a project anchor, how it is detected, and whether it has a
   machine at all. Declining a kind is a first-class answer and nothing may crash on it.
+- **Every adapter declines agents for now**, and the interface still carries the agent
+  questions so [T13](#t13---agents) fills them in rather than reshaping anything. Declining is
+  the path that has to work anyway, so 1.0 exercises it in all three adapters instead of in a
+  fixture.
 - Detection by evidence on this disk, never by what a repository contains
   ([§4](DESIGN.md#4-adding-a-harness)).
 - `akit list`: per subscription, the source, the pin, the parts found, where each part was or
@@ -516,14 +532,16 @@ inventing an override.
 [§10](DESIGN.md#doctor).
 
 **Build.** Each check is a small, independently testable function returning a finding with a
-fix. The command reads everything, changes nothing, goes near the network only in the one case
+fix. One bullet of [§10](DESIGN.md#doctor) waits: an agent naming an unsubscribed skill or MCP
+server has nothing to report until agents render, so it lands with
+[T13](#t13---agents). The command reads everything, changes nothing, goes near the network only in the one case
 `render` does, and exits non-zero when it found something. `--json` carries the findings as
 data, because the skill reads this more often than a person does.
 
 **Tests.** One test per bullet, each constructing the broken state deliberately: two kits on
 one name, an unexplained render, a hand-edited render caught by its hash, an orphan from a
 lost record, a missing cache entry, a pin the cache does not hold, a committed manifest naming
-an escaping path, a stale committed render, an agent naming an unsubscribed skill, files in
+an escaping path, a stale committed render, files in
 place for a harness that is not reading them, a detected harness the list leaves out, a named
 harness no adapter knows, and both `.gitignore` failures. A healthy setup reports nothing and
 exits 0. A test asserts that every finding type names a command, so a check cannot ship as a
@@ -534,36 +552,57 @@ complaint with no fix.
 **Leave alone.** Fixing anything. Changing nothing is what makes it safe to run when you do
 not know what is going on.
 
-## T11 - Agents
+## T10 - Adding an adapter, documented
 
-**Goal.** One agent definition, two harnesses, with no silent loss.
+**Goal.** Somebody who has never read this repository can add a harness, and the claim that
+doing so is one file is checked rather than asserted.
 
-**Needs.** [T5](#t5---the-render-engine-and-skills).
+**Needs.** [T8](#t8---the-machineless-harness-and-the-leak-refusal), which is where the second
+and third adapters are written and where the interface stops being a guess.
 
-**Deliverable.** The agent renderer, the tool-name table, and the hard failure.
+**Deliverable.** `docs/adding-an-adapter.md`, the adapter contract test grown into the thing
+that enforces it, and whatever refactor writing the guide exposes.
 
-**Specified by DESIGN.md.** The canonical file, the `harness:` overrides, and the refusal on an
-unmappable tool ([§7](DESIGN.md#agents-are-the-hard-one)).
+**Specified by DESIGN.md.** The seven questions, one adapter per harness, declining a kind,
+and the harness-with-no-machine property ([§4](DESIGN.md#4-adding-a-harness)); rule 7
+([§3](DESIGN.md#3-rules-of-the-build)).
 
-**Build.** A portable body plus a `harness:` block of per-target overrides. Translate the
-frontmatter per harness, body untouched. Build the tool-name table by hand and decide then
-whether it is per harness or per agent. Stop the render on a tool name with no mapping. Report
-a skill or an MCP server an agent names and you have not subscribed to, as a warning, and
-install nothing ([§1](DESIGN.md#1-what-this-is), [§13](DESIGN.md#13-not-doing)).
+**Build.**
 
-**Tests.** One source file renders to opencode and VS Code with the right keys and the body
-byte-identical. An unmappable tool name fails the render, names both spellings, and leaves no
-file behind: the tempting bug is to drop it and carry on, so the test asserts the failure. A
-`harness:` override wins over the portable value. The 30,000-character cap the cloud agent
-documents is enforced with a message naming the limit. An agent naming an unsubscribed skill
-warns and renders.
+- The guide is written against the three adapters that exist, question by question, saying for
+  each what the answer looks like in code, which of the three existing adapters to copy, and
+  what the wrong answer costs. [§4](DESIGN.md#4-adding-a-harness) argues *why* the seven
+  questions are the right seven; this says *how* to answer them, and the two must not restate
+  each other.
+- It names the three places a new adapter touches and asserts there is no fourth: its own
+  file, the line registering it, and the contract test that then picks it up for free.
+- pi is the worked example in the guide, as a walk-through rather than as shipped code
+  ([§4](DESIGN.md#what-pi-looks-like)). Writing one adapter for real and documenting it is how
+  the guide stays honest without this project maintaining a harness nobody here uses. Its two
+  awkward answers, a project anchor that is not the git root and a trust prompt `doctor` can
+  only report, are the two cases the guide has to cover, because they are the ones a naive
+  adapter gets wrong.
+- Declining a kind is documented first-class, since every adapter shipped in 1.0 declines
+  agents and a reader will otherwise assume all three kinds are mandatory.
+- The adapter contract test becomes the specification: parametrised over every registered
+  adapter, asserting every question is answered, that a declined kind crashes nothing, that
+  read and write directories are separate lists, and that a project anchor is computed rather
+  than assumed.
 
-**Done when.** One agent file serves two harnesses, and every unmappable name is a refusal.
+**Tests.** A fixture adapter written by following the guide and nothing else, registered only
+in the test, which must pass the contract test unmodified. A diff budget over the real
+adapters: a test that fails if any of them has code outside its own file and its registration
+line. A docs test asserting every public name the guide mentions exists, so the guide cannot
+go stale in silence.
 
-**Settles.** How tool names map ([§12](DESIGN.md#12-still-open)), from three real agents
-rather than from an opinion.
+**Done when.** A reader can add a harness from the guide alone, demonstrated by the fixture
+adapter, and the diff budget passes.
 
-## T12 - The skill, and the rule
+**Leave alone.** Shipping a fourth adapter. The guide plus the fixture is the evidence; a
+harness nobody here runs is maintenance with no user, and
+[T14](#t14---iterate-on-what-use-earns) adds one when somebody wants it.
+
+## T11 - The skill, and the rule
 
 **Goal.** An agent asked to "set up my kits" carries it out rather than describing it.
 
@@ -612,14 +651,13 @@ installed into a fresh home by `akit` itself.
 **Leave alone.** Anything the three situations do not need. A skill that documents every flag
 is a manual, and the CLI already has `--help`.
 
-## T13 - Publish 1.0
+## T12 - Publish 1.0
 
 **Goal.** The thing [§9](DESIGN.md#how-it-ships) promises, installed by somebody who has
 never seen this repository.
 
-**Needs.** Everything above except [T11](#t11---agents), which may land after 1.0 if the three
-real agents are not there yet, and [T10](#t10---a-fourth-harness), which is after it by
-construction.
+**Needs.** Everything above. [T13](#t13---agents) is deliberately not in that list: 1.0 renders
+skills and rules, and every adapter declines agents.
 
 **Build.**
 
@@ -637,35 +675,42 @@ construction.
 **Done when.** `uvx akit render` works in a fresh clone on both operating systems, in CI,
 without this repository being present.
 
-## T10 - A fourth harness
+## T13 - Agents
 
-**Goal.** Find out whether "a harness is a file, not a branch" is true, while it is still
-cheap to fix if it is not.
+**Goal.** One agent definition, two harnesses, with no silent loss.
 
-**Needs.** [T13](#t13---publish-10). It is deliberately after the release: opencode, VS Code
-and the cloud agent are what 1.0 ships, and a fourth adapter is the experiment that tests the
-claim rather than a harness anybody is waiting for.
+**Needs.** [T12](#t12---publish-10). Agents come after the release deliberately. They are the
+least portable kind and the least used: [§7](DESIGN.md#agents-are-the-hard-one) has four
+harnesses disagreeing about frontmatter keys, tool names and what an agent is even for, while
+skills and rules are what a kit is made of almost every time. Three agents that genuinely want
+to live in two harnesses is the trigger; fewer than that and this is a translation layer
+maintained for nobody.
 
-**Deliverable.** A pi adapter, and whatever refactor its absence of a clean seam demands.
+**Also in scope.** The `doctor` check [T9](#t9---doctor) left out: an agent naming a skill or
+an MCP server you have not subscribed to. It has nothing to report until agents render.
 
-**Specified by DESIGN.md.** The seven questions and the worked pi answers
-([§4](DESIGN.md#what-pi-looks-like)).
+**Deliverable.** The agent renderer, the tool-name table, and the hard failure.
 
-**Build.** Answer all seven for pi in code. Skills need no file written, rules take the shared
-file and its marker blocks, agents exist only behind a third-party package so the adapter
-declines them. Its project anchor is the nearest `.pi` rather than the git root, and its trust
-prompt is a condition `doctor` reports rather than resolves.
+**Specified by DESIGN.md.** The canonical file, the `harness:` overrides, and the refusal on an
+unmappable tool ([§7](DESIGN.md#agents-are-the-hard-one)).
 
-**Tests.** The adapter contract test picks it up for free, which is the point. A test asserts
-the anchor is computed rather than assumed, using a fixture where `.pi` sits in a subdirectory
-of a repository. A test asserts the untrusted-folder condition reaches `doctor`. And a diff
-budget: a test that fails if this adapter needed changes outside its own file and the one line
-registering it, so the claim is checked by CI rather than by somebody's memory.
+**Build.** A portable body plus a `harness:` block of per-target overrides. Translate the
+frontmatter per harness, body untouched. Build the tool-name table by hand and decide then
+whether it is per harness or per agent. Stop the render on a tool name with no mapping. Report
+a skill or an MCP server an agent names and you have not subscribed to, as a warning, and
+install nothing ([§1](DESIGN.md#1-what-this-is), [§13](DESIGN.md#13-not-doing)).
 
-**Done when.** The pi adapter is one file plus one registration line, and the diff proves it.
+**Tests.** One source file renders to opencode and VS Code with the right keys and the body
+byte-identical. An unmappable tool name fails the render, names both spellings, and leaves no
+file behind: the tempting bug is to drop it and carry on, so the test asserts the failure. A
+`harness:` override wins over the portable value. The 30,000-character cap the cloud agent
+documents is enforced with a message naming the limit. An agent naming an unsubscribed skill
+warns and renders.
 
-**Leave alone.** A fifth harness. One addition is the experiment; two is a habit before there
-is evidence the shape holds.
+**Done when.** One agent file serves two harnesses, and every unmappable name is a refusal.
+
+**Settles.** How tool names map ([§12](DESIGN.md#12-still-open)), from three real agents
+rather than from an opinion.
 
 ## T14 - Iterate on what use earns
 
@@ -681,9 +726,10 @@ construction: no completion date, and its first output is evidence rather than c
   them wants an `applyTo` glob. That is the evidence
   [§12](DESIGN.md#12-still-open) asks for, and it cannot be gathered before the renderer
   exists.
-- Add a harness when somebody wants one, not before. Each addition tests
-  [T10](#t10---a-fourth-harness)'s claim, and the first one needing a change outside its own
-  file is worth writing down.
+- Add a harness when somebody wants one, not before, and write it from
+  [T10](#t10---adding-an-adapter-documented)'s guide rather than from the existing adapters.
+  Each addition tests both the claim and the guide, and the first one needing a change outside
+  its own file, or a step the guide did not mention, is worth writing down.
 - Revisit MCP servers only on evidence ([§13](DESIGN.md#13-not-doing)). The entry that would
   move them is an agent that is useless without one, more than once.
 
