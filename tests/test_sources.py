@@ -107,10 +107,27 @@ class TestOneRepositoryWrittenSeveralWays:
     def test_two_different_repositories_do_not(self):
         assert sources.parse("owner/repo").cache_slug != sources.parse("owner/other").cache_slug
 
-    def test_a_slug_is_recognisable_and_legal_on_windows(self):
+    def test_a_slug_names_the_repository_and_its_owner(self):
+        assert sources.parse("owner/repo").cache_slug.startswith("owner-repo-")
+
+    def test_a_slug_drops_the_owner_before_it_gets_long(self):
         slug = sources.parse("git@git.example.com:team/unreleased-thing-kits.git").cache_slug
 
-        assert slug.startswith("git.example.com-team-unreleased-thing-kits-")
+        assert slug.startswith("unreleased-thing-kits-")
+
+    def test_a_slug_stays_short_and_legal_on_windows(self):
+        """A `file://` key is a whole path, and all of it used to land in the name.
+
+        The budget is Windows' 260 characters, spent on the cache directory, this
+        name, and everything a clone writes under it. A long one does not fail
+        where it was made: git fails inside `index-pack`.
+        """
+        deep = "file:///C:/Users/runneradmin/AppData/Local/Temp/pytest-of-runneradmin/pytest-0/a-test-name/kits"
+
+        slug = sources.parse(deep).cache_slug
+
+        assert slug.startswith("a-test-name-kits-")
+        assert len(slug) <= sources.SLUG_LIMIT + 13
         assert not set(slug) & set('<>:"/\\|?*')
 
 

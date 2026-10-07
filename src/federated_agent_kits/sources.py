@@ -59,10 +59,16 @@ _WINDOWS_DRIVE = re.compile(r"^[A-Za-z]:[\\/]")
 _UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
 
 #: How long a cache directory's readable half may be. The identity is hashed
-#: anyway, so this only decides how much of it a person can recognise when they
-#: look in the cache directory; the limit is Windows' path length being the
-#: shortest of the two platforms rather than any property of a key.
-SLUG_LIMIT = 48
+#: anyway, so this only decides how much of it a person recognises when they look
+#: in their own cache directory, and the budget it is spent out of is Windows'
+#: 260-character path limit: everything a clone writes, `.git/objects/pack` and
+#: a temporary pack file included, sits under this name.
+SLUG_LIMIT = 24
+
+#: How much of an identity is worth reading: the repository, and its owner where
+#: that still fits. The head of an identity is the host, which is the same for
+#: every entry from one forge and therefore the part worth losing.
+SLUG_SEGMENTS = 2
 
 
 class SourceError(AkitError):
@@ -116,14 +122,20 @@ class SourceKey:
 
     @property
     def cache_slug(self) -> str:
-        """A directory name for this source: recognisable, unique, and legal on Windows.
+        """A directory name for this source: recognisable, unique, short, and legal on Windows.
 
-        The readable half is for somebody looking at their own cache directory.
         The digest is what makes it unique, since two identities can perfectly
-        well slugify to the same string.
+        well slugify to the same string. The readable half is only for somebody
+        looking at their own cache directory, so it is the tail of the identity
+        rather than the head, and it is short: a `file://` key is a whole path,
+        and the first version of this put all of it in the directory name. On
+        Windows that pushed `.git/objects/pack` past 260 characters, where git
+        fails inside `index-pack` and says nothing about path lengths.
         """
-
-        readable = _UNSAFE.sub("-", self.identity).strip("-").lower()[:SLUG_LIMIT]
+        segments = [segment for segment in _UNSAFE.split(self.identity) if segment]
+        readable = "-".join(segments[-SLUG_SEGMENTS:]).lower()
+        if len(readable) > SLUG_LIMIT:
+            readable = segments[-1].lower()[:SLUG_LIMIT]
         digest = sha256(self.identity.encode("utf-8")).hexdigest()[:12]
         return f"{readable}-{digest}"
 

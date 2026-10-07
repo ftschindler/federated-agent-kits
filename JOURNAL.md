@@ -466,3 +466,33 @@ yet. Locally, before a push, four tests skip. In CI they run.
 It also turned out to be the only place the subdirectory form gets exercised against a real
 forge. A `file://` URL has no forge layout, so `.../tree/main/skills/writing` is not read as a
 subdirectory there and the `unit` test assembles the key directly instead.
+
+## 2026-10-08 - A long cache directory name failed as `invalid index-pack output`
+
+The first cache slug was the whole identity, slugified and cut to 48 characters from the left.
+On Linux that is a readable directory name. On the Windows job, in the `cli` layer only, four
+tests failed like this:
+
+```text
+federated_agent_kits.cache.CacheError: file:///C:/Users/runneradmin/AppData/Local/Temp/
+pytest-of-runneradmin/pytest-0/test_a_source_is_cloned_into_t0/kits: this source could not
+be cloned
+  git said: fatal: fetch-pack: invalid index-pack output
+```
+
+Nothing in that message is about path lengths, and the layer it failed in was the clue. The
+`unit` layer clones into a short `tmp_path` and passed on the same runner. The `cli` layer
+clones into the platform cache directory *inside a fake home inside pytest's temporary
+directory*, and then git writes `.git/objects/pack/tmp_pack_*` under a directory named after a
+`file://` key that is itself a long Windows path. Past 260 characters, `index-pack` fails and
+git reports it as output it could not parse.
+
+The identity is hashed into the name anyway, so the readable half is only for somebody looking
+at their own cache directory. It is now the *tail* of the identity rather than the head, capped
+at 24 characters: `owner-repo-620c3a937ce8`, and `unreleased-thing-kits-0432fbcd388a` where the
+owner does not fit. The host, which is the part every entry from one forge shares, is the part
+worth losing.
+
+The general lesson is the one the Windows job exists for. This is not a bug care would have
+avoided, it is one a second operating system found, and it surfaced two layers away from where
+it was made.
