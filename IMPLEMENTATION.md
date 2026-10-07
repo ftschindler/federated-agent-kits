@@ -1,288 +1,673 @@
 # IMPLEMENTATION - federated-agent-kits
 
 **Status:** the plan of record. [DESIGN.md](DESIGN.md) remains the sole source of truth for
-*what* gets built; this document says *in which order*, and *when* each open question is
-answered.
+*what* gets built; this document says *in which order*, *what each piece has to prove*, and
+*when* each open question is answered.
 
 **Section references.** A `§N` link points at the matching section of [DESIGN.md](DESIGN.md).
 
-This plan assumes nothing from this repository except [DESIGN.md](DESIGN.md) and this file.
-A fresh session should be able to start here.
+This plan assumes nothing from this repository except [DESIGN.md](DESIGN.md) and this file. A
+fresh session should be able to start at any unticked task and know what it owns.
+
+**Three harnesses ship with 1.0**: opencode, VS Code, and GitHub Copilot in CI. The first two
+are built in [T4](#t4---adapters-detection-and-akit-list), the third in
+[T8](#t8---the-machineless-harness-and-the-leak-refusal), and between them they cover both
+halves of [§4](DESIGN.md#4-adding-a-harness): a harness with a machine and one without. pi is
+in [DESIGN.md](DESIGN.md) as a worked example and is a fourth adapter afterwards
+([T10](#t10---a-fourth-harness)), not a release blocker.
+
+**The end state is a published package.** `federated-agent-kits` on PyPI, exposing one entry
+point named `akit`, so that `uvx akit render` works in a fresh clone with nothing installed
+([§9](DESIGN.md#how-it-ships)). That is a contract, not a milestone: every task below either
+builds a part of it or keeps it releasable.
 
 ## Status
 
-- [ ] **[T1](#t1---read-the-manifest-render-nothing)** - Read the manifest, render nothing
-- [ ] **[T2](#t2---render-skills)** - Render skills
-- [ ] **[T3](#t3---render-rules)** - Render rules
-- [ ] **[T4](#t4---add-a-third-harness)** - Add a third harness, *proves the adapter claim*
-- [ ] **[T5](#t5---ship-the-skill)** - Ship the skill
-- [ ] **[T6](#t6---refuse-to-leak)** - Refuse to leak, *gates the first employer source*
-- [ ] **[T7](#t7---render-agents)** - Render agents
-- [ ] **[T8](#t8---iterate-on-what-use-earns)** - Iterate on what use earns, *open-ended*
+- [ ] **[T1](#t1---the-package-the-cli-frame-and-ci)** - The package, the CLI frame, and CI
+- [ ] **[T2](#t2---manifests)** - Manifests
+- [ ] **[T3](#t3---sources-resolution-cache-discovery)** - Sources: resolution, cache, discovery
+- [ ] **[T4](#t4---adapters-detection-and-akit-list)** - Adapters, detection, and `akit list`
+- [ ] **[T5](#t5---the-render-engine-and-skills)** - The render engine, and skills
+- [ ] **[T6](#t6---rules)** - Rules
+- [ ] **[T7](#t7---add-remove-update-harness)** - `add`, `remove`, `update`, `harness`
+- [ ] **[T8](#t8---the-machineless-harness-and-the-leak-refusal)** - The machineless harness, and the leak refusal
+- [ ] **[T9](#t9---doctor)** - `doctor`
+- [ ] **[T11](#t11---agents)** - Agents
+- [ ] **[T12](#t12---the-skill-and-the-rule)** - The skill, and the rule
+- [ ] **[T13](#t13---publish-10)** - Publish 1.0
+- [ ] **[T10](#t10---a-fourth-harness)** - A fourth harness, *after 1.0, proves the adapter claim*
+- [ ] **[T14](#t14---iterate-on-what-use-earns)** - Iterate on what use earns, *open-ended*
 
 ## How to use it
 
-**Answer an open question only when a task forces it.** Deciding early trades away the
-information the work itself produces. Every task names which questions it settles and which
-it must leave alone even when the answer looks obvious. Leaving one alone is not
-procrastination; it is refusing to guess when the next task will know.
+**Build the whole package first, iterate afterwards.** An earlier version of this plan gated
+each task on weeks of real use. That is the right habit for a tool somebody already depends
+on and the wrong one for a tool that does not exist yet: it would leave a half-built CLI on
+disk for a month. So T1 to T13 are written to be implemented in short order, each in its own
+session, and the evidence that a task is done is its test suite rather than a fortnight of
+usage. [T14](#t14---iterate-on-what-use-earns) is where usage gets to change things.
 
-**Each task ships something usable.** T1 is useful on its own, T2 replaces a manual copy
-step, and so on. No task exists only to prepare the next one.
+**One task is one session, and one pull request.** A task names what it owns, what it must
+not touch, and the interfaces it leaves behind for the next one. A session that finds itself
+editing another task's files has either found a design bug, which goes in the journal and into
+[DESIGN.md](DESIGN.md), or has drifted.
 
-**Keep a journal from T1.** `JOURNAL.md` beside this file, one dated line per incident, with
-the actual paths and commands. Three rules make a fabricated entry obviously empty: record
-what happened rather than what should be built, name the artefacts, and say what was done
-instead. It is the evidence that decides [T8](#t8---iterate-on-what-use-earns).
+**Order is a dependency graph, not a queue.** Each task names what it needs. T6, T9 and T10
+are independent of each other once T5 exists, so they can run in any order or at once in
+separate worktrees.
+
+**The repository stays releasable from T1.** Every task ends with a green suite on both
+operating systems and a version that can ship. A task that cannot be released on its own is
+too large, and splitting it is part of doing it.
+
+**Answer an open question only when a task forces it.** Every task names which of
+[§12](DESIGN.md#12-still-open) it settles and which it must leave alone.
+
+**Keep a journal from T1.** `JOURNAL.md` beside this file, one dated entry per incident, with
+the actual paths, commands and output. Record what happened rather than what should be built,
+name the artefacts, and say what was done instead. It is the evidence that
+[T14](#t14---iterate-on-what-use-earns) runs on.
 
 ## Before starting
 
-A fresh session needs four things, two of which are not in this repository.
+A fresh session needs five things, three of which are not in this repository.
 
 | What | Where | Why |
 | --- | --- | --- |
 | The design | [DESIGN.md](DESIGN.md) | Every schema, path and refusal is specified there |
-| The `skills` CLI discovery rules | its npm README, section "Skill Discovery" | [§5](DESIGN.md#5-sources) follows them and does not restate the full list of directories |
-| Harness documentation | opencode, VS Code, pi | [§4](DESIGN.md#4-adding-a-harness) is a summary, not a substitute |
+| The sibling project | `~/Projects/public/federated-knowledge-skills` | Its `tests/` carry the fake-home, git-environment and disposable-agent harnesses this project ports rather than reinvents, and its `.github/workflows/` carry the label-driven release this project copies |
+| The `skills` CLI discovery rules | its npm README, section "Skill Discovery" | [§5](DESIGN.md#5-sources) follows them and does not restate the full list |
+| Harness documentation | opencode, VS Code, pi, GitHub Copilot | [§4](DESIGN.md#4-adding-a-harness) is a snapshot, not a substitute, and every path in it will move |
 | The guard suite | this repository | `make bootstrap`, then `make check` |
 
 Two constraints bind every task and are easy to breach without noticing. **Python only**, and
-**Windows and Linux equally**, both spelled out in
-[§9](DESIGN.md#9-windows-linux-python). The second is not satisfied by care: it is
-satisfied by the CI matrix that [T1](#t1---read-the-manifest-render-nothing) adds.
+**Windows and Linux equally**, both spelled out in [§9](DESIGN.md#9-windows-linux-python). The
+second is not satisfied by care. It is satisfied by the CI matrix
+[T1](#t1---the-package-the-cli-frame-and-ci) adds, which every later task keeps green.
 
-## T1 - Read the manifest, render nothing
+## What every task delivers
 
-**Goal.** Say what you have subscribed to and where it is, before anything writes a file.
+These are not repeated under each task. A task is not done without them.
 
-**Deliverable.** `akit list`, the manifest parser, the source resolver, the kit discovery
-walk, and a CI matrix on `ubuntu-latest` and `windows-latest`.
+**Tests that could fail.** Every behaviour the task adds has a test that fails when the
+behaviour is removed. Coverage is measured with branch coverage and the gate is 100% of
+`src/`, with `# pragma: no cover` allowed only on a line that names why in the same comment.
+A task that cannot reach the gate says so in the journal rather than lowering it.
 
-**Specified by DESIGN.md.** Source forms and the directory walk
-([§5](DESIGN.md#5-sources)), the manifest schema, the two files and their precedence
+**The four test layers**, each in its own marker so CI can run them as separate jobs:
+
+| Marker | What it is | Needs |
+| --- | --- | --- |
+| `unit` | the library, in a `tmp_path`, no network | nothing |
+| `cli` | `akit` as a subprocess in a fake home, against local `file://` sources | git |
+| `federation` | the same commands against two real public repositories | network |
+| `agent` | a disposable agent that reads the skill and types what it says | network, node |
+
+The `cli` layer is where most of this project's tests live, because almost everything it does
+is a file on disk and a process's exit code. Local git repositories over `file://` cover
+cloning, pinning and private-looking sources without anybody's server
+([T3](#t3---sources-resolution-cache-discovery)).
+
+**Isolation that holds on both operating systems.** `HOME`, `USERPROFILE` and every `XDG_*`
+point inside the test's own directory, so a bug cannot reach the developer's real config,
+cache or state directory. Git gets the same treatment: no user config, no credential helper,
+a fixed author. Both harnesses are ports of the sibling project's `fake_home.py` and
+`git_environment.py`.
+
+**Help text good enough that a skill needs almost nothing.** [§11](DESIGN.md#11-the-skill)
+puts everything deterministic in the CLI, so the CLI has to carry it. The contract, enforced
+by a test over every registered command in [T1](#t1---the-package-the-cli-frame-and-ci):
+
+- one sentence saying what the command does, then a paragraph saying what it writes and what
+  it never writes;
+- at least one worked example, with real-looking arguments;
+- every flag documented in one line, including what it refuses to do;
+- a closing `Next:` line naming the command somebody usually runs after this one;
+- `akit help <topic>` for the four things that are not commands: `manifest`, `sources`,
+  `harnesses`, `privacy`.
+
+**Output a person and a model can both read.** Every command prints what it did in full
+sentences, grouped by scope, and takes `--json` for the same information as data. Nothing is
+silent on success: a no-op says it was a no-op. Every refusal names the source, the target
+and the command that fixes it ([§3](DESIGN.md#3-rules-of-the-build), rule 5).
+
+**Windows-safe by construction.** `pathlib.Path` throughout, `encoding="utf-8"` stated out
+loud, no symlink ever created, no shell, no `&&`, no assumption that `make` exists.
+
+**Documentation that ships with the change.** `README.md` and the command's own help are part
+of the diff, never a follow-up.
+
+## T1 - The package, the CLI frame, and CI
+
+**Goal.** `uvx akit --help` works from a clone, and everything a later task writes lands in a
+tested, released package.
+
+**Needs.** Nothing.
+
+**Deliverable.** The distribution, the CLI skeleton, the test harness, and three workflows.
+
+**Build.**
+
+- `pyproject.toml`: name `federated-agent-kits`, hatchling, `src/federated_agent_kits/`,
+  `requires-python = ">=3.11"`, one console script `akit`. Dependencies kept to what the
+  design forces: a YAML round-tripper that preserves comments ([§6](DESIGN.md#6-the-manifest))
+  and the platform directory lookup. No lockfile of our own
+  ([§9](DESIGN.md#9-windows-linux-python)).
+- The CLI frame: `akit` with subcommands registered in one place, `--version`, `--json`,
+  `--verbose`, and the help contract above. Argument parsing only; every verb prints "not
+  implemented yet" and exits 2 until its task lands, and a test asserts that list shrinks to
+  empty by [T13](#t13---publish-10).
+- Exit codes, defined once and tested: 0 fine, 1 something is wrong, 2 usage, 3 a refusal
+  ([§8](DESIGN.md#8-keeping-the-employers-kits-in)). A refusal is not a usage error and the
+  caller has to be able to tell.
+- `tests/fake_home.py` and `tests/git_environment.py`, ported from the sibling project.
+- `tests/pytest.toml` with the four markers, and `.scripts/run-tests.py <marker>` so make, the
+  hooks and CI share one code path on every platform.
+- `tests.yml`: a job per marker across `ubuntu-latest` and `windows-latest`, plus a fixed-name
+  `tests` job that fails unless every matrix job succeeded, which is the one branch protection
+  requires.
+- `governance.yml` gains ruff and a strict type check over `src/` and `tests/`.
+- `release.yml`, copied from the sibling and retargeted: exactly one of `major`, `minor`,
+  `patch`, `no-release` on every pull request; on merge the bot writes the version, tags it,
+  and publishes to PyPI with trusted publishing. The version lives in `pyproject.toml` and is
+  readable at runtime from package metadata, so `akit --version` and the skill's `VERSION`
+  file ([T12](#t12---the-skill-and-the-rule)) cannot disagree.
+- Publish `0.1.0` at the end of this task, to TestPyPI and then to PyPI. An unpublished
+  package is an untested release pipeline, and the first real publish is the one that finds
+  the misconfigured name, the missing classifier and the trusted-publisher mismatch.
+
+**Tests.** The help contract over every registered command. `--version` matches the installed
+metadata. Every exit code. The fake home cannot see the real `HOME` on either platform, with
+the `XDG` fallback branch exercised on purpose. A `cli` test that installs the built wheel
+into a throwaway environment and runs `akit --help` from it, so the entry point is tested as a
+user meets it rather than as an import.
+
+**Done when.** `uvx --from dist/*.whl akit --help` prints the frame on both operating systems,
+CI is green, and `pip install federated-agent-kits==0.1.0` gets you an `akit` that says what
+it cannot do yet.
+
+**Settles.** The CI matrix half of [§9](DESIGN.md#9-windows-linux-python), and the release
+mechanism for everything after it.
+
+**Leave alone.** Every behaviour. This task is the floor the others stand on, and a verb
+implemented here is a verb implemented without its tests.
+
+## T2 - Manifests
+
+**Goal.** The file people edit is read, written and round-tripped without losing a comment.
+
+**Needs.** [T1](#t1---the-package-the-cli-frame-and-ci).
+
+**Deliverable.** The manifest model, the two-scope reader, the comment-preserving writer, and
+`akit help manifest`.
+
+**Specified by DESIGN.md.** The schema, the mapping-versus-list asymmetry, `as:`, the
+`harnesses:` key, the two files and their precedence, and how each is found
 ([§6](DESIGN.md#6-the-manifest)).
 
-**Steps.**
+**Build.**
 
-- Parse both manifests. The user one in the per-platform config directory, the project one at
-  `.akit.yaml` beside the worktree root found by walking up, project adding to user and
-  winning on a clash.
-- Resolve a source key: shorthand, forge URL, git URL, subdirectory URL, local path, with an
-  commit after `#`. Clone into the platform cache when nothing says otherwise.
-- Walk the directories from [§5](DESIGN.md#5-sources), three levels, shallower shadowing
-  deeper, for all three kinds.
-- Report: each subscription, which source and ref it resolved to, which kit file, and whether
-  two subscriptions collide on a name. `list` fetches nothing, which is the rule
-  [§10](DESIGN.md#10-commands) states for every command except `update`.
-- Add the test workflow with both operating systems required.
+- Parse `version: 1`, the three kind blocks, a string or a mapping per entry, `as:`, and the
+  `harnesses:` list. A key carries an optional `#<commit>`; the comment beside it is data to
+  nobody and is preserved verbatim.
+- Find the user manifest in the per-platform config directory, and the project one by walking
+  up to the worktree root and looking beside its `.git`. The walk stops there, so it can never
+  reach another repository or the user manifest.
+- Merge: project adds to user, project wins on a clash, and the result remembers which scope
+  each subscription came from, because [§10](DESIGN.md#10-commands) renders them to different
+  places.
+- Write with comments, key order and layout preserved. This is the only code that edits a file
+  a person owns in place, and [T7](#t7---add-remove-update-harness) depends on it being
+  boring.
+- Rejections with a line number and a fix: an unknown kind, a duplicate name within a scope,
+  `rules:` written as a mapping, a `version` we do not know.
 
-**Done when.** `akit list` runs against a public source and a local path on both operating
-systems, and reports a deliberate name collision.
+**Tests.** A round-trip property test: parse then write an unmodified manifest and get the
+same bytes, over a corpus that includes every form in [§6](DESIGN.md#6-the-manifest). A
+written pin keeps its comment. Precedence in both directions. The walk refuses to leave the
+worktree, including from a nested worktree and a submodule. Every rejection, one test each.
+CRLF in, LF out, on both platforms.
 
-**Settles.** The CI matrix half of [§9](DESIGN.md#9-windows-linux-python).
+**Done when.** The corpus round-trips byte for byte, and the merge reports its scopes.
+
+**Leave alone.** Resolution. A manifest knows what you asked for and never where it is
+([§6](DESIGN.md#where-a-source-actually-is)).
+
+## T3 - Sources: resolution, cache, discovery
+
+**Goal.** Turn a key into a directory on this disk, and find the parts inside it.
+
+**Needs.** [T2](#t2---manifests).
+
+**Deliverable.** The source resolver, the cache, the discovery walk, the privacy
+classification, and `akit help sources`.
+
+**Specified by DESIGN.md.** The five source forms, what is not a source, the directory walk
+and its shadowing rule ([§5](DESIGN.md#5-sources)); where a source actually is and what a path
+key means ([§6](DESIGN.md#where-a-source-actually-is)); how a source is known to be private
+([§8](DESIGN.md#how-a-source-is-known-to-be-private)).
+
+**Build.**
+
+- Parse every key form: shorthand, forge URL, git URL, a URL into a subdirectory, and a path.
+  One normalisation, so two spellings of one repository share one cache entry.
+- Clone remotes into the platform cache directory, resolve a tag or branch to a commit, and
+  check out a pinned commit. A path is read where it is, has no pin, and is never cached.
+- Refuse a relative path that leaves the repository when the key is in a committed manifest,
+  which is the check [§6](DESIGN.md#where-a-source-actually-is) wants in a hook.
+- The walk: the fixed directories per kind, three levels deep, a shallower part shadowing a
+  deeper one, plus the directories each adapter declares, which arrives as a parameter so
+  [T4](#t4---adapters-detection-and-akit-list) can fill it in without touching this code.
+- Classify each remote source as it is fetched: it needed credentials, or it cloned
+  anonymously. A path takes the repository's own classification. The answer is only observable
+  while fetching, so it is returned for the render record to keep
+  ([§6](DESIGN.md#what-a-render-leaves-behind)).
+- Subtract a supplied set of paths before reporting parts, which is how discovery avoids
+  finding our own rendered output in a repository that is its own source
+  ([§5](DESIGN.md#reading-is-not-writing)). The set is a parameter here and the render record
+  fills it in [T5](#t5---the-render-engine-and-skills).
+
+**Tests.** `unit` for key parsing, including the pairs that must normalise together and the
+forms that are not sources at all. `cli` for cloning, over local repositories served as
+`file://`, which is also how a credential-needing remote is simulated: a repository behind a
+helper that always fails classifies as private, and the test asserts the classification rather
+than the error. The walk gets a fixture repository with a part at each of the three levels, a
+shadowing pair, and a part in a directory an adapter declared. The subtraction test shows a
+rendered skill in `.agents/skills/` being ignored as an input. Offline behaviour: a cached
+source resolves with the network refused, an uncached one fails saying which it was.
+
+**Done when.** Every row of [§5](DESIGN.md#naming-one) resolves, the walk finds every part
+in the fixture, and the privacy classification is right in both directions.
+
+**Leave alone.** Writing anything outside the cache.
+
+## T4 - Adapters, detection, and `akit list`
+
+**Goal.** The seven questions become an interface, two harnesses answer it, and the first
+useful command lands.
+
+**Needs.** [T3](#t3---sources-resolution-cache-discovery).
+
+**Deliverable.** The adapter interface, the opencode and VS Code adapters, harness detection,
+`akit list`, and `akit help harnesses`.
+
+**Specified by DESIGN.md.** The seven questions, declining a kind, a harness with or without a
+machine, and the worked opencode and VS Code answers ([§4](DESIGN.md#4-adding-a-harness)); one
+adapter per harness, rule 7 ([§3](DESIGN.md#3-rules-of-the-build)).
+
+**Build.**
+
+- One adapter per harness, one file each, with sections rather than a family of registries.
+  It declares: read directories per kind, write directories per kind, which of the three rule
+  shapes it is and what the pointer is if it is the second, the frontmatter keys and tool
+  names for agents, how it computes a project anchor, how it is detected, and whether it has a
+  machine at all. Declining a kind is a first-class answer and nothing may crash on it.
+- Detection by evidence on this disk, never by what a repository contains
+  ([§4](DESIGN.md#4-adding-a-harness)).
+- `akit list`: per subscription, the source, the pin, the parts found, where each part was or
+  would be rendered, and whether it was rendered at all. Per harness, whether it is detected
+  and which kinds it takes. Failures are reported per line rather than stopping the command,
+  because this is what you run when something is already wrong. Nothing is fetched and nothing
+  is written.
+- Name collisions across sources are detected here, since this is the first place that sees
+  every subscription at once.
+
+**Tests.** An adapter contract test, parametrised over every registered adapter, so a new
+adapter is tested by existing. Detection: present, absent, and present but in an unusual
+place, with the home redirected. `list` against a fixture holding two sources, a local path, a
+deliberate collision, an unrendered subscription and a source missing from the cache, with its
+output snapshot-tested in both text and `--json`. A declined kind appears in `list` and
+crashes nothing.
+
+**Done when.** `akit list` describes a realistic setup correctly on both operating systems,
+and the collision is named.
 
 **Leave alone.** Every renderer. A tool that only reads is the one chance to get resolution
 right without a file-writing bug on top of it.
 
-## T2 - Render skills
+## T5 - The render engine, and skills
 
-**Goal.** Replace the manual copy. Skills first because they need no translation.
+**Goal.** Files on disk match the manifests, twice in a row, and nothing we did not write is
+ever touched.
 
-**Deliverable.** `akit render` for skills, `akit update`, `akit doctor`, and the render
-record.
+**Needs.** [T4](#t4---adapters-detection-and-akit-list).
 
-**Specified by DESIGN.md.** Rendering always copies ([§6](DESIGN.md#6-the-manifest)), what
-rendering a skill means ([§7](DESIGN.md#7-rendering)), no symlink is ever created
+**Deliverable.** `akit render` for skills, the render record, the `.gitignore` block,
+withdrawal, `--prune`, and the scope and narrowing flags.
+
+**Specified by DESIGN.md.** Rendering always copies, the render record and its exhaustiveness
+([§6](DESIGN.md#what-a-render-leaves-behind)); one copy where the bytes agree
+([§7](DESIGN.md#7-rendering)); the whole of [§10](DESIGN.md#render); the ignore block
+([§6](DESIGN.md#what-a-repository-commits)); no symlinks
 ([§9](DESIGN.md#9-windows-linux-python)).
 
-**Steps.**
+**Build.**
 
-- Render into the harness directories for opencode and VS Code, plus `~/.agents/skills/`,
-  which several harnesses read directly.
-- Record what was written, from which source at which commit, with the hash of the copy.
-- Write the comment-preserving YAML editor `update` needs to move a pin in place. It is the
-  only code that edits a file a person owns.
-- Make the second render a no-op. Prove it with a test that renders twice and compares the
-  tree, not by inspection.
-- `akit update` re-pins a copied kit and shows the diff.
-- `akit remove` drops a subscription and deletes what it rendered, refusing when two
-  manifests subscribe to the name.
-- Delete `akit link` and its machine-state file, which T1 built before
-  [§13](DESIGN.md#13-not-doing) retired it. The render record stays.
-- `akit doctor` reports collisions, a rendered file that no subscription explains, and a
-  source that will not resolve.
-- Handle `as` end to end: a renamed kit lands under the new name and the record knows both.
+- Copy skills into `.agents/skills/`, once, for every harness that reads it. Never translate,
+  never link.
+- The render record in the state directory: every file written, every subscription and harness
+  that explains it, and a hash of the copy. Explained by a set, not by one subscription.
+- Withdrawal, exactly three outcomes: in the record and unexplained and matching, deleted and
+  reported; in the record and the hash differs, left alone, named, pointed at `doctor`; not in
+  the record, never touched.
+- `--prune`, the one deletion we cannot prove is safe, acting only on what `doctor` would call
+  a plausible orphan.
+- The `.gitignore` marker block, rewritten whole each render, everything outside it untouched.
+- Scopes: user subscriptions to machine-level directories, project subscriptions inside the
+  repository, both by default, `--global` and `--project` to narrow. `--harness` and
+  `--no-harness` narrow the expanded harness list, write nothing to a manifest, and delete
+  nothing.
+- `as:` end to end: the kit lands under the new name and the record knows both names.
 
-**Done when.** A skill subscribed from a public source loads in a real opencode session on
-both operating systems, and deleting the rendered tree then re-running `akit render` restores
-it exactly.
+**Tests.** The idempotence test compares the whole tree after two renders, by hash, rather
+than by inspection. One test per row of the withdrawal table, including the edited-copy row,
+which must survive three renders. A hand-written skill in `.agents/skills/` survives render,
+withdrawal and `remove`. The ignore block preserves a user's own lines and their order, and a
+directory that stops being rendered leaves the block. A shared skill survives one of its two
+harnesses going out of scope and goes when the second does. Deleting the rendered tree and
+re-rendering restores it byte for byte. Deleting the record leaves orphans that `--prune`
+removes and nothing else does. `--no-harness` deletes nothing. A `file://` source and a path
+source render identically.
 
-**Leave alone.** Rules and agents. Also any notion of a symlinked render: rendering copies,
-and `akit render` being quick is what replaces it.
+**Done when.** A skill subscribed from a public source renders on both operating systems, a
+second render is a proven no-op, and no test can get the engine to delete a file it did not
+write.
 
-## T3 - Render rules
+**Leave alone.** Rules and agents. The record and the withdrawal rules are the product here.
 
-**Goal.** One rule, written once, reaching three differently-shaped harnesses.
+## T6 - Rules
 
-**Deliverable.** The three rule renderers, the marker-block concatenation, and the first ten
-real rules living in a source.
+**Goal.** One rule, written once, reaching three differently shaped harnesses in the order the
+manifest says.
 
-**Specified by DESIGN.md.** The three shapes and the ordering rule
-([§7](DESIGN.md#7-rendering)), what each harness reads
-([§4](DESIGN.md#4-adding-a-harness)).
+**Needs.** [T5](#t5---the-render-engine-and-skills).
 
-**Steps.**
+**Deliverable.** The three rule renderers, the marker-block writer, and the opencode pointer.
 
-- opencode: contribute paths to `instructions` in its config rather than writing a rule file.
-  This edits a file the user owns, so touch one key and leave the rest byte-identical.
-- VS Code: one `.instructions.md` per rule under `.github/instructions/`.
-- `AGENTS.md` targets: one concatenation, each rule between `BEGIN <id>` and `END <id>`.
-  The test that matters writes hand-authored prose between two blocks and checks it survives
-  three renders.
-- Honour manifest order, and prove it with a test over two rules that contradict.
-- **Write ten real rules.** Not fixtures: the rules actually wanted on this machine. This is
-  the only way [§12](DESIGN.md#12-still-open)'s `applyTo` question gets evidence instead of an
-  opinion.
+**Specified by DESIGN.md.** The three shapes, the ordering rule, and why the first is
+preferred ([§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them)).
 
-**Done when.** One rule renders to all three shapes, a hand-written paragraph between two
-marker blocks survives, and the ten rules are in a source and rendered.
+**Build.**
 
-**Settles.** Whether rules need `applyTo`, from what the ten rules turned out to want.
+- Shape one, a directory we own: one file per rule, so removing one does not touch its
+  neighbours. VS Code's `.github/instructions/*.instructions.md` is the worked case.
+- Shape two, pointed once: write the pointer at setup, never at render, and touch exactly one
+  key in a config a person owns, leaving the rest byte-identical. opencode's `instructions` is
+  the worked case.
+- Shape three, one shared file: each rule between `BEGIN <id>` and `END <id>`, everything
+  between and around the blocks preserved.
+- Honour manifest order, which is the only place order means anything.
 
-**Leave alone.** Agents. Rules are where the ordering and merge-into-someone-elses-file
-problems live, and they are enough for one task.
+**Tests.** A hand-authored paragraph between two marker blocks survives three renders, and so
+does a block somebody reordered by hand being put back. Two contradicting rules render in
+manifest order, and swapping the manifest swaps the output. The opencode config keeps its
+comments, its key order and its unrelated keys. A rule removed from the manifest leaves shape
+one as a deleted file and shape three as a closed-up file with its neighbours intact. A rule
+whose id is not a safe filename is refused rather than sanitised.
 
-## T4 - Add a third harness
+**Done when.** One rule renders to all three shapes from one source file, and the marker-block
+survival test passes on both operating systems.
 
-**Goal.** Find out whether "a harness is a file, not a branch" is true, while it is still
-cheap to fix if it is not.
+**Settles.** Nothing yet. [§12](DESIGN.md#12-still-open)'s `applyTo` question needs ten real
+rules, which is [T14](#t14---iterate-on-what-use-earns)'s business, so the renderer carries no
+`applyTo` field and a rule that wants one is a journal entry.
 
-**Deliverable.** A pi adapter, and whatever refactor its absence of a clean seam demands.
+**Leave alone.** Agents.
 
-**Specified by DESIGN.md.** The six questions and the worked pi answers
-([§4](DESIGN.md#4-adding-a-harness)), invariant 6
-([§3](DESIGN.md#3-rules-of-the-build)).
+## T7 - `add`, `remove`, `update`, `harness`
 
-**Steps.**
+**Goal.** Nobody has to hold the manifest format in their head.
 
-- Answer the six questions for pi in code. Skills need no file written, rules take the
-  concatenation, agents exist only behind a third-party package and the adapter declines them
-  for now. Its project anchor is the nearest `.pi`, not the git root, and its trust prompt is
-  the condition `akit doctor` reports rather than resolves.
-- Declare pi as a harness with a machine, which forces the property to exist in the adapter
-  interface before a machineless one needs it.
-- Declining a kind is a first-class answer, so make sure it is: `akit list` says which kinds
-  each harness takes, and nothing crashes on the one it does not.
-- Count what the adapter touched. Anything outside its own file is a design bug, and fixing
-  it is part of this task rather than a follow-up.
+**Needs.** [T6](#t6---rules) for a render worth triggering, and
+[T2](#t2---manifests)'s writer.
 
-**Done when.** The pi adapter is one file, plus one line registering it, and the diff proves
-it.
+**Deliverable.** The four manifest-writing commands.
 
-**Leave alone.** A fourth harness. One is the experiment; two is a habit before there is
-evidence the shape holds.
+**Specified by DESIGN.md.** [§10](DESIGN.md#add), [§10](DESIGN.md#remove),
+[§10](DESIGN.md#update), [§10](DESIGN.md#harness-add-and-harness-remove), and the flag rules
+in [§6](DESIGN.md#finding-them).
 
-## T5 - Ship the skill
+**Build.**
 
-**Goal.** A person who installs this and knows nothing gets a working setup, carried out
-rather than described.
+- `add`, in four steps and in order: resolve, check the kit is really there, write one line,
+  render. A typo fails at step two with a list of what the source does hold.
+- `remove`: drop the subscription, withdraw what it rendered by T5's rules, and refuse when
+  two manifests subscribe to the name rather than guessing.
+- `update`: fetch, re-find every part under the key by the same walk `add` used, move the pin
+  for every name under the key or for none, print the diff of every part subscribed, then
+  render. A part that moved is reported; a part that is gone stops that key and names the
+  three ways out. A `"*"` lists what disappeared beside what changed.
+- `harness add` and `harness remove`: edit the `harnesses:` list, keep `detected` where it is,
+  render, and withdraw on removal. `detected` is a name like any other.
+- The flags, everywhere: `--global`, `--project`, `--manifest <path>`, with the project
+  manifest the default and an absent `.akit.yaml` an error naming `--global`.
 
-**Deliverable.** `skills/akit/SKILL.md`, its `references/`, a `VERSION` file, and the
-five-line activation rule.
+**Tests.** `add` writes a pin and a comment, and the file round-trips. `add` of a missing kit
+fails before writing anything, and the manifest is byte-identical afterwards. `update` across
+a fixture repository with a second commit: a changed part, a moved part, a deleted part, and a
+`"*"` subscription, with the pin unmoved in the deletion case and every other key free to move.
+`remove` under an ambiguous name refuses. Every command is a no-op on its second run.
+Offline: `add` of a cached source succeeds, of an uncached one fails saying which.
 
-**Specified by DESIGN.md.** The three layers and the two rules that keep them apart
-([§11](DESIGN.md#11-the-skill)).
+**Done when.** A kit can be added from a path, renamed with `as:`, updated across a real
+commit and removed, with the manifest readable by hand at every step.
 
-**Steps.**
+**Leave alone.** The leak refusal, which is the next task and which `add` and `harness add`
+will both grow a call into.
 
-- Cover exactly the three situations: nothing is set up, something needs doing, a new release
-  is out. Resist a fourth.
-- **The skill may not cite this design.** It ships standalone, so every rule it relies on is
-  in it or in its `references/`, never referred to by section number.
-- **Deterministic behaviour stays in the CLI.** The skill says run `akit list`; it never
-  describes the output, or there are two descriptions and one goes stale.
-- Ship the activation rule as text the skill offers to place, and let it ask the agent where
-  its own harness keeps user-level instructions rather than carrying a list of paths.
-- Settle whether the CLI ships inside the skill ([§12](DESIGN.md#12-still-open)). The
-  decision is forced here because the skill has to tell somebody how to run the thing.
-- Decide how a cold-session test gets run. The sibling project builds a throwaway agent in a
-  redirected `HOME` and drives it; port that or state the gap, because prose is what regresses
-  and no unit test reads it.
+## T8 - The machineless harness, and the leak refusal
 
-**Done when.** Three cold-session tests pass, each from no prior context: a machine with no
-manifest ends up with one and a rendered skill; "add the writing kit" results in the right
-edit to the right file; and an agent asked what changed can say which files `akit render`
-wrote.
+**Goal.** Committed renders become possible and dangerous in the same task, so the refusal
+lands with the thing it protects against.
 
-**Settles.** Whether the CLI ships inside the skill.
+**Needs.** [T7](#t7---add-remove-update-harness).
+
+**Deliverable.** The GitHub Copilot in CI adapter, committed renders, `render --check`, the
+refusal, and the hooks other repositories pin.
+
+**Specified by DESIGN.md.** The harness with no machine
+([§4](DESIGN.md#4-adding-a-harness)), what a repository commits
+([§6](DESIGN.md#what-a-repository-commits)), the whole of
+[§8](DESIGN.md#8-keeping-the-employers-kits-in), and `--check`
+([§10](DESIGN.md#render)).
+
+**Build.**
+
+- The adapter: no detection, arrives only by being named, writes `.github/instructions/`,
+  `.github/agents/` and the shared skills directory, all committed.
+- The ignore block becomes the inverse of what is committed, computed rather than maintained,
+  so naming the cloud agent takes the shared skills directory out of it and nobody keeps two
+  lists in step by hand.
+- Classify a target by its remotes: none means private, anonymously resolvable means public,
+  anything else is refused rather than guessed at. This runs only where something is
+  committed, which is what keeps an ordinary render offline forever.
+- The refusal, both halves, hard, with no override and no `--force`: a private source's parts
+  into a public target, per harness rather than per repository; and a private source named in
+  a public target's committed manifest.
+- `render --check`: the same walk, writing nothing, non-zero when a committed render is stale,
+  judging only committed renders, and refusing the narrowing flags.
+- `.pre-commit-hooks.yaml`, so other repositories pin this package by revision and get
+  `render --check`, the leak refusal and the escaping-path check without installing anything.
+
+**Tests.** One test per row of the refusal table, in both directions, plus the unreachable
+remote. A private source renders fine into a private repository and into a laptop harness in a
+public one, and is refused for the committed harness in that same repository. The refusal is
+total: no file written, nothing half-done, exit code 3, message naming source and target. The
+ignore block flips correctly when the cloud agent is added and removed. `--check` passes on a
+fresh render, fails after an edit, and refuses `--no-harness`. The hooks are exercised as
+hooks, in a throwaway repository, on both operating systems. And the first diff budget: this
+adapter is the second one written, so a test asserts it needed no change outside its own file
+and the line registering it, which is rule 7 of
+[§3](DESIGN.md#3-rules-of-the-build) checked by CI rather than by somebody's memory.
+
+**Done when.** The table is covered row by row, and a repository guarded by the hook cannot
+commit a stale or leaking render.
+
+**Settles.** Nothing open. This task implements a decided design, and the thing to resist is
+inventing an override.
+
+## T9 - `doctor`
+
+**Goal.** One command that says what is wrong and which command fixes it.
+
+**Needs.** [T5](#t5---the-render-engine-and-skills); every later task adds a check.
+
+**Deliverable.** `akit doctor`, with one check per bullet in
+[§10](DESIGN.md#doctor).
+
+**Build.** Each check is a small, independently testable function returning a finding with a
+fix. The command reads everything, changes nothing, goes near the network only in the one case
+`render` does, and exits non-zero when it found something. `--json` carries the findings as
+data, because the skill reads this more often than a person does.
+
+**Tests.** One test per bullet, each constructing the broken state deliberately: two kits on
+one name, an unexplained render, a hand-edited render caught by its hash, an orphan from a
+lost record, a missing cache entry, a pin the cache does not hold, a committed manifest naming
+an escaping path, a stale committed render, an agent naming an unsubscribed skill, files in
+place for a harness that is not reading them, a detected harness the list leaves out, a named
+harness no adapter knows, and both `.gitignore` failures. A healthy setup reports nothing and
+exits 0. A test asserts that every finding type names a command, so a check cannot ship as a
+complaint with no fix.
+
+**Done when.** Every bullet has a failing fixture and a passing fix.
+
+**Leave alone.** Fixing anything. Changing nothing is what makes it safe to run when you do
+not know what is going on.
+
+## T11 - Agents
+
+**Goal.** One agent definition, two harnesses, with no silent loss.
+
+**Needs.** [T5](#t5---the-render-engine-and-skills).
+
+**Deliverable.** The agent renderer, the tool-name table, and the hard failure.
+
+**Specified by DESIGN.md.** The canonical file, the `harness:` overrides, and the refusal on an
+unmappable tool ([§7](DESIGN.md#agents-are-the-hard-one)).
+
+**Build.** A portable body plus a `harness:` block of per-target overrides. Translate the
+frontmatter per harness, body untouched. Build the tool-name table by hand and decide then
+whether it is per harness or per agent. Stop the render on a tool name with no mapping. Report
+a skill or an MCP server an agent names and you have not subscribed to, as a warning, and
+install nothing ([§1](DESIGN.md#1-what-this-is), [§13](DESIGN.md#13-not-doing)).
+
+**Tests.** One source file renders to opencode and VS Code with the right keys and the body
+byte-identical. An unmappable tool name fails the render, names both spellings, and leaves no
+file behind: the tempting bug is to drop it and carry on, so the test asserts the failure. A
+`harness:` override wins over the portable value. The 30,000-character cap the cloud agent
+documents is enforced with a message naming the limit. An agent naming an unsubscribed skill
+warns and renders.
+
+**Done when.** One agent file serves two harnesses, and every unmappable name is a refusal.
+
+**Settles.** How tool names map ([§12](DESIGN.md#12-still-open)), from three real agents
+rather than from an opinion.
+
+## T12 - The skill, and the rule
+
+**Goal.** An agent asked to "set up my kits" carries it out rather than describing it.
+
+**Needs.** [T9](#t9---doctor), so every command the skill names exists and `doctor` can
+answer "what is wrong".
+
+**Deliverable.** `skills/akit/SKILL.md`, its `references/`, a `VERSION` file, the five-line
+activation rule, and the `agent` test layer.
+
+**Specified by DESIGN.md.** The three layers, the three situations, and the two rules that
+keep the layers apart ([§11](DESIGN.md#11-the-skill)).
+
+**Build.**
+
+- Exactly three situations: nothing is set up, something needs doing, a new release is out.
+  Resist a fourth.
+- The skill ships standalone and may not cite this design or [DESIGN.md](DESIGN.md) by section
+  number. Everything it relies on is in it or in its `references/`.
+- Anything deterministic stays in the CLI. The skill says run `akit list`; it never describes
+  the output. This is what the help contract in
+  [T1](#t1---the-package-the-cli-frame-and-ci) was for, and this task is where that investment
+  gets spent: if the skill needs to explain a command, the command's help is wrong and the fix
+  goes there.
+- A skill never tells the model to open another skill.
+- The activation rule is text the skill offers to place, asking the agent where its own
+  harness keeps user-level instructions rather than carrying a list of paths.
+- `VERSION` is written by the release job from the same number as the package, since a skill
+  copied into a directory cannot tell how old it is any other way.
+- The skill is subscribable from this repository, so the hand-placed first copy becomes a
+  managed one.
+
+**Tests.** The `agent` layer, ported from the sibling's disposable agent: a pinned harness in
+a redirected home, driven from no prior context, on both operating systems. Three cold
+sessions. A machine with no manifest ends up with one and a rendered skill. "Add the writing
+kit" produces the right edit to the right file and nothing else. An agent asked what changed
+can name the files `akit render` wrote. Plus a lint over the skill itself: it cites no section
+number, mentions no path this project does not own, and every command it names exists in the
+CLI, which is a test over `--help` rather than a grep.
+
+**Done when.** Three cold-session tests pass on both operating systems, and the skill is
+installed into a fresh home by `akit` itself.
+
+**Settles.** Nothing. The CLI living outside the skill was settled in
+[§9](DESIGN.md#how-it-ships), and this task is where that pays off.
 
 **Leave alone.** Anything the three situations do not need. A skill that documents every flag
 is a manual, and the CLI already has `--help`.
 
-## T6 - Refuse to leak
+## T13 - Publish 1.0
 
-**Goal.** Make it impossible to render an employer's rule into a repository with a public
-remote.
+**Goal.** The thing [§9](DESIGN.md#how-it-ships) promises, installed by somebody who has
+never seen this repository.
 
-**This task gates the first employer source.** Not an ordering preference. Until it is built,
-subscribing to a private source is the one thing that can do real damage.
+**Needs.** Everything above except [T11](#t11---agents), which may land after 1.0 if the three
+real agents are not there yet, and [T10](#t10---a-fourth-harness), which is after it by
+construction.
 
-**Specified by DESIGN.md.** What can actually leak, how a source and a target are
-classified, and what the refusal covers ([§8](DESIGN.md#8-keeping-the-employers-kits-in)).
-Refusals are hard ([§3](DESIGN.md#3-rules-of-the-build)).
+**Build.**
 
-**Steps.**
+- A `uvx` smoke job in CI on both operating systems: from a clean runner with nothing
+  installed, clone a fixture repository carrying an `.akit.yaml`, run `uvx akit render`, and
+  assert the files a harness reads are in place. That is the exact sentence the README and
+  every contributing guide make, so it is a test rather than a claim.
+- README and `CONTRIBUTING.md` updated to the shipped reality, with the design and this plan
+  demoted from "what will exist" to "why it is shaped this way".
+- A compatibility statement: the `akit` entry point and the rendered file shapes are the
+  contract, and changing either is a major ([§9](DESIGN.md#how-it-ships)).
+- The "not implemented yet" list from T1 is empty, asserted by the test written then.
+- Publish `1.0.0`.
 
-- Classify a source at fetch time: it needed credentials, it cloned anonymously, or it is a
-  local path. Record which in the render record, because the answer is only available while
-  fetching.
-- Classify a target from its git remotes. No remote means private, an anonymously resolvable
-  remote means public, anything unreachable is refused rather than guessed at.
-- Refuse a private source's parts rendering into a public target, per harness rather than per
-  repository: only a harness whose renders are committed can leak. Refuse a private source
-  being named in a public target's committed manifest, which is the half that is easy to
-  forget because no render is involved.
-- Implement the override, in the user manifest only. Writing it into a project manifest is
-  itself refused.
-- Refuse a committed manifest that names a path leaving the repository, which is a laptop
-  written into a shared file. Ship it as a pre-commit hook other repositories pin, beside the
-  leak check, so a repository is guarded whether or not `akit` is installed.
-- Make every refusal hard: no partial render, no warning, and a message naming source, target
-  and override.
-- One test per row of the refusal table. The table is the whole product here, and an untested
-  row is a row that is wrong.
+**Done when.** `uvx akit render` works in a fresh clone on both operating systems, in CI,
+without this repository being present.
 
-**Done when.** A private source renders into a private repository, is refused into a public
-one, is refused when named in a committed manifest there, and the suite covers both
-directions plus the unreachable remote.
+## T10 - A fourth harness
 
-## T7 - Render agents
+**Goal.** Find out whether "a harness is a file, not a branch" is true, while it is still
+cheap to fix if it is not.
 
-**Goal.** One agent definition, two harnesses, with no silent loss.
+**Needs.** [T13](#t13---publish-10). It is deliberately after the release: opencode, VS Code
+and the cloud agent are what 1.0 ships, and a fourth adapter is the experiment that tests the
+claim rather than a harness anybody is waiting for.
 
-**It waits.** Agents are the least portable kind and the least used. Three agents that
-genuinely want to live in two harnesses is the trigger; fewer than that and this is a
-translation layer maintained for nobody.
+**Deliverable.** A pi adapter, and whatever refactor its absence of a clean seam demands.
 
-**Specified by DESIGN.md.** The canonical file, the `harness:` overrides, and the hard failure
-on an unmappable tool ([§7](DESIGN.md#7-rendering)).
+**Specified by DESIGN.md.** The seven questions and the worked pi answers
+([§4](DESIGN.md#what-pi-looks-like)).
 
-**Steps.**
+**Build.** Answer all seven for pi in code. Skills need no file written, rules take the shared
+file and its marker blocks, agents exist only behind a third-party package so the adapter
+declines them. Its project anchor is the nearest `.pi` rather than the git root, and its trust
+prompt is a condition `doctor` reports rather than resolves.
 
-- Translate the frontmatter per harness, body untouched.
-- Build the tool-name table by hand. Decide then whether it is per harness or per agent
-  ([§12](DESIGN.md#12-still-open)); writing three real agents is what answers it.
-- **Stop the render on a tool name with no mapping.** A test asserts the failure, because the
-  tempting bug is to drop it and carry on.
-- Report a skill or MCP server an agent names and you have not subscribed to. Warn, never
-  install.
+**Tests.** The adapter contract test picks it up for free, which is the point. A test asserts
+the anchor is computed rather than assumed, using a fixture where `.pi` sits in a subdirectory
+of a repository. A test asserts the untrusted-folder condition reaches `doctor`. And a diff
+budget: a test that fails if this adapter needed changes outside its own file and the one line
+registering it, so the claim is checked by CI rather than by somebody's memory.
 
-**Done when.** One agent runs in opencode and in VS Code from one source file, and an
-unmappable tool name fails the render with a message naming both spellings.
+**Done when.** The pi adapter is one file plus one registration line, and the diff proves it.
 
-**Settles.** How tool names map.
+**Leave alone.** A fifth harness. One addition is the experiment; two is a habit before there
+is evidence the shape holds.
 
-## T8 - Iterate on what use earns
+## T14 - Iterate on what use earns
 
 **Goal.** Keep discovering against a setup that is used rather than built. Open-ended by
 construction: no completion date, and its first output is evidence rather than code.
@@ -290,11 +675,15 @@ construction: no completion date, and its first output is evidence rather than c
 **Steps.**
 
 - Keep the journal running. The incidents that matter here are a render that surprised
-  somebody, a kit that was edited in its rendered copy by mistake, a collision the rename did
-  not solve, a source whose layout moved.
-- Add a harness when somebody wants one, not before. Each addition is also a test of
-  [T4](#t4---add-a-third-harness)'s claim, and the first one that needs a change outside its
-  own file is worth writing down.
+  somebody, a rendered copy edited by mistake, a collision the rename did not solve, a source
+  whose layout moved, a harness that changed its directories.
+- **Write ten real rules**, the ones actually wanted on this machine, and see whether any of
+  them wants an `applyTo` glob. That is the evidence
+  [§12](DESIGN.md#12-still-open) asks for, and it cannot be gathered before the renderer
+  exists.
+- Add a harness when somebody wants one, not before. Each addition tests
+  [T10](#t10---a-fourth-harness)'s claim, and the first one needing a change outside its own
+  file is worth writing down.
 - Revisit MCP servers only on evidence ([§13](DESIGN.md#13-not-doing)). The entry that would
   move them is an agent that is useless without one, more than once.
 
