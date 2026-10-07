@@ -107,3 +107,48 @@ write to it removes something and is refused.
 Three tests in `tests/test_support_scripts.py` build real repositories for it, because what
 is being tested is a `git diff` and a fixture string would only test the regular expression
 twice: a rewrite, a first appearance, and an unrelated edit to the same file.
+
+## 2026-10-07 - The first publish failed on a metadata version, not on a publisher
+
+The release job on the merge of #8 did everything it was supposed to and then would not
+upload:
+
+```text
+Checking dist/federated_agent_kits-0.2.0-py3-none-any.whl:
+ERROR InvalidDistribution: Invalid distribution metadata: '2.5' is not a valid metadata version
+```
+
+This is the failure T1 published `0.1.0` early to find, and it is worth recording that it
+looked nothing like the failure that was expected. Everything the setup notes warn about
+worked on the first try: the app minted a token, the bypass entry let the version commit and
+the tag through to a protected `main`, and `uv build` produced both artefacts. What broke was
+a number.
+
+hatchling writes `Metadata-Version: 2.5`, because `license = "MIT"` with `license-files` is
+PEP 639 and current hatchling emits the current spec. The upload action was pinned at
+`v1.13.0`, which carries `twine==6.1.0` and `packaging==25.0`, and `packaging` 25.0 has
+
+```python
+_VALID_METADATA_VERSIONS = ["1.0", "1.1", "1.2", "2.1", "2.2", "2.3", "2.4"]
+```
+
+so the client refused the file before PyPI ever saw it. `v1.14.2` carries `twine==7.0.0` and
+`packaging==26.2`, which knows `2.5`. PyPI itself runs `packaging==26.3`, so the server was
+never the problem: checking that before bumping was the difference between a fix and a second
+failed release.
+
+A locally built wheel passes `uvx twine check` today, which is how this stayed invisible. The
+check that mattered was the pinned one in the action, and nothing on a laptop runs it.
+
+Dependabot would have fixed this on its own schedule, which is a thin kind of luck: the
+pinned-and-frozen policy makes the lag visible as a diff rather than as an outage, and here
+the outage arrived first because the pin was four months old on the day it was written.
+
+**Left behind, and not cleaned up by the job.** `0.2.0` is committed and tagged on `main` and
+is on neither index. The job commits and tags, then builds, then publishes, so a publish that
+fails leaves a tag naming a version nobody can install. See the note in the pull request: the
+ordering is a decision about what the pipeline promises, not a bug to quietly reverse.
+
+TestPyPI failed separately, with `invalid-publisher`, because its pending publisher had not
+been added yet. That step is `continue-on-error` precisely so a rehearsal index cannot block a
+release, and it behaved as designed.
