@@ -147,6 +147,24 @@ and the command that fixes it ([§3](DESIGN.md#3-rules-of-the-build), rule 5).
 **Windows-safe by construction.** `pathlib.Path` throughout, `encoding="utf-8"` stated out
 loud, no symlink ever created, no shell, no `&&`, no assumption that `make` exists.
 
+**Every harness path is checked against the harness's own documentation before it is
+copied.** [§4](DESIGN.md#4-adding-a-harness) says twice that its worked examples are a
+snapshot and that every path in them will move. What it cannot say is who goes and looks, so
+this is it: a task that writes a path into an adapter, a renderer or a test reads the
+harness's current documentation first, and a path that moved is fixed in
+[DESIGN.md](DESIGN.md) in the same diff rather than annotated or worked around.
+
+The cost of skipping this is not a failing test. A kit rendered into a directory the harness
+stopped reading leaves the files in place and the agent behaving as if they were never there,
+which is the silent failure [§4](DESIGN.md#4-adding-a-harness) calls question 6's whole
+point. [T4](#t4---adapters-detection-and-akit-list) copied two stale answers faithfully and
+[JOURNAL.md](JOURNAL.md) has what they cost: a harness named after an editor that hosts four
+of them, and skills written to a directory its harness had since stopped being alone in.
+
+The journal entry is part of the work. A path that moved is the evidence
+[T14](#t14---iterate-on-what-use-earns) runs on, and the second time one moves is what decides
+whether this project is reading documentation often enough or needs a test that does it.
+
 **Documentation that ships with the change.** `README.md` and the command's own help are part
 of the diff, never a follow-up.
 

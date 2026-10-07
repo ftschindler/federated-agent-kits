@@ -620,5 +620,6 @@ pattern: a configurable path in this harness is a path Agent Host will not read.
 
 **The lesson is about the snapshot, not about Copilot.** Both errors were in DESIGN.md before
 they were in code, and T4 copied them faithfully. "Every path in §4 will move" is written in
-two places in IMPLEMENTATION.md, and what neither says is that an adapter task has to go and
-look. T10's guide is where that belongs.
+two places in IMPLEMENTATION.md, and what neither said is that an adapter task has to go and
+look. It now says so in "What every task delivers", so it binds every task rather than only
+the one that writes the guide.
