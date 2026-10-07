@@ -75,11 +75,19 @@ def next_version(current: str, level: str) -> str:
 
 
 def version_changed(base: str, head: str = "HEAD") -> bool:
-    """Whether the diff from `base` touches the version line.
+    """Whether the diff from `base` *rewrites* the version line.
 
     The whole file is not off limits - a pull request may add a classifier or a
     dependency - so the question is about the one line the release job owns,
     which means reading the diff rather than the file list.
+
+    A removed line is what makes it a rewrite. An added one with nothing removed
+    is the version arriving in a repository that has none, which happens exactly
+    once, in the pull request that creates `pyproject.toml`. Carving that out as
+    a named exception would leave a rule that has to be remembered, in a check
+    whose whole job is to be remembered for you: afterwards the line exists on
+    the base branch, so every further write to it removes something and is
+    refused.
     """
     diff = subprocess.run(
         ["git", "diff", "--unified=0", f"{base}...{head}", "--", str(PYPROJECT)],
@@ -88,8 +96,7 @@ def version_changed(base: str, head: str = "HEAD") -> bool:
         check=True,
         cwd=str(REPO_ROOT),
     ).stdout
-    changed = [line for line in diff.splitlines() if re.match(r"^[+-]version = \"", line)]
-    return bool(changed)
+    return any(re.match(r"^-version = \"", line) for line in diff.splitlines())
 
 
 def main(argv: list[str] | None = None) -> int:

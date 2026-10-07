@@ -16,6 +16,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from git_environment import FIXED_AUTHOR, git
 
 pytestmark = pytest.mark.unit
 
@@ -77,6 +78,50 @@ class TestTheVersionLine:
 
     def test_this_repository_declares_one(self) -> None:
         assert version.read_version(version.PYPROJECT.read_text(encoding="utf-8"))
+
+
+class TestTheVersionGuard:
+    """A rewrite is refused; the line arriving for the first time is not.
+
+    Both halves run against a real repository, because the thing being tested is
+    a `git diff` and a fixture string would be testing the regular expression
+    twice.
+    """
+
+    def diff_of(self, tmp_path: Path, base: str | None, head: str, monkeypatch: pytest.MonkeyPatch) -> bool:
+        repository = tmp_path / "repo"
+        repository.mkdir()
+        pyproject = repository / "pyproject.toml"
+        git("init", "-q", "-b", "main", str(repository))
+        (repository / "README.md").write_text("seed\n", encoding="utf-8")
+        if base is not None:
+            pyproject.write_text(base, encoding="utf-8")
+        git("-C", str(repository), "add", "-A")
+        git("-C", str(repository), *FIXED_AUTHOR, "commit", "-qm", "base")
+        git("-C", str(repository), "checkout", "-q", "-b", "change")
+        pyproject.write_text(head, encoding="utf-8")
+        git("-C", str(repository), "add", "-A")
+        git("-C", str(repository), *FIXED_AUTHOR, "commit", "-qm", "change")
+        monkeypatch.setattr(version, "PYPROJECT", pyproject)
+        monkeypatch.setattr(version, "REPO_ROOT", repository)
+        return version.version_changed("main", "change")
+
+    def test_a_rewritten_version_is_caught(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        before = '[project]\nname = "x"\nversion = "0.1.0"\n'
+        assert self.diff_of(tmp_path, before, before.replace("0.1.0", "0.2.0"), monkeypatch) is True
+
+    def test_the_line_arriving_for_the_first_time_is_not(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The pull request that creates pyproject.toml. It can only happen once:
+        # afterwards the line is on the base branch and any further write to it
+        # removes something.
+        assert self.diff_of(tmp_path, None, '[project]\nname = "x"\nversion = "0.1.0"\n', monkeypatch) is False
+
+    def test_an_unrelated_edit_to_the_same_file_is_allowed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        before = '[project]\nname = "x"\nversion = "0.1.0"\n'
+        after = before + 'description = "y"\n'
+        assert self.diff_of(tmp_path, before, after, monkeypatch) is False
 
 
 class TestRunTests:

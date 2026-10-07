@@ -80,3 +80,30 @@ have such a flag: `--manifest` was the only one, and three of the eight commands
 
 `Argument.takes_no_value` now asks whether the declaration was given a `metavar`, `choices`
 or `nargs`, and only then is a flag a switch.
+
+## 2026-10-07 - The version guard refused the pull request that creates the version
+
+`release.yml`'s `🏷 (the pull request says how big it is)` job refuses a pull request that
+writes the version line, because the release job owns it. The first run of it, on the pull
+request that adds `pyproject.toml`, said:
+
+```text
+##[error]pyproject.toml's version is written by the release job.
+Label this pull request major, minor, patch or no-release instead.
+```
+
+which is correct about the rule and wrong about this diff. The line is not being rewritten,
+it is arriving.
+
+The sibling project hit the same thing at file granularity and answered it with
+`git diff --diff-filter=MD`: modifications and deletions, never additions. The same reasoning
+at line granularity is that a rewrite has a `-version = line and a first appearance does
+not, so`.scripts/version.py` now looks for the removal rather than for either sign.
+
+It is not an exception that has to be remembered, which was the point of the sibling's note
+and is worth repeating: after this pull request the line exists on `main`, so every further
+write to it removes something and is refused.
+
+Three tests in `tests/test_support_scripts.py` build real repositories for it, because what
+is being tested is a `git diff` and a fixture string would only test the regular expression
+twice: a rewrite, a first appearance, and an unrelated edit to the same file.
