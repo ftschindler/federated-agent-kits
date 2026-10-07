@@ -274,3 +274,51 @@ Renaming the distribution to match the command is not available, because the nam
 a real project rather than an abandoned squat. A second console script named after the
 distribution would make a bare invocation work, at the price of two names to keep in step
 documentation-wide, and `akit` remains what anybody types once it is installed.
+
+## 2026-10-08 - The manifest precedence rule had nothing to decide
+
+[T2](IMPLEMENTATION.md#t2---manifests) asks the merge to make "project wins on a clash" true.
+Writing it meant asking what winning does, and there was no answer that survived being
+spelled out.
+
+The case: your manifest subscribes to a skill called `writing` from one source, and the
+repository you are standing in subscribes to a different `writing` from another. [§6](DESIGN.md#6-the-manifest)
+said the repository wins, "which is how a repository pins something different without you
+unsubscribing".
+
+**Nothing is overwritten, because the two never write to the same path.**
+[§10](DESIGN.md#render) says a subscription renders into its own scope and no other: yours
+goes to the machine-level harness directories, the repository's goes inside the repository.
+Two files, two directories. So there is no file for one to win over, and the only way to make
+the repository "win" is to reach up and delete from your machine-level directory on the
+strength of a repository you happen to be inside.
+
+That was the option considered and rejected. It means your own kits change depending on which
+directory you are standing in, two repositories that collide differently make them flap, and
+a render in one repository withdraws something you wanted for another. For a command that
+runs from a git hook, that is a lot of deletion bought with a sentence.
+
+Refusing instead was the other candidate and is worse where it matters. A collision mostly
+arrives by cloning a repository or by `update` moving a pin, so nobody typed it, and the first
+command somebody runs is the one the README promises is the whole setup. A refusal is total,
+so one colliding name in a repository you are passing through would also stop your own
+unrelated kits from rendering. And the exit code would be wrong: [§8](DESIGN.md#8-keeping-the-employers-kits-in)
+reserves a refusal for a legal command declined with no override, and a collision has an
+override, which is `as:`.
+
+**So the collision is reported and never resolved.** Both copies render, `list` and `doctor`
+name it, and `add` refuses the one case where somebody is present and causing it, as a usage
+error rather than a refusal. [§6](DESIGN.md#two-files-one-format) now says that instead, and
+`merge` in `manifest.py` concatenates and tags rather than deciding anything. The one thing
+the two files do form a single sequence for is rules, where order decides a contradiction, and
+there yours come first so a repository gets the last word on its own ground.
+
+**What the code kept from the argument.** `Merged.collisions()` reports rather than resolves,
+and `Merged.harnesses(scope)` deliberately does not merge the two `harnesses:` lists: a
+subscription renders into its own scope, so a repository that merged lists with yours could
+turn on a harness for your whole machine.
+
+**One thing the round-trip does not preserve, on purpose.** A manifest arriving with CRLF is
+written back as LF. Preserving it would be the consistent answer and would make every later
+one-line edit by `akit add` a whole-file diff, in a repository whose `.gitattributes` already
+says LF.
