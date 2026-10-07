@@ -152,3 +152,44 @@ ordering is a decision about what the pipeline promises, not a bug to quietly re
 TestPyPI failed separately, with `invalid-publisher`, because its pending publisher had not
 been added yet. That step is `continue-on-error` precisely so a rehearsal index cannot block a
 release, and it behaved as designed.
+
+## 2026-10-07 - A rehearsal that cannot stop anything, and the ordering that made it look necessary
+
+Reviewing the fix above, the question was asked directly: why publish to TestPyPI at all if
+the step is allowed to fail. It does not survive the question.
+
+A rehearsal index is useful when a candidate can be published, inspected, and then promoted.
+This pipeline has no such gap. The same commit goes to both indexes seconds apart with
+nothing in between, and because the step is `continue-on-error` its failure cannot stop the
+upload that follows. What it produces is a red step inside a run that succeeded, which is the
+kind of signal people learn to ignore. Removing `continue-on-error` does not rescue it:
+TestPyPI expires projects, so a real gate there blocks releases on an index nobody depends
+on, which is why the flag was added and is what hollowed the step out.
+
+How it got there: [T1](IMPLEMENTATION.md#t1---the-package-the-cli-frame-and-ci) asked to
+publish the first version "to TestPyPI and then to PyPI", which is sensible as a one-off dry
+run before the first real upload. That was turned into a permanent step in every release and
+then defanged. The plan's bullet now says so.
+
+**The ordering is the actual finding.** A rehearsal earns its keep when failure is expensive,
+and failure was expensive here for exactly one reason: the job wrote the version, committed
+it and tagged it *before* publishing, so a refused upload burned a number and left `v0.2.0`
+pointing at something nobody can install. With the write moved after the upload, a release
+that cannot be published leaves nothing behind and is retried by merging the fix.
+
+The risk moves to the other end rather than disappearing: if the push fails after a
+successful upload, PyPI holds a version this repository has not recorded. That is
+recoverable by hand, and the previous arrangement was not. Everything that could plausibly
+fail in that step - minting the token, resolving the bot's identity - now happens before the
+upload, so what is left after it is a commit and two pushes with a token already proven to
+work.
+
+What replaces the rehearsal, in two parts. `twine check --strict` before anything is
+committed, which is the half of the upload's validation that needs no index. And the `cli`
+test layer, which already installs the built wheel and runs `akit --help` from it on both
+operating systems on every pull request, which is the half that catches an upload that would
+be accepted and broken.
+
+What nothing now catches before the upload is a server-side rejection: a classifier warehouse
+dislikes, a licence expression it will not parse, a name that normalises onto an existing
+one. That is deliberate. Discovering those from the upload is now free.

@@ -205,9 +205,18 @@ tested, released package.
   of those is not a permission, is the one that gets forgotten, and without it the job pushes
   and is declined. All four steps are by hand, once, by somebody with admin, and they are part
   of this task: a release pipeline that cannot push is not a release pipeline.
-- Publish `0.1.0` at the end of this task, to TestPyPI and then to PyPI. An unpublished
-  package is an untested release pipeline, and the first real publish is the one that finds
-  the misconfigured name, the missing classifier and the trusted-publisher mismatch.
+- Publish at the end of this task. An unpublished package is an untested release pipeline,
+  and the first real publish is the one that finds the misconfigured name, the missing
+  classifier and the trusted-publisher mismatch. It found a fourth thing, which
+  [JOURNAL.md](JOURNAL.md) records.
+- **To PyPI only, and in an order that makes a refused release free.** An earlier draft of
+  this bullet said TestPyPI and then PyPI, which is right for a one-off dry run before the
+  first upload and wrong as a permanent step in every release: allowed to fail it protects
+  nothing, and not allowed to fail it blocks releases on an index that expires its projects.
+  What replaces it is the job writing the version, building, checking and publishing before
+  it commits or tags anything, so a release that cannot be published leaves no trace and is
+  retried by merging the fix. A broken-but-accepted upload is caught instead by the `cli`
+  layer, which installs the built wheel and runs it on both operating systems.
 
 **Tests.** The help contract over every registered command. `--version` matches the installed
 metadata. Every exit code. The fake home cannot see the real `HOME` on either platform, with

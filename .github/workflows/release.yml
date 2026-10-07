@@ -8,10 +8,14 @@ name: Release
 # conflicts on merge. What a pull request carries instead is a label saying how
 # big it is, which is a thing a reviewer already decides.
 #
-# An unpublished package is an untested release pipeline, which is why 0.1.0
-# ships at the end of T1 rather than at the end of T12: the first real publish is
-# the one that finds the misconfigured name, the missing classifier and the
-# trusted-publisher mismatch.
+# An unpublished package is an untested release pipeline, which is why the first
+# version ships at the end of T1 rather than at the end of T12: the first real
+# publish is the one that finds the misconfigured name, the missing classifier
+# and the trusted-publisher mismatch.
+#
+# The order of the steps below is the lesson from that first publish. Nothing is
+# committed, tagged or pushed until the upload has succeeded, so a release that
+# cannot be published costs nothing and is retried by merging the fix.
 
 on:
   pull_request:
@@ -191,8 +195,56 @@ jobs:
         echo "name=${SLUG}[bot]" >> "${GITHUB_OUTPUT}"
         echo "email=${id}+${SLUG}[bot]@users.noreply.github.com" >> "${GITHUB_OUTPUT}"
 
-    - name: Write the version, commit it and tag it
+    - name: Write the version into the working tree
       if: steps.bump.outputs.level != 'none'
+      # Written, not committed. Nothing is recorded anywhere until the upload
+      # has happened, so a release that cannot be published leaves no tag naming
+      # a version nobody can install and burns no number. That is not a
+      # hypothetical: 0.2.0 was tagged and refused, and the tag is still there.
+      env:
+        NEXT: ${{ steps.version.outputs.next }}
+      run: uv run .scripts/version.py write "${NEXT}"
+
+    - name: Build the distribution
+      if: steps.bump.outputs.level != 'none'
+      # Both artefacts: the wheel is what `uvx akit` resolves, and the sdist is
+      # what anybody packaging this downstream needs.
+      run: uv build --out-dir dist
+
+    - name: Check the distribution before anyone sees it
+      if: steps.bump.outputs.level != 'none'
+      # `--strict`, so a warning is a failure. This is the half of the upload's
+      # own validation that can be run without an index, and running it here
+      # rather than inside the publish step means it fails before the version is
+      # committed rather than after.
+      #
+      # It is explicitly not a substitute for what the index checks. A classifier
+      # it dislikes, a licence expression it will not parse, a name that
+      # normalises onto something else: those are answered by the upload and by
+      # nothing before it. The point of the ordering above is that discovering
+      # them is cheap.
+      run: uvx twine check --strict dist/*
+
+    - name: Publish to PyPI
+      if: steps.bump.outputs.level != 'none'
+      # One index. A TestPyPI step that is allowed to fail protects nothing, and
+      # one that is not allowed to fail blocks releases on an index nobody
+      # depends on and that expires its projects. A rehearsal earns its keep when
+      # failure is expensive, and the ordering above is what makes failure cheap.
+      #
+      # What catches a broken-but-accepted upload is the `cli` test layer, which
+      # installs the built wheel and runs `akit --help` from it on both operating
+      # systems, on every pull request.
+      uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+
+    - name: Commit the version and tag it
+      if: steps.bump.outputs.level != 'none'
+      # After the upload, and this is the end the risk now sits at: if this step
+      # fails, PyPI holds a version this repository has not recorded. That is
+      # recoverable by hand and the other order was not, which is the whole of
+      # the trade. Everything that could plausibly fail here - minting the token,
+      # resolving the bot's identity - has already happened and succeeded.
+      #
       # One commit carrying the version, and the tag on that commit rather than
       # on the merge: a tag whose tree holds the previous version is a release
       # that installs as its predecessor, and nothing downstream can tell.
@@ -202,7 +254,6 @@ jobs:
         BOT_EMAIL: ${{ steps.identity.outputs.email }}
       run: |
         set -euo pipefail
-        uv run .scripts/version.py write "${NEXT}"
         git config user.name "${BOT_NAME}"
         git config user.email "${BOT_EMAIL}"
         git add pyproject.toml
@@ -210,26 +261,6 @@ jobs:
         git tag -a "v${NEXT}" -m "Release ${NEXT}"
         git push origin HEAD:main
         git push origin "v${NEXT}"
-
-    - name: Build the distribution
-      if: steps.bump.outputs.level != 'none'
-      # Both artefacts: the wheel is what `uvx akit` resolves, and the sdist is
-      # what anybody packaging this downstream needs.
-      run: uv build --out-dir dist
-
-    - name: Publish to TestPyPI
-      if: steps.bump.outputs.level != 'none'
-      # First, and allowed to fail: TestPyPI expires projects, and a release that
-      # stopped because a rehearsal index was unavailable would be a release
-      # blocked by something nobody depends on.
-      continue-on-error: true
-      uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
-      with:
-        repository-url: https://test.pypi.org/legacy/
-
-    - name: Publish to PyPI
-      if: steps.bump.outputs.level != 'none'
-      uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
 
     - name: Announce it
       if: steps.bump.outputs.level != 'none'

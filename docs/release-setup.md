@@ -43,12 +43,14 @@ Step 4 is not a permission, is the one that gets forgotten, and is the reason th
 exists. Without it the job mints a valid token, pushes, and is declined by the ruleset. The
 error says nothing about bypass lists.
 
-## 3. Trusted publishing on PyPI and TestPyPI
+## 3. Trusted publishing on PyPI
 
-Both indexes, because the release publishes to TestPyPI first as a rehearsal.
+One index. There is no TestPyPI step: one that is allowed to fail protects nothing, and one
+that is not blocks releases on an index that expires its projects. What makes a rehearsal
+unnecessary here is the order of the release job, which commits and tags only after the
+upload has succeeded, so a refused release costs nothing and is retried by merging the fix.
 
-On each of [pypi.org](https://pypi.org/manage/account/publishing/) and
-[test.pypi.org](https://test.pypi.org/manage/account/publishing/), add a pending publisher:
+On [pypi.org](https://pypi.org/manage/account/publishing/), add a pending publisher:
 
 | Field | Value |
 | --- | --- |
@@ -62,13 +64,19 @@ Then create a repository environment named `pypi`. It needs no secrets: trusted 
 exchanges the workflow's OIDC token for a short-lived upload token, so there is no API token
 to leak, rotate or forget.
 
-The environment name has to match on both sides. A mismatch is rejected at upload time with a
-message about an invalid claim, which reads like a bug in the action.
+```sh
+gh api --method PUT repos/ftschindler/federated-agent-kits/environments/pypi
+```
+
+The environment name has to match on both sides, and it names the GitHub environment rather
+than the index. A mismatch is rejected at upload time with a message about an invalid claim,
+which reads like a bug in the action.
 
 ## 4. The first publish
 
-Label the pull request that lands this `minor`, and merge it. The release job writes `0.2.0`
-into `pyproject.toml`, tags it, builds, and publishes.
+Label the pull request that lands this `minor`, and merge it. The release job works out the
+next version, writes it into `pyproject.toml`, builds, checks, publishes, and only then
+commits and tags.
 
 An unpublished package is an untested release pipeline, which is why this happens at the end
 of T1 rather than at the end of T12. The first real publish is the one that finds the
