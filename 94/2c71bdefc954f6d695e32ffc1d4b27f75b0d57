@@ -1,0 +1,21 @@
+tests/test_record.py
+  s_ffbe06c5f91796::t_2f22efffd48be2 187,213,221
+src/federated_agent_kits/record.py
+  s_ffbe06c5f91796::t_2f22efffd48be2 36,258
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "942c71bdefc954f6d695e32ffc1d4b27f75b0d57",
+  "prompts": {},
+  "sessions": {
+    "s_ffbe06c5f91796": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee7ea0994ffed31aeLtRIeR6dB",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Felix Schindler <107669806+ftschindler@users.noreply.github.com>"
+    }
+  }
+}
