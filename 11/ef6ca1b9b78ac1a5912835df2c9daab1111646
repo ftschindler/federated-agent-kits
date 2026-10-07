@@ -1,0 +1,30 @@
+tests/pytest.toml
+  s_2f75f7d4ce3beb::t_bb9256ee73cc3f 18
+CONTRIBUTING.md
+  s_2f75f7d4ce3beb::t_bb9256ee73cc3f 30,35-36,39-43
+src/federated_agent_kits/commands.py
+  s_2f75f7d4ce3beb::t_7d92d60e713ccc 320-338
+  s_2f75f7d4ce3beb::t_fd092355fab370 341
+JOURNAL.md
+  s_2f75f7d4ce3beb::t_bb1f83e0971216 368-468
+Makefile
+  s_2f75f7d4ce3beb::t_bb9256ee73cc3f 28
+IMPLEMENTATION.md
+  s_2f75f7d4ce3beb::t_423d0afcd39719 41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "11ef6ca1b9b78ac1a5912835df2c9daab1111646",
+  "prompts": {},
+  "sessions": {
+    "s_2f75f7d4ce3beb": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee9a7d874ffe123GcNHsWVMEKQ",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Felix Schindler <107669806+ftschindler@users.noreply.github.com>"
+    }
+  }
+}
