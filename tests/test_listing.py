@@ -256,7 +256,7 @@ class TestTheHarnessReport:
 
         by_name = {entry.name: entry for entry in inventory.harnesses}
         assert by_name["opencode"].detected is True
-        assert by_name["vscode"].detected is False
+        assert by_name["copilot-vscode"].detected is False
         assert by_name["opencode"].kinds == (Kind.SKILL, Kind.RULE)
 
     def test_a_named_harness_renders_even_though_this_machine_lacks_it(
@@ -264,22 +264,25 @@ class TestTheHarnessReport:
     ):
         manifest_at(
             repository / ".akit.yaml",
-            f"version: 1\nharnesses: [detected, vscode]\nskills:\n  {kits}: [writing]\n",
+            f"version: 1\nharnesses: [detected, copilot-vscode]\nskills:\n  {kits}: [writing]\n",
         )
 
         inventory = survey(repository, home, tmp_path)
 
-        assert sorted(target.harness for target in inventory.lines[0].found[0].targets) == ["opencode", "vscode"]
+        assert sorted(target.harness for target in inventory.lines[0].found[0].targets) == [
+            "copilot-vscode",
+            "opencode",
+        ]
 
     def test_dropping_detected_pins_the_list(self, repository: Path, home: Path, kits: Path, tmp_path: Path):
         manifest_at(
             repository / ".akit.yaml",
-            f"version: 1\nharnesses: [vscode]\nskills:\n  {kits}: [writing]\n",
+            f"version: 1\nharnesses: [copilot-vscode]\nskills:\n  {kits}: [writing]\n",
         )
 
         inventory = survey(repository, home, tmp_path)
 
-        assert [target.harness for target in inventory.lines[0].found[0].targets] == ["vscode"]
+        assert [target.harness for target in inventory.lines[0].found[0].targets] == ["copilot-vscode"]
         by_name = {entry.name: entry for entry in inventory.harnesses}
         assert by_name["opencode"].detected is True
         assert by_name["opencode"].scopes == (Scope.USER,)

@@ -211,7 +211,7 @@ def _harness_lines(merged: Merged, home: Path) -> tuple[tuple[HarnessLine, ...],
     """Every harness worth a line, and the expansion each scope ended up with.
 
     Every registered adapter gets a line whether or not it is in play, because
-    "vscode is installed and this repository does not render for it" is exactly
+    "Copilot is installed and this repository does not render for it" is exactly
     the thing somebody runs `list` to find out.
     """
     chosen: dict[Scope, tuple[Adapter, ...]] = {}

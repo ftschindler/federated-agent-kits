@@ -15,13 +15,13 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-from federated_agent_kits.adapters import opencode, vscode
+from federated_agent_kits.adapters import copilot_vscode, opencode
 from federated_agent_kits.adapters.adapter import Adapter, Destination, Pointer, RuleShape, git_root
 from federated_agent_kits.manifest import Kind, Scope
 
 #: Every harness this build knows. One line per adapter, and nothing else in the
 #: system is edited when one arrives.
-ADAPTERS: tuple[Adapter, ...] = (opencode.ADAPTER, vscode.ADAPTER)
+ADAPTERS: tuple[Adapter, ...] = (opencode.ADAPTER, copilot_vscode.ADAPTER)
 
 BY_NAME: dict[str, Adapter] = {adapter.name: adapter for adapter in ADAPTERS}
 

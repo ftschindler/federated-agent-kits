@@ -3,7 +3,7 @@
 The point of this file is that adding a harness means adding a file and a
 registration line and nothing else (DESIGN.md section 3, rule 7). The way it
 earns that is by being written against `ADAPTERS` rather than against
-`opencode` and `vscode` by name: a fourth adapter is tested by existing, and
+`opencode` and `copilot-vscode` by name: a fourth adapter is tested by existing, and
 T10 grows this into the specification a stranger writes one from.
 
 The fixture adapter at the bottom is the half the registry cannot supply. Every
@@ -110,6 +110,21 @@ class TestWhereAPartWouldLand:
                 theirs = adapter.target(kind, Scope.PROJECT, "writing", tmp_path / "repo")
                 assert mine != theirs
 
+    def test_one_skill_wanted_by_both_harnesses_is_one_copy(self, tmp_path: Path):
+        # The reason `copilot-vscode` writes `.agents/skills/` rather than its
+        # own directory: Copilot reads the same one opencode does, so the bytes
+        # and the path both agree and DESIGN.md section 7's preference for one
+        # copy is the ordinary case rather than the lucky one.
+        for scope in Scope:
+            written = {adapter.target(Kind.SKILL, scope, "writing", tmp_path) for adapter in adapters.ADAPTERS}
+
+            assert len(written) == 1
+
+    def test_a_rule_wanted_by_both_harnesses_is_not(self, tmp_path: Path):
+        written = {adapter.target(Kind.RULE, Scope.PROJECT, "prose-style", tmp_path) for adapter in adapters.ADAPTERS}
+
+        assert len(written) == len(adapters.ADAPTERS)
+
 
 class TestDetection:
     def test_a_harness_that_left_nothing_here_is_not_detected(self, tmp_path: Path):
@@ -140,7 +155,7 @@ class TestTheHarnessList:
 
         chosen, unknown = adapters.expand(["detected"], tmp_path)
 
-        assert [adapter.name for adapter in chosen] == ["vscode"]
+        assert [adapter.name for adapter in chosen] == ["copilot-vscode"]
         assert unknown == ()
 
     def test_a_named_harness_arrives_whether_or_not_this_machine_has_it(self, tmp_path: Path):
@@ -155,14 +170,14 @@ class TestTheHarnessList:
 
         chosen, _ = adapters.expand(["detected", "opencode"], tmp_path)
 
-        assert sorted(adapter.name for adapter in chosen) == ["opencode", "vscode"]
+        assert sorted(adapter.name for adapter in chosen) == ["copilot-vscode", "opencode"]
 
     def test_a_harness_both_named_and_detected_is_one_harness(self, tmp_path: Path):
         (tmp_path / ".vscode").mkdir()
 
-        chosen, _ = adapters.expand(["detected", "vscode", "vscode"], tmp_path)
+        chosen, _ = adapters.expand(["detected", "copilot-vscode", "copilot-vscode"], tmp_path)
 
-        assert [adapter.name for adapter in chosen] == ["vscode"]
+        assert [adapter.name for adapter in chosen] == ["copilot-vscode"]
 
     def test_a_name_no_adapter_answers_to_comes_back_rather_than_raising(self, tmp_path: Path):
         chosen, unknown = adapters.expand(["opencode", "emacs", "emacs"], tmp_path)

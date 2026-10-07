@@ -185,7 +185,7 @@ class TestListInAFakeHome:
             Harnesses
               opencode: detected on this machine
                 takes skills and rules, and is rendering for your manifest and this repository
-              vscode: not detected on this machine
+              copilot-vscode: not detected on this machine
                 takes skills and rules, and is in no manifest's harness list
               emacs: named in a manifest, and no adapter answers to it
                 named by this repository
@@ -229,7 +229,7 @@ class TestListInAFakeHome:
             "prose-style",
         ]
         assert payload["collisions"][0]["name"] == "writing"
-        assert {entry["name"] for entry in payload["harnesses"]} == {"opencode", "vscode", "emacs"}
+        assert {entry["name"] for entry in payload["harnesses"]} == {"opencode", "copilot-vscode", "emacs"}
         assert all(
             not target["rendered"]
             for entry in payload["subscriptions"]

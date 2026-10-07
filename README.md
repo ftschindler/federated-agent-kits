@@ -83,7 +83,7 @@ pre-commit hook.
 **Python only**, shipped as a package you run with `uvx`. No dependency lockfile of ours to
 go stale, and no install step for anyone who just wants to work on a repository.
 
-**A new harness is one file.** opencode and VS Code come first. An adapter answers seven
+**A new harness is one file.** opencode and GitHub Copilot in VS Code come first. An adapter answers seven
 questions about where that harness keeps things and how to tell it is installed, and nothing
 else in the system changes.
 [DESIGN.md](DESIGN.md#4-adding-a-harness) works pi through as an example.

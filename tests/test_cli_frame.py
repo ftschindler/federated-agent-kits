@@ -121,7 +121,8 @@ class TestParsing:
         assert parse("add", "acme/kits", "writing", "--as", "house-style").rename == "house-style"
 
     def test_a_repeatable_flag_collects(self) -> None:
-        assert parse("render", "--harness", "opencode", "--harness", "vscode").harness == ["opencode", "vscode"]
+        parsed = parse("render", "--harness", "opencode", "--harness", "copilot-vscode")
+        assert parsed.harness == ["opencode", "copilot-vscode"]
 
     def test_a_choice_outside_the_list_is_refused(self) -> None:
         with pytest.raises(SystemExit) as raised:

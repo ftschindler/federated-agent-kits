@@ -9,8 +9,8 @@
 This plan assumes nothing from this repository except [DESIGN.md](DESIGN.md) and this file. A
 fresh session should be able to start at any unticked task and know what it owns.
 
-**Two kinds and three harnesses ship with 1.0.** Skills and rules, into opencode, VS Code and
-GitHub Copilot in CI. The first two harnesses are built in
+**Two kinds and three harnesses ship with 1.0.** Skills and rules, into opencode, GitHub
+Copilot in VS Code and GitHub Copilot in CI. The first two harnesses are built in
 [T4](#t4---adapters-detection-and-akit-list), the third in
 [T8](#t8---the-machineless-harness-and-the-leak-refusal), and between them they cover both
 halves of [§4](DESIGN.md#4-adding-a-harness): a harness with a machine and one without.
@@ -90,7 +90,7 @@ A fresh session needs five things, three of which are not in this repository.
 | The design | [DESIGN.md](DESIGN.md) | Every schema, path and refusal is specified there |
 | The sibling project | `~/Projects/public/federated-knowledge-skills` | Its `tests/` carry the fake-home, git-environment and disposable-agent harnesses this project ports rather than reinvents, and its `.github/workflows/` carry the label-driven release this project copies |
 | The `skills` CLI discovery rules | its npm README, section "Skill Discovery" | [§5](DESIGN.md#5-sources) follows them and does not restate the full list |
-| Harness documentation | opencode, VS Code, pi, GitHub Copilot | [§4](DESIGN.md#4-adding-a-harness) is a snapshot, not a substitute, and every path in it will move |
+| Harness documentation | opencode, Copilot in VS Code, pi, Copilot in CI | [§4](DESIGN.md#4-adding-a-harness) is a snapshot, not a substitute, and every path in it will move |
 | The guard suite | this repository | `make bootstrap`, then `make check` |
 
 Two constraints bind every task and are easy to breach without noticing. **Python only**, and
@@ -335,11 +335,11 @@ useful command lands.
 
 **Needs.** [T3](#t3---sources-resolution-cache-discovery).
 
-**Deliverable.** The adapter interface, the opencode and VS Code adapters, harness detection,
+**Deliverable.** The adapter interface, the opencode and `copilot-vscode` adapters, detection,
 `akit list`, and `akit help harnesses`.
 
 **Specified by DESIGN.md.** The seven questions, declining a kind, a harness with or without a
-machine, and the worked opencode and VS Code answers ([§4](DESIGN.md#4-adding-a-harness)); one
+machine, and the worked opencode and Copilot answers ([§4](DESIGN.md#4-adding-a-harness)); one
 adapter per harness, rule 7 ([§3](DESIGN.md#3-rules-of-the-build)).
 
 **Build.**
@@ -401,12 +401,10 @@ changing T4's tests in the same diff.
 
 **Build.**
 
-- Copy skills into the directory each harness reads, once per directory rather than once per
-  harness. Never translate, never link. **This is not one directory**: opencode reads
-  `.agents/skills/` and VS Code reads `.claude/skills/`, so a machine with both gets two
-  copies, which [§7](DESIGN.md#one-copy-where-the-bytes-agree-one-per-harness-where-they-do-not)
-  permits and [JOURNAL.md](JOURNAL.md) records as the cost of
-  [T4](#t4---adapters-detection-and-akit-list)'s answer to VS Code's weak leg.
+- Copy skills into `.agents/skills/`, once, for every harness that reads it. Never translate,
+  never link. Both adapters [T4](#t4---adapters-detection-and-akit-list) ships write there,
+  so one copy really is one copy; the per-harness directories each of them also *reads* are a
+  separate list and discovery's business.
 - The render record in the state directory: every file written, every subscription and harness
   that explains it, and a hash of the copy. Explained by a set, not by one subscription.
 - Withdrawal, exactly three outcomes: in the record and unexplained and matching, deleted and
@@ -452,7 +450,7 @@ preferred ([§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them)).
 **Build.**
 
 - Shape one, a directory we own: one file per rule, so removing one does not touch its
-  neighbours. VS Code's `.github/instructions/*.instructions.md` is the worked case.
+  neighbours. Copilot's `.github/instructions/*.instructions.md` is the worked case.
 - Shape two, pointed once: write the pointer at setup, never at render, and touch exactly one
   key in a config a person owns, leaving the rest byte-identical. opencode's `instructions` is
   the worked case.
@@ -748,7 +746,7 @@ whether it is per harness or per agent. Stop the render on a tool name with no m
 a skill or an MCP server an agent names and you have not subscribed to, as a warning, and
 install nothing ([§1](DESIGN.md#1-what-this-is), [§13](DESIGN.md#13-not-doing)).
 
-**Tests.** One source file renders to opencode and VS Code with the right keys and the body
+**Tests.** One source file renders to opencode and Copilot with the right keys and the body
 byte-identical. An unmappable tool name fails the render, names both spellings, and leaves no
 file behind: the tempting bug is to drop it and carry on, so the test asserts the failure. A
 `harness:` override wins over the portable value. The 30,000-character cap the cloud agent

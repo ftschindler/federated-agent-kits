@@ -213,20 +213,36 @@ edited again.
 Question 6 is cheap here: opencode walks up to the git worktree root, which is where
 `.akit.yaml` already is.
 
-### What VS Code looks like
+### What GitHub Copilot in VS Code looks like
 
-VS Code insists on fixed paths, so everything is written where it looks.
+Copilot insists on fixed paths, so everything is written where it looks.
 
-| VS Code | Repository | User-wide |
+| Copilot in VS Code | Repository | User-wide |
 | --- | --- | --- |
 | Rules | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, root `AGENTS.md` | profile data for Local, `~/.copilot/instructions/` for Agent Host |
-| Skills | `.claude/skills/`, where the harness supports it | varies, and this is the weak leg |
+| Skills | `.agents/skills/`, `.github/skills/`, `.claude/skills/` | `~/.agents/skills/`, `~/.copilot/skills/`, `~/.claude/skills/` |
 | Agents | `.github/agents/*.agent.md`, `.claude/agents/` | `~/.copilot/agents/`, or profile data |
 
-There is a setting that would make it the second shape, and we are not using it.
-`chat.instructionsFilesLocations` does take absolute and `~` paths. The documentation marks
-it deprecated and says only the Local agent honours it, so neither Agent Host nor the cloud
-agent would see anything we wrote there.
+**The harness is the agent and not the editor**, which is why this section is named after
+Copilot. VS Code hosts several agent harnesses that disagree with each other about every path
+above: Cline reads `.cline/skills/`, Roo Code reads `.roo/skills/`, the Claude Code extension
+reads `.claude/skills/`, and Amazon Q has rules in `.amazonq/rules/` and no skills at all.
+Each of them is "VS Code" to the person using it, so an adapter named for the editor would
+claim the id for whichever harness was written first and leave the second needing a name that
+sounds like a subtype of it. That Copilot now ships inside a stock VS Code does not change
+this: it is still an extension, and it still has to be signed in to.
+
+**Skills are the one row where every harness here agrees**, and that is worth more than it
+looks. `.agents/skills/` and `~/.agents/skills/` are read by Copilot, by opencode and by pi,
+so one rendered copy serves all three and [§7](#one-copy-where-the-bytes-agree-one-per-harness-where-they-do-not)'s
+preference for one copy is the ordinary case rather than the lucky one. The
+harness-specific directories stay in the table because a *source* may have left a skill in
+any of them, which is the half of question 1 that is about reading.
+
+Two settings would make either kind the second shape and neither is usable.
+`chat.instructionsFilesLocations` and `chat.agentSkillsLocations` both take absolute and `~`
+paths, and the documentation marks both deprecated and says only the Local agent honours
+them, so neither Agent Host nor the cloud agent would see anything we wrote there.
 
 Question 6 is the awkward one. VS Code anchors on the open workspace, which is usually the
 repository and sometimes one folder inside it, and sometimes several folders at once. An
@@ -745,13 +761,15 @@ decided by whether the render translates anything.
 
 Skills are copied unchanged, so every harness wants the same file, and writing it four times
 would mean four ignore lines and four withdrawal candidates for one subscription. They go to
-`.agents/skills/`, which opencode, pi and the cloud agent all read directly.
+`.agents/skills/`, which opencode, Copilot in VS Code, pi and the cloud agent all read
+directly.
 
 Rules and agents are translated. The tables below show harnesses disagreeing about
 frontmatter keys, tool names and what an agent is even for, so there is no shared shape to
 write and these go to each harness's own directory.
 
-The exception proves the rule rather than bending it. VS Code and the cloud agent both read
+The exception proves the rule rather than bending it. Copilot in VS Code and the cloud agent
+both read
 `.github/instructions/` in the same shape, so that render is shared for the same reason
 skills are: the output is identical, not because the directory happens to have two readers.
 
@@ -804,14 +822,14 @@ you read the keys.
 | Harness | Location | Frontmatter |
 | --- | --- | --- |
 | opencode | `agent/*.md` | `model`, `tools`, `temperature`, `permission` |
-| VS Code | `.github/agents/*.agent.md` | `description`, `tools`, `model`, `handoffs`, `mcp-servers` |
+| Copilot in VS Code | `.github/agents/*.agent.md` | `description`, `tools`, `model`, `handoffs`, `mcp-servers` |
 | Claude Code | `.claude/agents/*.md` | `name`, `description`, `tools`, `model` |
 | pi, via `pi-agents` | `~/.pi/agent/agents/*.md` | `name`, `description`, `thinking`, `skills`, `tools` |
 
 The prose body travels. The tool names, the model identifiers and the keys do not.
 
 Neither does the idea of what an agent is for. An opencode subagent is handed work by a lead
-agent. A VS Code custom agent is chosen by a person from a menu. One body serves both only
+agent. A Copilot custom agent is chosen by a person from a menu. One body serves both only
 when it describes the task rather than who asked.
 
 So an agent is one file: a portable body, plus a `harness:` block of per-target overrides.
@@ -1371,7 +1389,7 @@ file. That is the only thing that survives being copied into a skills directory.
 
 None of these blocks the first piece of work.
 
-**Do rules need an `applyTo` glob?** VS Code has one, deciding when a rule applies. opencode
+**Do rules need an `applyTo` glob?** Copilot in VS Code has one, deciding when a rule applies. opencode
 and pi have nothing like it, so such a rule would simply be always-on there. A field that one
 harness out of four honours may be worse than no field. Write ten real rules and see whether
 any of them wants it.

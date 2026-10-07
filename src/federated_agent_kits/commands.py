@@ -152,7 +152,7 @@ COMMANDS: tuple[Command, ...] = (
             "harness never deletes a file another harness still explains. `detected` is a "
             "name like any other and stays where it is."
         ),
-        examples=("akit harness add copilot-ci", "akit harness remove vscode --global"),
+        examples=("akit harness add copilot-ci", "akit harness remove copilot-vscode --global"),
         arguments=(
             Argument(
                 ("action",),

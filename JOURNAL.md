@@ -522,7 +522,7 @@ revision offend on nine lines between them, and they will offend on those nine l
 
 ## 2026-10-08 - Two decisions T4 made that DESIGN.md left to whoever got there first
 
-**VS Code's user-wide skills directory.** [DESIGN.md](DESIGN.md#what-vs-code-looks-like) marks
+**VS Code's user-wide skills directory.** [DESIGN.md](DESIGN.md#what-github-copilot-in-vs-code-looks-like) marks
 this "varies, and this is the weak leg", which is accurate about the documentation and not an
 answer an adapter can hold: a kit subscribed in your own manifest has to land *somewhere* or
 user-scope subscriptions silently do nothing for anybody using VS Code. The adapter writes
@@ -576,3 +576,49 @@ written down as if it were the only one - committed in a test rather than in `sr
 the place it cannot be caught by the thing it is testing. The fixture now asks the package
 where both the manifest and the cache go and uses the answer, so the test reads whatever the
 platform decided.
+
+## 2026-10-08 - The VS Code adapter was named after the editor, and read a year-old snapshot
+
+Two corrections to yesterday's entry, both from review, and both because
+[§4](DESIGN.md#4-adding-a-harness)'s worked examples are a snapshot that had aged without
+anybody checking.
+
+**It is `copilot-vscode`, not `vscode`.** The question that settled it was whether Copilot had
+been absorbed into the editor far enough for the two to be synonyms. It has not. VS Code 1.116
+stopped making new users install the Copilot extension, so a stock download has it, but it is
+still an extension and still has to be signed in to. Meanwhile the editor hosts several other
+agent harnesses that agree with Copilot about nothing: Cline reads `.cline/skills/`, Roo Code
+`.roo/skills/`, the Claude Code extension `.claude/skills/`, and Amazon Q has
+`.amazonq/rules/` and no skills at all. VS Code's own documentation now has a page about
+"agent harnesses", plural. An adapter named `vscode` would have claimed the id for whichever
+of those was written first and left the second needing a name that sounded like a subtype of
+it.
+
+**And `.claude/skills/` was the wrong directory.** Yesterday's entry recorded a decision to
+write user-scope skills to `~/.claude/skills/` because DESIGN.md called the location "varies,
+and this is the weak leg", and recorded the cost: two copies of every skill on a machine with
+both harnesses. That cost was imaginary. Agent Skills arrived experimentally in VS Code 1.108
+behind `chat.useAgentSkills` and went generally available in 1.109, and the documented
+locations are `.agents/skills/`, `.github/skills/` and `.claude/skills/` at project scope and
+`~/.agents/skills/`, `~/.copilot/skills/` and `~/.claude/skills/` personally. The first of each
+is the directory opencode already writes. So the adapter writes `.agents/skills/` at both
+scopes, one skill is one copy, and
+[§7](DESIGN.md#one-copy-where-the-bytes-agree-one-per-harness-where-they-do-not)'s preference
+for one copy is the ordinary case rather than a lucky one.
+
+`tests/test_adapters.py` now asserts both halves directly: every shipped adapter puts a skill
+in one place, and none of them puts a rule there.
+
+DESIGN.md's VS Code section is rewritten rather than annotated, because it is explicitly a
+snapshot and a snapshot that is known to be wrong is worse than no snapshot. T5's bullet in
+IMPLEMENTATION.md goes back to the single directory it originally named.
+
+There is a `chat.agentSkillsLocations` setting that would make skills the pointed shape, and
+it is deprecated and honoured only by the Local agent - which is the same sentence, with the
+same ending, as the one already written about `chat.instructionsFilesLocations`. Twice is a
+pattern: a configurable path in this harness is a path Agent Host will not read.
+
+**The lesson is about the snapshot, not about Copilot.** Both errors were in DESIGN.md before
+they were in code, and T4 copied them faithfully. "Every path in §4 will move" is written in
+two places in IMPLEMENTATION.md, and what neither says is that an adapter task has to go and
+look. T10's guide is where that belongs.
