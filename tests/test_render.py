@@ -1,0 +1,804 @@
+"""`akit render`: what it writes, what it refuses to delete, and what it does twice.
+
+Every test here is about the second half of the sentence. Writing files is the
+easy part and one test covers it; the rest of this file is the withdrawal table
+from DESIGN.md section 10, one row at a time, plus the two cases that suspend
+withdrawal altogether.
+
+A path source throughout, so this stays in the `unit` layer and needs neither
+git nor a network. That a `file://` source renders identically is a `cli` test,
+because what differs between the two is resolution rather than rendering.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import io
+import json
+import textwrap
+from pathlib import Path
+
+import pytest
+
+from federated_agent_kits import adapters, ignore, record, render
+from federated_agent_kits.adapters.adapter import Adapter, Destination, RuleShape
+from federated_agent_kits.cache import Privacy, Resolved
+from federated_agent_kits.cli import build_parser, dispatch
+from federated_agent_kits.exits import Exit, NotImplementedYetError, UsageError
+from federated_agent_kits.manifest import Kind, Scope
+from federated_agent_kits.sources import parse as parse_source
+
+pytestmark = pytest.mark.unit
+
+SKILLS = Path(".agents") / "skills"
+
+
+def build(root: Path, layout: dict[str, str]) -> Path:
+    for relative, text in layout.items():
+        target = root / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    return root
+
+
+def tree(root: Path) -> dict[str, str]:
+    """Every file under a directory, by hash, which is what idempotence is about."""
+    if not root.is_dir():
+        return {}
+    return {
+        path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+@pytest.fixture
+def kits(tmp_path: Path) -> Path:
+    """A source with two skills, a rule and an agent, none of which it declared."""
+    return build(
+        tmp_path / "kits",
+        {
+            "skills/writing/SKILL.md": "# writing\n",
+            "skills/writing/references/style.md": "# style\n",
+            "skills/fkb/SKILL.md": "# fkb\n",
+            "rules/prose-style.md": "# prose\n",
+            "agents/reviewer.md": "# reviewer\n",
+        },
+    )
+
+
+@pytest.fixture
+def home(tmp_path: Path) -> Path:
+    """A machine with both shipped harnesses installed, by their own evidence."""
+    root = tmp_path / "home"
+    (root / ".config" / "opencode").mkdir(parents=True)
+    (root / ".vscode").mkdir(parents=True)
+    return root
+
+
+@pytest.fixture
+def project(tmp_path: Path) -> Path:
+    root = tmp_path / "project"
+    (root / ".git").mkdir(parents=True)
+    return root
+
+
+@pytest.fixture
+def places(tmp_path: Path, home: Path) -> render.Directories:
+    return render.Directories(
+        home=home,
+        user_manifest=tmp_path / "config" / "manifest.yaml",
+        cache=tmp_path / "cache",
+        state=tmp_path / "state",
+    )
+
+
+def subscribe(path: Path, body: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(textwrap.dedent(body).lstrip(), encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def one_skill(project: Path, kits: Path) -> Path:
+    """The ordinary setup: this repository wants one skill from a path source."""
+    return subscribe(
+        project / ".akit.yaml",
+        f"""
+        version: 1
+
+        skills:
+          {kits}: [writing]
+        """,
+    )
+
+
+class TestWhatARenderPutsOnDisk:
+    def test_a_subscribed_skill_lands_where_both_harnesses_read_it(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        outcome = render.render(project, places)
+
+        assert (project / SKILLS / "writing" / "SKILL.md").read_text(encoding="utf-8") == "# writing\n"
+        assert (project / SKILLS / "writing" / "references" / "style.md").is_file()
+        assert outcome.exit_code is Exit.OK
+
+    def test_one_copy_serves_both_harnesses_rather_than_one_each(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        outcome = render.render(project, places)
+
+        placements = [place for entry in outcome.entries for place in entry.placements]
+        assert len(placements) == 1
+        assert sorted(placements[0].harnesses) == ["copilot-vscode", "opencode"]
+
+    def test_a_second_render_changes_nothing_at_all(self, project: Path, places: render.Directories, one_skill: Path):
+        render.render(project, places)
+        before = tree(project / SKILLS)
+
+        outcome = render.render(project, places)
+
+        assert tree(project / SKILLS) == before
+        assert outcome.quiet
+        assert outcome.written == 0
+
+    def test_deleting_the_rendered_tree_restores_it_byte_for_byte(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        render.render(project, places)
+        before = tree(project / SKILLS)
+        for path in sorted((project / SKILLS).rglob("*"), key=lambda entry: -len(entry.parts)):
+            path.rmdir() if path.is_dir() else path.unlink()
+
+        render.render(project, places)
+
+        assert tree(project / SKILLS) == before
+
+    def test_a_renamed_kit_lands_under_the_new_name_and_the_record_knows_both(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        subscribe(
+            project / ".akit.yaml",
+            f"""
+            version: 1
+
+            skills:
+              {kits}:
+              - name: writing
+                as: house-style
+            """,
+        )
+
+        outcome = render.render(project, places)
+
+        assert (project / SKILLS / "house-style" / "SKILL.md").is_file()
+        assert not (project / SKILLS / "writing").exists()
+        entry = outcome.entries[0]
+        assert (entry.name, entry.found_as) == ("house-style", "writing")
+        written = record.load(places.state).written[0]
+        assert any(found.name == "house-style" for found in written.explanations)
+
+    def test_your_subscriptions_land_in_your_home_and_a_repositorys_inside_it(
+        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    ):
+        assert places.user_manifest is not None
+        subscribe(
+            places.user_manifest,
+            f"""
+            version: 1
+
+            skills:
+              {kits}: [fkb]
+            """,
+        )
+
+        render.render(project, places)
+
+        assert (places.home / SKILLS / "fkb" / "SKILL.md").is_file()
+        assert not (project / SKILLS / "fkb").exists()
+        assert not (places.home / SKILLS / "writing").exists()
+
+
+class TestTheKindsThatAreNotRenderedYet:
+    def test_a_rule_says_which_task_it_is_waiting_for_and_writes_nothing(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        subscribe(
+            project / ".akit.yaml",
+            f"""
+            version: 1
+
+            rules:
+            - {kits}: prose-style
+            """,
+        )
+
+        outcome = render.render(project, places)
+
+        assert outcome.entries[0].waiting is not None
+        assert "T6" in outcome.entries[0].waiting
+        assert not (project / ".github" / "instructions").exists()
+        assert outcome.exit_code is Exit.OK
+
+    def test_an_agent_is_declined_by_every_adapter_and_crashes_nothing(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        subscribe(
+            project / ".akit.yaml",
+            f"""
+            version: 1
+
+            agents:
+              {kits}: [reviewer]
+            """,
+        )
+
+        outcome = render.render(project, places)
+
+        assert "T13" in (outcome.entries[0].waiting or "")
+        assert outcome.exit_code is Exit.OK
+
+
+class TestWithdrawal:
+    """One test per row of the table in DESIGN.md section 10, and then the edges."""
+
+    def test_an_unsubscribed_kit_whose_copy_is_untouched_is_deleted(
+        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    ):
+        render.render(project, places)
+        subscribe(project / ".akit.yaml", f"version: 1\n\nskills:\n  {kits}: [fkb]\n")
+
+        outcome = render.render(project, places)
+
+        assert not (project / SKILLS / "writing").exists()
+        assert (project / SKILLS / "fkb" / "SKILL.md").is_file()
+        assert [entry.action for entry in outcome.withdrawals] == ["deleted", "deleted"]
+
+    def test_a_rendered_copy_somebody_edited_is_left_alone_and_named(
+        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    ):
+        render.render(project, places)
+        edited = project / SKILLS / "writing" / "SKILL.md"
+        edited.write_text("# writing, with my own paragraph\n", encoding="utf-8")
+        subscribe(project / ".akit.yaml", f"version: 1\n\nskills:\n  {kits}: [fkb]\n")
+
+        outcome = render.render(project, places)
+
+        assert edited.read_text(encoding="utf-8") == "# writing, with my own paragraph\n"
+        assert any(entry.action == "kept" and entry.path == edited.resolve() for entry in outcome.withdrawals)
+
+    def test_an_edited_copy_survives_three_renders_rather_than_two(
+        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    ):
+        render.render(project, places)
+        edited = project / SKILLS / "writing" / "SKILL.md"
+        edited.write_text("# mine now\n", encoding="utf-8")
+        subscribe(project / ".akit.yaml", f"version: 1\n\nskills:\n  {kits}: [fkb]\n")
+
+        for _ in range(3):
+            outcome = render.render(project, places)
+
+        assert edited.read_text(encoding="utf-8") == "# mine now\n"
+        assert any(entry.action == "kept" for entry in outcome.withdrawals)
+
+    def test_a_hand_written_skill_is_never_touched_because_it_is_not_in_the_record(
+        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    ):
+        mine = project / SKILLS / "mine" / "SKILL.md"
+        mine.parent.mkdir(parents=True)
+        mine.write_text("# mine\n", encoding="utf-8")
+
+        render.render(project, places)
+        subscribe(project / ".akit.yaml", "version: 1\n")
+        render.render(project, places)
+
+        assert mine.read_text(encoding="utf-8") == "# mine\n"
+
+    def test_a_file_already_gone_is_reported_and_stops_being_recorded(
+        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    ):
+        render.render(project, places)
+        (project / SKILLS / "writing" / "references" / "style.md").unlink()
+        subscribe(project / ".akit.yaml", "version: 1\n")
+
+        outcome = render.render(project, places)
+
+        assert sorted(entry.action for entry in outcome.withdrawals) == ["deleted", "gone"]
+        assert record.load(places.state).written == ()
+
+    def test_withdrawing_the_last_file_takes_the_empty_directory_with_it(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        render.render(project, places)
+        subscribe(project / ".akit.yaml", "version: 1\n")
+
+        render.render(project, places)
+
+        assert not (project / SKILLS / "writing").exists()
+        assert not (project / ".agents").exists()
+
+    def test_a_shared_copy_survives_one_harness_leaving_and_goes_with_the_second(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\nharnesses: [detected]\n\nskills:\n  {kits}: [writing]\n")
+        render.render(project, places)
+        copy = project / SKILLS / "writing" / "SKILL.md"
+
+        subscribe(project / ".akit.yaml", f"version: 1\nharnesses: [opencode]\n\nskills:\n  {kits}: [writing]\n")
+        render.render(project, places)
+        assert copy.is_file()
+
+        subscribe(project / ".akit.yaml", "version: 1\nharnesses: [opencode]\n")
+        render.render(project, places)
+        assert not copy.exists()
+
+    def test_a_render_of_one_scope_never_withdraws_the_other_scopes_files(
+        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    ):
+        assert places.user_manifest is not None
+        subscribe(places.user_manifest, f"version: 1\n\nskills:\n  {kits}: [fkb]\n")
+        render.render(project, places)
+        subscribe(places.user_manifest, "version: 1\n")
+
+        render.render(project, places, render.Choices(scopes=(Scope.PROJECT,)))
+
+        assert (places.home / SKILLS / "fkb" / "SKILL.md").is_file()
+        assert (project / SKILLS / "writing" / "SKILL.md").is_file()
+
+
+class TestWhenWithdrawalIsSuspended:
+    def test_no_harness_skips_work_and_deletes_nothing(
+        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    ):
+        render.render(project, places)
+        subscribe(project / ".akit.yaml", "version: 1\n")
+
+        outcome = render.render(project, places, render.Choices(without=("opencode",)))
+
+        assert (project / SKILLS / "writing" / "SKILL.md").is_file()
+        assert outcome.withdrawals == ()
+        assert outcome.suspended is not None
+
+    def test_harness_narrows_to_one_and_still_deletes_nothing(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        outcome = render.render(project, places, render.Choices(only=("opencode",)))
+
+        assert outcome.harnesses[Scope.PROJECT] == ("opencode",)
+        assert (project / SKILLS / "writing" / "SKILL.md").is_file()
+        assert outcome.suspended is not None
+
+    def test_a_source_that_cannot_be_resolved_stops_every_deletion(
+        self, project: Path, places: render.Directories, kits: Path, tmp_path: Path, one_skill: Path
+    ):
+        render.render(project, places)
+        subscribe(project / ".akit.yaml", f"version: 1\n\nskills:\n  {tmp_path / 'gone'}: [writing]\n")
+
+        outcome = render.render(project, places)
+
+        assert (project / SKILLS / "writing" / "SKILL.md").is_file()
+        assert outcome.suspended is not None
+        assert outcome.exit_code is Exit.ERROR
+
+    def test_a_kit_the_source_does_not_hold_is_a_problem_rather_than_a_crash(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\n\nskills:\n  {kits}: [absent]\n")
+
+        outcome = render.render(project, places)
+
+        assert outcome.problems
+        assert outcome.exit_code is Exit.ERROR
+
+
+class TestPruning:
+    def test_a_lost_record_leaves_orphans_that_only_prune_removes(
+        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    ):
+        render.render(project, places)
+        record.location(places.state).unlink()
+        subscribe(project / ".akit.yaml", "version: 1\n")
+
+        render.render(project, places)
+        assert (project / SKILLS / "writing" / "SKILL.md").is_file()
+
+        outcome = render.render(project, places, render.Choices(prune=True))
+
+        assert not (project / SKILLS / "writing").exists()
+        assert outcome.pruned
+
+    def test_pruning_leaves_what_the_record_still_explains(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        render.render(project, places)
+
+        outcome = render.render(project, places, render.Choices(prune=True))
+
+        assert (project / SKILLS / "writing" / "SKILL.md").is_file()
+        assert outcome.pruned == ()
+
+    def test_pruning_is_suspended_with_everything_else_when_a_flag_narrows(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        render.render(project, places)
+        record.location(places.state).unlink()
+        subscribe(project / ".akit.yaml", "version: 1\n")
+
+        outcome = render.render(project, places, render.Choices(prune=True, only=("opencode",)))
+
+        assert (project / SKILLS / "writing" / "SKILL.md").is_file()
+        assert outcome.pruned == ()
+
+
+class TestTheIgnoreBlock:
+    def test_a_rendered_directory_is_listed_in_the_repositorys_gitignore(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        render.render(project, places)
+
+        written = (project / ignore.GITIGNORE).read_text(encoding="utf-8")
+        assert ".agents/skills/" in written
+        assert written.startswith(ignore.BEGIN)
+
+    def test_the_users_own_lines_and_their_order_survive(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        (project / ignore.GITIGNORE).write_text("*.pyc\n\n# mine\nbuild/\n", encoding="utf-8")
+
+        render.render(project, places)
+        render.render(project, places)
+
+        written = (project / ignore.GITIGNORE).read_text(encoding="utf-8")
+        assert written.splitlines()[:4] == ["*.pyc", "", "# mine", "build/"]
+
+    def test_nothing_rendered_in_this_repository_leaves_no_block_behind(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        render.render(project, places)
+        subscribe(project / ".akit.yaml", "version: 1\nharnesses: []\n")
+
+        render.render(project, places)
+
+        assert ignore.BEGIN not in (project / ignore.GITIGNORE).read_text(encoding="utf-8")
+
+    def test_a_render_outside_any_repository_touches_no_gitignore(self, tmp_path: Path, places: render.Directories):
+        loose = tmp_path / "loose"
+        loose.mkdir()
+
+        outcome = render.render(loose, places)
+
+        assert outcome.ignored == ()
+        assert not (loose / ignore.GITIGNORE).exists()
+
+
+class TestTheRecordItWrites:
+    def test_every_written_file_is_recorded_with_what_explains_it(
+        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    ):
+        render.render(project, places)
+
+        written = record.load(places.state)
+        assert len(written.written) == 2
+        entry = next(found for found in written.written if found.path.name == "SKILL.md")
+        assert entry.harnesses == frozenset({"opencode", "copilot-vscode"})
+        assert entry.still_a_copy()
+        explanation = entry.explanations[0]
+        assert (explanation.scope, explanation.name) == (Scope.PROJECT, "writing")
+
+    def test_a_source_classification_is_carried_forward_rather_than_rediscovered(
+        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    ):
+        before = record.load(places.state)
+        record.save(
+            record.Record(path=None, written=before.written, sources={"acme/kits": Privacy.PRIVATE}), places.state
+        )
+
+        render.render(project, places)
+
+        assert record.load(places.state).sources == {"acme/kits": Privacy.PRIVATE}
+
+    def test_a_fetch_is_what_classifies_a_source_and_render_never_fetches(self, kits: Path):
+        before = record.Record(path=None, sources={"acme/kits": Privacy.PUBLIC})
+        resolved = Resolved(
+            source=parse_source(str(kits)), root=kits, commit=None, privacy=Privacy.PRIVATE, fetched=True
+        )
+        unfetched = Resolved(source=parse_source(str(kits)), root=kits, commit=None, privacy=None, fetched=False)
+
+        assert render.classified(before, [("acme/kits", unfetched)]) == {"acme/kits": Privacy.PUBLIC}
+        assert render.classified(before, [("acme/kits", resolved)]) == {"acme/kits": Privacy.PRIVATE}
+
+
+class TestWhatTheFlagsMayNotDo:
+    def test_a_harness_no_adapter_knows_is_a_usage_error_rather_than_a_silent_skip(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        with pytest.raises(UsageError) as refused:
+            render.render(project, places, render.Choices(only=("emacs",)))
+
+        assert "emacs" in str(refused.value)
+        assert refused.value.exit_code is Exit.USAGE
+
+    def test_a_harness_a_manifest_names_is_reported_rather_than_refused(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\nharnesses: [detected, emacs]\n\nskills:\n  {kits}: [writing]\n")
+
+        outcome = render.render(project, places)
+
+        assert outcome.unknown == ("emacs",)
+        assert (project / SKILLS / "writing" / "SKILL.md").is_file()
+
+    @pytest.mark.parametrize(
+        ("flags", "expected"),
+        [
+            ((False, False), (Scope.USER, Scope.PROJECT)),
+            ((True, False), (Scope.USER,)),
+            ((False, True), (Scope.PROJECT,)),
+            ((True, True), (Scope.USER, Scope.PROJECT)),
+        ],
+    )
+    def test_the_scope_flags_narrow_and_naming_both_is_the_default_spelled_out(
+        self, flags: tuple[bool, bool], expected: tuple[Scope, ...]
+    ):
+        assert render.scopes_from(only_global=flags[0], only_project=flags[1]) == expected
+
+
+#: A harness that takes rules and declines skills, which neither shipped adapter
+#: does. Declining is a first-class answer (DESIGN.md section 4) and the path it
+#: takes through the renderer is the one nothing else here exercises, so the
+#: fixture adapter is how it gets tested rather than by waiting for T13.
+PAPER = Adapter(
+    name="paper",
+    summary="a harness that takes no skills at all",
+    has_a_machine=True,
+    destinations={(Kind.RULE, Scope.PROJECT): Destination(write="paper/rules")},
+    rule_shape=RuleShape.DIRECTORY,
+    evidence=(".paper",),
+)
+
+
+@pytest.fixture
+def only_paper(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(adapters, "ADAPTERS", (PAPER,))
+    monkeypatch.setattr(adapters, "BY_NAME", {PAPER.name: PAPER})
+
+
+class TestAHarnessThatDeclinesTheKind:
+    def test_a_skill_nobody_takes_is_reported_and_nothing_is_written(
+        self, project: Path, places: render.Directories, kits: Path, only_paper: None
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\nharnesses: [paper]\n\nskills:\n  {kits}: [writing]\n")
+
+        outcome = render.render(project, places)
+
+        assert outcome.entries[0].placements == ()
+        assert outcome.entries[0].problem is None
+        assert not (project / ".agents").exists()
+
+    def test_a_harness_that_writes_no_kind_we_render_puts_nothing_in_the_ignore_block(
+        self, project: Path, places: render.Directories, kits: Path, only_paper: None
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\nharnesses: [paper]\n\nskills:\n  {kits}: [writing]\n")
+
+        outcome = render.render(project, places)
+
+        assert outcome.ignored == ((project, (), False),)
+
+
+class TestTwoSubscriptionsWantingOnePlace:
+    def test_a_wildcard_meeting_a_rename_is_reported_and_the_first_copy_stands(
+        self, project: Path, places: render.Directories, kits: Path, tmp_path: Path
+    ):
+        other = build(tmp_path / "other", {"skills/notes/SKILL.md": "# notes\n"})
+        subscribe(
+            project / ".akit.yaml",
+            f"""
+            version: 1
+
+            skills:
+              {kits}: ["*"]
+              {other}:
+              - name: notes
+                as: writing
+            """,
+        )
+
+        outcome = render.render(project, places)
+
+        assert (project / SKILLS / "writing" / "SKILL.md").read_text(encoding="utf-8") == "# writing\n"
+        assert any("different bytes" in (entry.problem or "") for entry in outcome.entries)
+        assert outcome.exit_code is Exit.ERROR
+
+
+class TestWhatIsCopiedOutOfASkill:
+    def test_a_repository_inside_a_skill_is_not_part_of_the_kit(
+        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    ):
+        (kits / "skills" / "writing" / ".git").mkdir()
+        (kits / "skills" / "writing" / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+
+        render.render(project, places)
+
+        assert not (project / SKILLS / "writing" / ".git").exists()
+
+    def test_pruning_takes_a_loose_file_as_well_as_a_directory(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        render.render(project, places)
+        loose = project / SKILLS / "stray.md"
+        loose.write_text("# stray\n", encoding="utf-8")
+
+        render.render(project, places, render.Choices(prune=True))
+
+        assert not loose.exists()
+        assert (project / SKILLS / "writing" / "SKILL.md").is_file()
+
+
+class TestTheReport:
+    def report(self, outcome: render.Outcome) -> str:
+        out = io.StringIO()
+        render.text(outcome, out)
+        return out.getvalue()
+
+    def test_a_first_render_says_what_it_wrote_and_where(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        printed = self.report(render.render(project, places))
+
+        assert "wrote 2 files" in printed
+        assert str(project / SKILLS / "writing") in printed
+        assert "for opencode and copilot-vscode" in printed
+        assert "Nothing changed" not in printed
+
+    @pytest.mark.parametrize(("number", "expected"), [(0, "no files"), (1, "1 file"), (2, "2 files")])
+    def test_a_count_is_written_as_english_rather_than_as_a_log_line(self, number: int, expected: str):
+        assert render.counted(number, "file") == expected
+
+    def test_a_no_op_says_it_was_a_no_op(self, project: Path, places: render.Directories, one_skill: Path):
+        render.render(project, places)
+
+        printed = self.report(render.render(project, places))
+
+        assert "Nothing changed" in printed
+        assert "already up to date" in printed
+        assert "nothing: every rendered file is still explained" in printed
+
+    def test_an_empty_scope_says_so_rather_than_printing_a_heading_and_nothing(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        assert "nothing subscribed here" in self.report(render.render(project, places))
+
+    def test_every_withdrawal_outcome_names_the_file_and_the_edited_one_names_a_fix(
+        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    ):
+        render.render(project, places)
+        (project / SKILLS / "writing" / "SKILL.md").write_text("# mine\n", encoding="utf-8")
+        (project / SKILLS / "writing" / "references" / "style.md").unlink()
+        subscribe(project / ".akit.yaml", "version: 1\n")
+
+        printed = self.report(render.render(project, places))
+
+        assert "was already gone" in printed
+        assert "left" in printed
+        assert "akit doctor" in printed
+
+    def test_a_deleted_copy_says_that_nothing_explains_it_any_more(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        render.render(project, places)
+        subscribe(project / ".akit.yaml", "version: 1\n")
+
+        printed = self.report(render.render(project, places))
+
+        assert "which nothing in scope explains any more" in printed
+        assert str(project / SKILLS / "writing" / "SKILL.md") in printed
+
+    def test_a_suspended_withdrawal_says_why(self, project: Path, places: render.Directories, one_skill: Path):
+        printed = self.report(render.render(project, places, render.Choices(without=("opencode",))))
+
+        assert "nothing: a narrowing flag was given" in printed
+
+    def test_a_pruned_orphan_says_that_nothing_explained_it(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        render.render(project, places)
+        (project / SKILLS / "stray.md").write_text("# stray\n", encoding="utf-8")
+
+        printed = self.report(render.render(project, places, render.Choices(prune=True)))
+
+        assert "pruned" in printed
+
+    def test_a_kind_that_is_waiting_names_its_task(self, project: Path, places: render.Directories, kits: Path):
+        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {kits}: prose-style\n")
+
+        assert "not rendered: rules are not rendered yet" in self.report(render.render(project, places))
+
+    def test_a_problem_is_printed_with_its_fix_on_its_own_line(
+        self, project: Path, places: render.Directories, tmp_path: Path
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\n\nskills:\n  {tmp_path / 'gone'}: [writing]\n")
+
+        printed = self.report(render.render(project, places))
+
+        assert "problem:" in printed
+        assert "A path source is read where it is" in printed
+
+    def test_a_harness_no_adapter_knows_is_named_with_the_command_that_lists_them(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\nharnesses: [detected, emacs]\n\nskills:\n  {kits}: [writing]\n")
+
+        printed = self.report(render.render(project, places))
+
+        assert '"emacs"' in printed
+        assert "akit list" in printed
+
+    def test_a_harness_list_narrowed_to_nothing_says_so(
+        self, project: Path, places: render.Directories, kits: Path, only_paper: None
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\nharnesses: []\n\nskills:\n  {kits}: [writing]\n")
+
+        assert "no harness in scope" in self.report(render.render(project, places))
+
+    def test_the_ignore_line_says_whether_the_file_changed(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        assert "now lists .agents/skills/" in self.report(render.render(project, places))
+        assert "already listed .agents/skills/" in self.report(render.render(project, places))
+
+
+class TestTheSameThingAsData:
+    def test_the_payload_carries_what_was_written_and_what_was_withdrawn(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        render.render(project, places)
+        subscribe(project / ".akit.yaml", "version: 1\n")
+
+        payload = render.payload(render.render(project, places))
+
+        assert payload["changed_nothing"] is False
+        assert payload["withdrawal_suspended"] is None
+        assert {entry["action"] for entry in payload["withdrawn"]} == {"deleted"}
+        assert payload["ignored"][0]["lists"] == []
+
+    def test_the_payload_is_json(self, project: Path, places: render.Directories, one_skill: Path):
+        payload = render.payload(render.render(project, places))
+
+        assert json.loads(json.dumps(payload))["subscriptions"][0]["name"] == "writing"
+
+
+class TestTheCommandLine:
+    def run(self, *argv: str, home: Path, start: Path) -> tuple[Exit, str]:
+        out = io.StringIO()
+        parsed = build_parser().parse_args(["render", *argv])
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(Path, "cwd", staticmethod(lambda: start))
+            patch.setattr(Path, "home", staticmethod(lambda: home))
+            code = dispatch(parsed, out)
+        return code, out.getvalue()
+
+    def test_the_verb_renders_and_reports(self, project: Path, home: Path, one_skill: Path):
+        code, printed = self.run(home=home, start=project)
+
+        assert code is Exit.OK
+        assert (project / SKILLS / "writing" / "SKILL.md").is_file()
+        assert "wrote" in printed
+
+    def test_json_is_the_same_run_as_data(self, project: Path, home: Path, one_skill: Path):
+        code, printed = self.run("--json", home=home, start=project)
+
+        assert code is Exit.OK
+        assert json.loads(printed)["subscriptions"][0]["kind"] == "skills"
+
+    def test_the_flags_reach_the_engine(self, project: Path, home: Path, one_skill: Path):
+        code, printed = self.run("--project", "--harness", "opencode", home=home, start=project)
+
+        assert code is Exit.OK
+        assert "a narrowing flag was given" in printed
+
+    def test_check_says_which_task_it_is_waiting_for(self, project: Path, home: Path, one_skill: Path):
+        with pytest.raises(NotImplementedYetError) as raised:
+            self.run("--check", home=home, start=project)
+
+        assert "T8" in str(raised.value)
+        assert raised.value.exit_code is Exit.USAGE
