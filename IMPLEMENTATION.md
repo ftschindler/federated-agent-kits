@@ -9,8 +9,8 @@
 This plan assumes nothing from this repository except [DESIGN.md](DESIGN.md) and this file. A
 fresh session should be able to start at any unticked task and know what it owns.
 
-**Two kinds and three harnesses ship with 1.0.** Skills and rules, into opencode, VS Code and
-GitHub Copilot in CI. The first two harnesses are built in
+**Two kinds and three harnesses ship with 1.0.** Skills and rules, into opencode, GitHub
+Copilot in VS Code and GitHub Copilot in CI. The first two harnesses are built in
 [T4](#t4---adapters-detection-and-akit-list), the third in
 [T8](#t8---the-machineless-harness-and-the-leak-refusal), and between them they cover both
 halves of [§4](DESIGN.md#4-adding-a-harness): a harness with a machine and one without.
@@ -39,7 +39,7 @@ builds a part of it or keeps it releasable.
 - [x] **[T1](#t1---the-package-the-cli-frame-and-ci)** - The package, the CLI frame, and CI
 - [x] **[T2](#t2---manifests)** - Manifests
 - [x] **[T3](#t3---sources-resolution-cache-discovery)** - Sources: resolution, cache, discovery
-- [ ] **[T4](#t4---adapters-detection-and-akit-list)** - Adapters, detection, and `akit list`
+- [x] **[T4](#t4---adapters-detection-and-akit-list)** - Adapters, detection, and `akit list`
 - [ ] **[T5](#t5---the-render-engine-and-skills)** - The render engine, and skills
 - [ ] **[T6](#t6---rules)** - Rules
 - [ ] **[T7](#t7---add-remove-update-harness)** - `add`, `remove`, `update`, `harness`
@@ -90,7 +90,7 @@ A fresh session needs five things, three of which are not in this repository.
 | The design | [DESIGN.md](DESIGN.md) | Every schema, path and refusal is specified there |
 | The sibling project | `~/Projects/public/federated-knowledge-skills` | Its `tests/` carry the fake-home, git-environment and disposable-agent harnesses this project ports rather than reinvents, and its `.github/workflows/` carry the label-driven release this project copies |
 | The `skills` CLI discovery rules | its npm README, section "Skill Discovery" | [§5](DESIGN.md#5-sources) follows them and does not restate the full list |
-| Harness documentation | opencode, VS Code, pi, GitHub Copilot | [§4](DESIGN.md#4-adding-a-harness) is a snapshot, not a substitute, and every path in it will move |
+| Harness documentation | opencode, Copilot in VS Code, pi, Copilot in CI | [§4](DESIGN.md#4-adding-a-harness) is a snapshot, not a substitute, and every path in it will move |
 | The guard suite | this repository | `make bootstrap`, then `make check` |
 
 Two constraints bind every task and are easy to breach without noticing. **Python only**, and
@@ -146,6 +146,24 @@ and the command that fixes it ([§3](DESIGN.md#3-rules-of-the-build), rule 5).
 
 **Windows-safe by construction.** `pathlib.Path` throughout, `encoding="utf-8"` stated out
 loud, no symlink ever created, no shell, no `&&`, no assumption that `make` exists.
+
+**Every harness path is checked against the harness's own documentation before it is
+copied.** [§4](DESIGN.md#4-adding-a-harness) says twice that its worked examples are a
+snapshot and that every path in them will move. What it cannot say is who goes and looks, so
+this is it: a task that writes a path into an adapter, a renderer or a test reads the
+harness's current documentation first, and a path that moved is fixed in
+[DESIGN.md](DESIGN.md) in the same diff rather than annotated or worked around.
+
+The cost of skipping this is not a failing test. A kit rendered into a directory the harness
+stopped reading leaves the files in place and the agent behaving as if they were never there,
+which is the silent failure [§4](DESIGN.md#4-adding-a-harness) calls question 6's whole
+point. [T4](#t4---adapters-detection-and-akit-list) copied two stale answers faithfully and
+[JOURNAL.md](JOURNAL.md) has what they cost: a harness named after an editor that hosts four
+of them, and skills written to a directory its harness had since stopped being alone in.
+
+The journal entry is part of the work. A path that moved is the evidence
+[T14](#t14---iterate-on-what-use-earns) runs on, and the second time one moves is what decides
+whether this project is reading documentation often enough or needs a test that does it.
 
 **Documentation that ships with the change.** `README.md` and the command's own help are part
 of the diff, never a follow-up.
@@ -335,11 +353,11 @@ useful command lands.
 
 **Needs.** [T3](#t3---sources-resolution-cache-discovery).
 
-**Deliverable.** The adapter interface, the opencode and VS Code adapters, harness detection,
+**Deliverable.** The adapter interface, the opencode and `copilot-vscode` adapters, detection,
 `akit list`, and `akit help harnesses`.
 
 **Specified by DESIGN.md.** The seven questions, declining a kind, a harness with or without a
-machine, and the worked opencode and VS Code answers ([§4](DESIGN.md#4-adding-a-harness)); one
+machine, and the worked opencode and Copilot answers ([§4](DESIGN.md#4-adding-a-harness)); one
 adapter per harness, rule 7 ([§3](DESIGN.md#3-rules-of-the-build)).
 
 **Build.**
@@ -383,8 +401,15 @@ ever touched.
 
 **Needs.** [T4](#t4---adapters-detection-and-akit-list).
 
-**Deliverable.** `akit render` for skills, the render record, the `.gitignore` block,
+**Deliverable.** `akit render` for skills, the render record's writer, the `.gitignore` block,
 withdrawal, `--prune`, and the scope and narrowing flags.
+
+**The record's schema and its reader already exist**, in
+`src/federated_agent_kits/record.py`, because `akit list` is specified to read one and
+[T4](#t4---adapters-detection-and-akit-list) could not answer "was this rendered?" from the
+disk without inventing a second, quieter definition of the word. This task adds the writer and
+owns every decision about when the record changes. Changing the schema is allowed and means
+changing T4's tests in the same diff.
 
 **Specified by DESIGN.md.** Rendering always copies, the render record and its exhaustiveness
 ([§6](DESIGN.md#what-a-render-leaves-behind)); one copy where the bytes agree
@@ -395,7 +420,9 @@ withdrawal, `--prune`, and the scope and narrowing flags.
 **Build.**
 
 - Copy skills into `.agents/skills/`, once, for every harness that reads it. Never translate,
-  never link.
+  never link. Both adapters [T4](#t4---adapters-detection-and-akit-list) ships write there,
+  so one copy really is one copy; the per-harness directories each of them also *reads* are a
+  separate list and discovery's business.
 - The render record in the state directory: every file written, every subscription and harness
   that explains it, and a hash of the copy. Explained by a set, not by one subscription.
 - Withdrawal, exactly three outcomes: in the record and unexplained and matching, deleted and
@@ -441,7 +468,7 @@ preferred ([§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them)).
 **Build.**
 
 - Shape one, a directory we own: one file per rule, so removing one does not touch its
-  neighbours. VS Code's `.github/instructions/*.instructions.md` is the worked case.
+  neighbours. Copilot's `.github/instructions/*.instructions.md` is the worked case.
 - Shape two, pointed once: write the pointer at setup, never at render, and touch exactly one
   key in a config a person owns, leaving the rest byte-identical. opencode's `instructions` is
   the worked case.
@@ -737,7 +764,7 @@ whether it is per harness or per agent. Stop the render on a tool name with no m
 a skill or an MCP server an agent names and you have not subscribed to, as a warning, and
 install nothing ([§1](DESIGN.md#1-what-this-is), [§13](DESIGN.md#13-not-doing)).
 
-**Tests.** One source file renders to opencode and VS Code with the right keys and the body
+**Tests.** One source file renders to opencode and Copilot with the right keys and the body
 byte-identical. An unmappable tool name fails the render, names both spellings, and leaves no
 file behind: the tempting bug is to drop it and carry on, so the test asserts the failure. A
 `harness:` override wins over the portable value. The 30,000-character cap the cloud agent

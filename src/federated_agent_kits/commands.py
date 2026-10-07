@@ -93,12 +93,13 @@ COMMANDS: tuple[Command, ...] = (
             "Writes nothing at all and fetches nothing. It reads the two manifests, the "
             "render record and the files on disk, and reports a failure per line rather "
             "than stopping, because this is the command you run when something is already "
-            "wrong. It never creates a cache entry for a source it cannot find."
+            "wrong. It never creates a cache entry for a source it cannot find, and it "
+            "exits 0 even when a line reports a problem: `akit doctor` is the command that "
+            "exits non-zero on a broken setup."
         ),
         examples=("akit list", "akit list --json"),
         arguments=(),
         following="akit render, to make the files on disk match what this listed",
-        task="T4",
     ),
     Command(
         name="add",
@@ -151,7 +152,7 @@ COMMANDS: tuple[Command, ...] = (
             "harness never deletes a file another harness still explains. `detected` is a "
             "name like any other and stays where it is."
         ),
-        examples=("akit harness add copilot-ci", "akit harness remove vscode --global"),
+        examples=("akit harness add copilot-ci", "akit harness remove copilot-vscode --global"),
         arguments=(
             Argument(
                 ("action",),

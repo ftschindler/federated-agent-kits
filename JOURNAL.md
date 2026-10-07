@@ -496,3 +496,130 @@ worth losing.
 The general lesson is the one the Windows job exists for. This is not a bug care would have
 avoided, it is one a second operating system found, and it surfaced two layers away from where
 it was made.
+
+## 2026-10-08 - A test about the past that pinned a moving ref
+
+Three tests failed on the branch for [T4](IMPLEMENTATION.md#t4---adapters-detection-and-akit-list)
+before a line of T4 was written, and one of them had nothing to do with T4:
+
+```text
+FAILED tests/test_support_scripts.py::TestTheUvxInvocationGuard::
+  test_it_would_have_caught_the_documents_it_was_written_for
+AssertionError: README.md should have offended
+```
+
+The test runs `.scripts/check_uvx_invocation.py` against `git show main:README.md` and asserts
+it finds the bare `uvx akit` form, which is the thing the guard was written to catch. It was
+true when it was written, on a branch whose `main` still carried the offending sentences. Then
+that branch merged, `main` stopped offending, and the test became an assertion that this
+repository has never been fixed.
+
+The failure mode is worth naming because it is quiet in the other direction: the test went red
+on the next branch somebody opened, two tasks later, with a message about a document that
+branch did not touch. A test about history has to name a commit that is already history, so it
+now reads `cf2618e3`, the parent of the commit that added the guard. The documents at that
+revision offend on nine lines between them, and they will offend on those nine lines forever.
+
+## 2026-10-08 - Two decisions T4 made that DESIGN.md left to whoever got there first
+
+**VS Code's user-wide skills directory.** [DESIGN.md](DESIGN.md#what-github-copilot-in-vs-code-looks-like) marks
+this "varies, and this is the weak leg", which is accurate about the documentation and not an
+answer an adapter can hold: a kit subscribed in your own manifest has to land *somewhere* or
+user-scope subscriptions silently do nothing for anybody using VS Code. The adapter writes
+`~/.claude/skills/`, which is the Claude-compatible directory the same harness already reads at
+project scope, and lists `~/.copilot/skills/` and `~/.agents/skills/` beside it as read-only
+candidates. If that is wrong it is one line in `src/federated_agent_kits/adapters/vscode.py`,
+which is the only claim an adapter actually makes.
+
+The cost is visible in `akit list` and is worth stating: opencode writes skills to
+`.agents/skills/` and VS Code to `.claude/skills/`, so a machine with both gets two copies of
+one skill. [DESIGN.md](DESIGN.md#one-copy-where-the-bytes-agree-one-per-harness-where-they-do-not)
+permits that - one copy per harness where the directories do not agree - but
+[T5](IMPLEMENTATION.md#t5---the-render-engine-and-skills) is written as though
+`.agents/skills/` were the single destination, and it is not. The first evidence that VS Code
+reads `.agents/skills/` collapses the two.
+
+**The render record arrived half a task early.** `akit list` is specified to read the render
+record, and nothing writes one until [T5](IMPLEMENTATION.md#t5---the-render-engine-and-skills).
+The alternative was for `list` to decide "rendered" from whether the target path happens to
+exist, which is a second and quieter definition of the word: it says yes to a skill somebody
+copied in by hand, and the two definitions would disagree the first time that happened. So
+`src/federated_agent_kits/record.py` ships with T4 holding the schema and the reader, T5 adds
+the writer, and the fixtures in `tests/test_record.py` are the JSON written out by hand -
+which is the point rather than a shortcut, since what two tasks have to agree on is the file.
+
+## 2026-10-08 - The Windows job found a fixture that only knew where Linux keeps things
+
+The `cli` layer's snapshot of `akit list` passed on Linux and failed on the Windows runner
+twice over, and only one of the two was about separators.
+
+The loud half was cosmetic. The snapshot was written with `/` in it and Windows prints
+`<repo>\.agents\skills\writing`. `fixed()` now normalises separators wholesale before
+comparing: what the snapshot is for is the report's sentences, and that a path is spelled with
+backslashes is `pathlib`'s business and is asserted in the tests that compare paths.
+
+The quiet half was a real bug in the fixture, and it is the one worth the entry:
+
+```text
+-   skills "writing" is wanted by <my-kits> (your manifest) and <remote> (this repository)
++   none
+```
+
+The user manifest had vanished, taking the collision and a whole subscription with it. The
+fixture wrote it to `<home>/.config/akit/manifest.yaml`, which is where it lives on Linux.
+`manifest.user_manifest_path()` asks `platformdirs` with `roaming=True`, so on Windows it is
+under `%APPDATA%`, and the file the fixture wrote was simply never read. Nothing failed: the
+command reported a machine with no personal manifest, which is an ordinary state.
+
+This is the failure mode [DESIGN.md](DESIGN.md#9-windows-linux-python) names - the Linux answer
+written down as if it were the only one - committed in a test rather than in `src/`, which is
+the place it cannot be caught by the thing it is testing. The fixture now asks the package
+where both the manifest and the cache go and uses the answer, so the test reads whatever the
+platform decided.
+
+## 2026-10-08 - The VS Code adapter was named after the editor, and read a year-old snapshot
+
+Two corrections to yesterday's entry, both from review, and both because
+[§4](DESIGN.md#4-adding-a-harness)'s worked examples are a snapshot that had aged without
+anybody checking.
+
+**It is `copilot-vscode`, not `vscode`.** The question that settled it was whether Copilot had
+been absorbed into the editor far enough for the two to be synonyms. It has not. VS Code 1.116
+stopped making new users install the Copilot extension, so a stock download has it, but it is
+still an extension and still has to be signed in to. Meanwhile the editor hosts several other
+agent harnesses that agree with Copilot about nothing: Cline reads `.cline/skills/`, Roo Code
+`.roo/skills/`, the Claude Code extension `.claude/skills/`, and Amazon Q has
+`.amazonq/rules/` and no skills at all. VS Code's own documentation now has a page about
+"agent harnesses", plural. An adapter named `vscode` would have claimed the id for whichever
+of those was written first and left the second needing a name that sounded like a subtype of
+it.
+
+**And `.claude/skills/` was the wrong directory.** Yesterday's entry recorded a decision to
+write user-scope skills to `~/.claude/skills/` because DESIGN.md called the location "varies,
+and this is the weak leg", and recorded the cost: two copies of every skill on a machine with
+both harnesses. That cost was imaginary. Agent Skills arrived experimentally in VS Code 1.108
+behind `chat.useAgentSkills` and went generally available in 1.109, and the documented
+locations are `.agents/skills/`, `.github/skills/` and `.claude/skills/` at project scope and
+`~/.agents/skills/`, `~/.copilot/skills/` and `~/.claude/skills/` personally. The first of each
+is the directory opencode already writes. So the adapter writes `.agents/skills/` at both
+scopes, one skill is one copy, and
+[§7](DESIGN.md#one-copy-where-the-bytes-agree-one-per-harness-where-they-do-not)'s preference
+for one copy is the ordinary case rather than a lucky one.
+
+`tests/test_adapters.py` now asserts both halves directly: every shipped adapter puts a skill
+in one place, and none of them puts a rule there.
+
+DESIGN.md's VS Code section is rewritten rather than annotated, because it is explicitly a
+snapshot and a snapshot that is known to be wrong is worse than no snapshot. T5's bullet in
+IMPLEMENTATION.md goes back to the single directory it originally named.
+
+There is a `chat.agentSkillsLocations` setting that would make skills the pointed shape, and
+it is deprecated and honoured only by the Local agent - which is the same sentence, with the
+same ending, as the one already written about `chat.instructionsFilesLocations`. Twice is a
+pattern: a configurable path in this harness is a path Agent Host will not read.
+
+**The lesson is about the snapshot, not about Copilot.** Both errors were in DESIGN.md before
+they were in code, and T4 copied them faithfully. "Every path in §4 will move" is written in
+two places in IMPLEMENTATION.md, and what neither said is that an adapter task has to go and
+look. It now says so in "What every task delivers", so it binds every task rather than only
+the one that writes the guide.
