@@ -417,7 +417,7 @@ def _harnesses(document: CommentedMap, path: Path | None) -> tuple[str, ...]:
             path,
             _line_of(document, "harnesses"),
             "`harnesses:` is not a list",
-            "Write `harnesses: [detected, copilot-ci]`. The list is the whole answer.",
+            "Write `harnesses: [detected]`, adding any further name beside it. The list is the whole answer.",
         )
     return tuple(str(name) for name in named)
 

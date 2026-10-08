@@ -1036,3 +1036,135 @@ What that leaves is a real gap rather than a tidy answer, so it went into
 [§12](DESIGN.md#12-still-open) with the three ways out and no decision: a ref in the key, a
 flag that excludes a key from an update, or nothing at all on the grounds that a tag is a
 commit and the person who wants the next one can say so.
+
+## 2026-10-08 - DESIGN.md refused the case it was written for
+
+The leak refusal has to classify the repository being written into, and
+[§8](DESIGN.md#how-a-target-is-known-to-be-public) had three branches: no remote is private,
+a remote resolving anonymously is public, and "anything else, including a remote that cannot
+be reached, is refused rather than guessed at".
+
+The third branch swallows the ordinary case. The employer's repository has a remote and that
+remote does not resolve anonymously, because it needs credentials, so under a literal reading
+it is neither public nor private and the render fails. That is the setup the section exists
+to support: a private kit, rendered into the private repository it belongs in.
+
+Four paragraphs further down the same section says the rule leaves exactly two refusals, "a
+private source aimed at a public repository" and "a remote that cannot be reached", which it
+calls transient. A credential-needing target is not among them. Both passages cannot be true.
+
+The second wins, and targets now get the same two-probe test sources already got in
+`cache.py`: `ls-remote` with the credential helpers off answers for a public remote, the same
+call with this machine's helper allowed answers for one you have access to, and a remote that
+answers neither way is the refusal. Reading git's error text instead would make a refusal
+depend on the wording of a message that is not ours.
+
+Worth recording that the test for it is the one that found the contradiction. Writing
+`test_the_employers_repository_is_private_rather_than_refused` was the point at which "what
+should this do?" stopped having an answer in the document.
+
+## 2026-10-08 - `^remote\..*\.url$` does not match `remote.origin.pushurl`
+
+`targets.remotes` lists a repository's remotes by asking git for every config key matching a
+pattern, and the pattern had a literal dot before `url`. There is no dot between "push" and
+"url" in `remote.origin.pushurl`, so a push URL was never listed and the docstring saying all
+of them count was wrong.
+
+It survived its own test. `test_one_url_under_two_keys_is_one_remote` set both keys to the
+same URL and asserted one came back, which passed because the second was excluded rather than
+because it was deduplicated. The branch-coverage gate is what caught it: the deduplication
+line was never taken, and there was only one way for that to be true.
+
+A repository that fetches from a mirror and pushes to the real thing would have been
+classified on the wrong one. The pattern is now `^remote\..*url$`.
+
+## 2026-10-08 - the cloud agent's paths held, its name did not
+
+Every path [§4](DESIGN.md#what-github-copilot-in-ci-looks-like) records was checked against
+GitHub's documentation before the adapter was written, which is what "what every task
+delivers" asks for, and for the first time nothing had moved. The three skills directories,
+`.github/instructions/*.instructions.md` with `applyTo`, `.github/agents/<name>.agent.md`
+with its required `description`, and the 30,000-character cap all still stand.
+
+What had changed is the name. GitHub renamed "Copilot coding agent" to "Copilot cloud agent"
+in April 2026. The adapter id stays `copilot-ci`: it is a key in manifests other people have
+committed, renaming it breaks their file to track somebody else's marketing, and what the id
+names here is the property that matters, which is a harness this tool can never run on.
+
+Three incidents of a path moving, and now one of a path not moving. The open question in
+[§12](DESIGN.md#12-still-open) about whether reading a harness's documentation should be a
+test rather than a habit is not settled by this; a check that passed is evidence the habit
+works, not evidence it is unnecessary.
+
+## 2026-10-08 - the hooks are tested by their entry, not by installing pre-commit
+
+[T8](IMPLEMENTATION.md#t8---the-machineless-harness-and-the-leak-refusal) asks for the hooks
+to be "exercised as hooks, in a throwaway repository". Doing that literally means installing
+prek or pre-commit inside the suite, which needs a network and an install, and neither the
+`unit` nor the `cli` layer has one.
+
+What ships instead is the entry read out of `.pre-commit-hooks.yaml` and run as a subprocess
+in a throwaway git repository, which is what the hook does to it, plus a schema check on the
+file itself in the guard suite. The boundary is deliberate: this repository owns the
+declaration and the command, and the installing is pre-commit's.
+
+The gap that leaves is a declaration that is valid, names a working command, and still fails
+to install - a wrong `language:` or a missing dependency. The first repository to pin this
+will find that in one run, and if it does, this entry is where to look.
+
+## 2026-10-08 - a private source was never classified, because asking it anything failed
+
+Third time the built wheel in a scratch repository has found something the suite did not
+think to ask. A private kit, aimed at a public repository that commits, refused correctly and
+then said the wrong reason:
+
+```text
+$ akit add https://git.acme.example/team/kits house-style --project
+akit: refusing to write a private source into /tmp/t8qa/project, which is public:
+    https://git.acme.example/team/kits, which this machine has never classified -> ...
+  Run `akit update ...`, which says whether it is private, or drop the subscription.
+```
+
+`akit add` had just cloned that source. It cannot have failed to classify it.
+
+It had. `cache.refresh` clones, which is where a source is classified, and then asks
+`ls-remote` which branch the remote defaults to. That second call was anonymous, and a
+private source is by definition one that fails without credentials, so it raised
+`UnreachableError` for every source the clone had just proved was private. `add` caught it,
+fell back to the commit the cache already had, and returned a `Resolved` carrying no
+classification. The classification existed for one function call and was then thrown away.
+
+It had been wrong since T3 and cost nothing until T8, because until then nothing read the
+file it should have been written to. The two-probe pattern now lives in
+`cache._over_the_network` and covers `ls-remote` and the deepening `fetch` alike: anonymously
+first, so a public source pays nothing and a private one is still learnable, then with
+credentials.
+
+The other half of the same bug was that `add` and `update` never wrote a classification down
+at all. `privacy.py`'s own docstring said they did. Nothing had read it, so nothing noticed.
+
+## 2026-10-08 - `--check` called every freshly rendered repository stale
+
+Found in the same session, one command later:
+
+```text
+$ akit render && akit render --check
+Out of date: what this repository commits for copilot-ci does not match its manifest.
+  1 committed file would be withdrawn
+```
+
+A check keeps only the harnesses a manifest names that have no machine, which is what makes
+its verdict the same in every clone. Withdrawal then asked the render record what is still
+explained, and the record holds entries for every harness the full render wrote for,
+including opencode's block in `AGENTS.md`. None of those was explained by a harness list of
+one, so all of them read as about to be withdrawn.
+
+The record was the wrong thing to ask twice over. A CI runner has no record at all, so a
+check that depends on one cannot work in the place it was built for.
+
+What replaced it asks the disk a narrower question: a file inside a directory a machineless
+harness owns, which this plan does not account for, is stale whoever put it there and
+whenever. Those directories are ours and everything in them is committed, so there is no
+hand-written file to protect, which is the property that made the record necessary for
+`render` and makes it unnecessary here. Withdrawal is now suspended outright during a check,
+for the same reason a narrowing flag suspends it.

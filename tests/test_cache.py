@@ -130,6 +130,42 @@ class TestCloningIsTheTest:
         assert resolved.privacy is Privacy.PRIVATE
         assert (resolved.root / "skills" / "writing" / "SKILL.md").is_file()
 
+    def test_a_private_source_can_still_be_asked_what_its_branch_points_at(
+        self, tmp_path: Path, cache_root: Path, house: Path
+    ):
+        """Found by hand with the built wheel, and the reason `_over_the_network` exists.
+
+        A private source is one that needed credentials to clone, so every
+        question put to the same remote afterwards needs them too. `refresh`
+        clones and then asks `ls-remote` which branch is the default, and asking
+        that anonymously fails for exactly the sources the clone just proved are
+        private. `akit add` then fell back to the cached commit and dropped the
+        classification on the floor, leaving the leak refusal with nothing to go
+        on (DESIGN.md section 8).
+        """
+        url = a_source(tmp_path)
+        private = "https://git.acme.example/team/unreleased-thing-kits"
+        (house / ".gitconfig").write_text(f'[url "{url}"]\n\tinsteadOf = {private}\n', encoding="utf-8")
+
+        fetched = cache.refresh(sources.parse(private), cache_root=cache_root)
+
+        assert fetched.privacy is Privacy.PRIVATE
+        assert fetched.commit
+
+    def test_a_private_source_can_be_deepened_past_its_pin(self, tmp_path: Path, cache_root: Path, house: Path):
+        # The same fix, on the other call that talks to the remote: a pin older
+        # than the one-commit window is fetched by name, and a private source
+        # needs credentials to do it.
+        url = a_source(tmp_path, "history")
+        first = commit(tmp_path / "history", "skills/writing/SKILL.md", "# one\n")
+        commit(tmp_path / "history", "skills/writing/SKILL.md", "# two\n")
+        private = "https://git.acme.example/team/with-history"
+        (house / ".gitconfig").write_text(f'[url "{url}"]\n\tinsteadOf = {private}\n', encoding="utf-8")
+
+        resolved = cache.resolve(sources.parse(private), pin=first, anchor=tmp_path, cache_root=cache_root)
+
+        assert resolved.commit == first
+
     def test_a_source_nobody_can_reach_is_an_error_rather_than_a_classification(self, tmp_path: Path, cache_root: Path):
         missing = (tmp_path / "nowhere").as_uri()
 
@@ -190,24 +226,29 @@ class TestPins:
         Fetching a commit by name is allowed by every transport this suite can
         build a fixture on, including `file://`, so the forges that decline it
         cannot be reproduced with a repository on disk. What can be reproduced
-        is their answer, which is what the fall back reacts to: the first fetch
-        fails, and the clone still ends up holding the pin.
+        is their answer, which is what the fall back reacts to: the by-name
+        fetch fails, and the clone still ends up holding the pin.
+
+        Both attempts at it are declined, because a request that talks to the
+        remote is tried anonymously and then with credentials. A forge that
+        will not send one commit will not send it either way, and declining only
+        the first would be answering the second question instead.
         """
         url, first, _ = history
-        real = cache._git
+        real = cache.git
         declined: list[str] = []
 
-        def decline_the_first_fetch(*arguments: str, **keywords):
-            if arguments[0] == "fetch" and "--depth" in arguments and not declined:
+        def decline_every_fetch_by_name(*arguments: str, **keywords):
+            if arguments[0] == "fetch" and "--depth" in arguments:
                 declined.append(arguments[0])
                 return subprocess.CompletedProcess(args=list(arguments), returncode=1, stdout="", stderr="no")
             return real(*arguments, **keywords)
 
-        monkeypatch.setattr(cache, "_git", decline_the_first_fetch)
+        monkeypatch.setattr(cache, "git", decline_every_fetch_by_name)
 
         resolved = cache.resolve(sources.parse(url), pin=first, anchor=tmp_path, cache_root=cache_root)
 
-        assert declined == ["fetch"]
+        assert declined == ["fetch", "fetch"]
         assert resolved.commit == first
 
     def test_a_pin_the_source_no_longer_holds_says_how_to_move_it(self, history, tmp_path: Path, cache_root: Path):
@@ -328,6 +369,6 @@ class TestTheOuterRepositoryIsNotReachable:
         url = a_source(tmp_path)
 
         with pytest.raises(subprocess.SubprocessError):
-            cache._git("not-a-git-command-at-all", anonymous=True, cwd=tmp_path / "kits")
+            cache.git("not-a-git-command-at-all", anonymous=True, cwd=tmp_path / "kits")
 
         assert cache.resolve(sources.parse(url), anchor=tmp_path, cache_root=cache_root).fetched is True

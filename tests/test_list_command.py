@@ -189,6 +189,9 @@ class TestListInAFakeHome:
               copilot-vscode: not detected on this machine
                 takes skills and rules, and is in no manifest's harness list
                 promises no order between rules, so two that contradict are a coin toss
+              copilot-ci: has no machine, so it arrives only by being named
+                takes skills and rules, and is in no manifest's harness list
+                promises no order between rules, so two that contradict are a coin toss
               emacs: named in a manifest, and no adapter answers to it
                 named by this repository
 
@@ -231,7 +234,12 @@ class TestListInAFakeHome:
             "prose-style",
         ]
         assert payload["collisions"][0]["name"] == "writing"
-        assert {entry["name"] for entry in payload["harnesses"]} == {"opencode", "copilot-vscode", "emacs"}
+        assert {entry["name"] for entry in payload["harnesses"]} == {
+            "opencode",
+            "copilot-vscode",
+            "copilot-ci",
+            "emacs",
+        }
         assert all(
             not target["rendered"]
             for entry in payload["subscriptions"]

@@ -1,0 +1,30 @@
+---
+# Hooks other repositories pin by revision, so that a clone gets the checks
+# without installing anything first. DESIGN.md section 6 and section 8.
+#
+# One hook rather than three. What it runs catches all of them: a committed
+# render that has gone stale, a private source about to be committed into a
+# public repository, and a committed manifest naming a path that exists only on
+# the machine it was written on. They are one command because they are one
+# walk, and a hook that ran the walk three times would be three times as slow
+# for no more safety.
+#
+# `always_run` because what it judges is the manifest and the cache, not the
+# files in the commit: a render goes stale when a pin moves, and the commit
+# that moves it does not touch a single rendered file.
+#
+# It needs a network. `--check` runs where there is no cache at all, because a
+# CI runner has never rendered and has nothing to recompute a committed render
+# from, so it fetches the commits the pins already name. That moves no pin and
+# changes no manifest.
+- id: akit-render-check
+  name: 🩺 (check committed kits are up to date)
+  description: >-
+    Fails when what this repository commits for its machineless harnesses no longer matches
+    its manifest, when a private source would be committed into a public repository, or when
+    a committed manifest names a path outside it.
+  entry: akit render --check
+  language: python
+  pass_filenames: false
+  always_run: true
+  require_serial: true

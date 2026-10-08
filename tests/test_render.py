@@ -24,7 +24,7 @@ from federated_agent_kits import adapters, ignore, privacy, record, render
 from federated_agent_kits.adapters.adapter import Adapter, Destination, RuleShape
 from federated_agent_kits.cache import Privacy
 from federated_agent_kits.cli import build_parser, dispatch
-from federated_agent_kits.exits import Exit, NotImplementedYetError, UsageError
+from federated_agent_kits.exits import Exit, UsageError
 from federated_agent_kits.manifest import Kind, Scope
 
 pytestmark = pytest.mark.unit
@@ -905,11 +905,23 @@ class TestTheCommandLine:
         assert code is Exit.OK
         assert "a narrowing flag was given" in printed
 
-    def test_check_says_which_task_it_is_waiting_for(self, project: Path, home: Path, one_skill: Path):
-        with pytest.raises(NotImplementedYetError) as raised:
-            self.run("--check", home=home, start=project)
+    def test_check_on_a_repository_that_commits_nothing_says_so(self, project: Path, home: Path, one_skill: Path):
+        code, printed = self.run("--check", home=home, start=project)
 
-        assert "T8" in str(raised.value)
+        assert code is Exit.OK
+        assert "names no harness whose renders it commits" in printed
+
+    def test_check_as_json_is_the_same_verdict_as_data(self, project: Path, home: Path, one_skill: Path):
+        code, printed = self.run("--check", "--json", home=home, start=project)
+
+        assert code is Exit.OK
+        assert json.loads(printed)["stale"] == []
+
+    def test_check_refuses_the_narrowing_flags(self, project: Path, home: Path, one_skill: Path):
+        with pytest.raises(UsageError) as raised:
+            self.run("--check", "--no-harness", "opencode", home=home, start=project)
+
+        assert "does not take --harness or --no-harness" in str(raised.value)
         assert raised.value.exit_code is Exit.USAGE
 
 

@@ -43,7 +43,7 @@ builds a part of it or keeps it releasable.
 - [x] **[T5](#t5---the-render-engine-and-skills)** - The render engine, and skills
 - [x] **[T6](#t6---rules)** - Rules
 - [x] **[T7](#t7---add-remove-update-harness)** - `add`, `remove`, `update`, `harness`
-- [ ] **[T8](#t8---the-machineless-harness-and-the-leak-refusal)** - The machineless harness, and the leak refusal
+- [x] **[T8](#t8---the-machineless-harness-and-the-leak-refusal)** - The machineless harness, and the leak refusal
 - [ ] **[T9](#t9---doctor)** - `doctor`
 - [ ] **[T10](#t10---adding-an-adapter-documented)** - Adding an adapter, documented
 - [ ] **[T11](#t11---the-skill-and-the-rule)** - The skill, and the rule
@@ -670,8 +670,32 @@ and the line registering it, which is rule 7 of
 **Done when.** The table is covered row by row, and a repository guarded by the hook cannot
 commit a stale or leaking render.
 
-**Settles.** Nothing open. This task implements a decided design, and the thing to resist is
-inventing an override.
+**Settles.** Two contradictions in [DESIGN.md](DESIGN.md) that only showed up once the
+refusal was written, both corrected in the same diff and both in
+[JOURNAL.md](JOURNAL.md).
+
+The first is the one that mattered. [§8](DESIGN.md#how-a-target-is-known-to-be-public) put a
+target whose remote needs credentials in the refused branch, alongside the unreachable one,
+which failed the case the section exists for: the employer's kit, rendered into the
+employer's other repository, where both need the same credentials and nothing leaves. The
+same section's "two refusals" paragraph said otherwise. A credential-needing target is now
+private, the same test a source gets, and only a remote nothing can reach is refused.
+
+The second is that the refusal covers rules written into a file somebody else owns, not only
+what a machineless harness reads. [§8](DESIGN.md#what-can-actually-leak) always listed a
+marker block in `AGENTS.md` first among the three things that can leak, and the rule as
+written did not reach it. It does now, and the cost is paid back by making the classification
+lazy: the target is only ever classified when a private source is about to land in a
+committed spot, so an ordinary render still never asks what its remotes are.
+
+**And that `--check` fetches.** The one render that does. It runs where there is no cache at
+all, since a CI runner has never rendered, so "the same walk, writing nothing" had to become
+"the same walk, writing nothing, fetching the commits the pins already name". It moves no pin
+and changes no manifest, and what it learns on the way is each source's privacy, which is the
+one fact the leak refusal cannot work out for itself.
+
+**Leave alone.** Fixing anything `--check` finds. That is `render`, and the check's whole
+value is that a hook can run it.
 
 ## T9 - `doctor`
 

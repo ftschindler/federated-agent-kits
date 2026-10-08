@@ -12,23 +12,61 @@ its own filename.
 This subscribes you to the kits you want, from wherever they live, and writes them where each
 harness looks.
 
-**Status: it subscribes, it renders skills and rules, and it reads.**
-[DESIGN.md](DESIGN.md) is the source of truth for what gets built,
+**Status: it subscribes, it renders skills and rules into three harnesses, and it refuses to
+leak.** [DESIGN.md](DESIGN.md) is the source of truth for what gets built,
 [IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets built in. `akit add`,
 `akit remove`, `akit update`, `akit harness`, `akit list` and `akit render` work today,
-against both manifests, every source form and the opencode and GitHub Copilot in VS Code
-adapters. A render copies the skills you
-subscribed to into the directory both harnesses read, writes each rule you subscribed to in
+against both manifests, every source form and the opencode, GitHub Copilot in VS Code and
+GitHub Copilot in CI adapters. A render copies the skills you
+subscribed to into the directory every harness reads, writes each rule you subscribed to in
 whichever shape its harness wants, maintains the `.gitignore` block, and deletes a rendered
 copy only while its bytes are still the ones it wrote. Agents wait for T13, so a subscription
 to one says which task it is waiting for, and so does every verb that has not landed.
 
-**One rule reaches two differently shaped harnesses.** Copilot reads a directory, so it gets
+**One rule reaches three differently shaped harnesses.** Copilot reads a directory, so it gets
 one file per rule, with the `applyTo` frontmatter without which it would never read them.
 opencode reads one `AGENTS.md` that you write in too, so each rule goes between markers
 inside it and everything you wrote around them survives every render. Unsubscribing takes the
 block out and leaves the file. `akit list` says which harnesses read rules in the order your
 manifest lists them and which promise no order at all.
+
+## The harness that commits
+
+GitHub Copilot in CI runs on GitHub's infrastructure. It clones your repository and reads
+what is there, which means **nothing you do not commit exists as far as it is concerned**. So
+it cannot be detected and arrives only by being named:
+
+```sh
+akit harness add copilot-ci
+```
+
+That one line changes what gets committed. The directories it reads leave the `.gitignore`
+block, computed rather than maintained, so the skills every other harness was reading
+privately go into the repository's history. That is the intended behaviour: a directory with
+two readers is committed if either of them commits, because git cannot ignore a directory
+halfway.
+
+Two things follow, and both ship with it.
+
+**A private kit cannot reach a public repository.** A source that needed credentials to clone
+is private, and a repository whose remote resolves anonymously is public. A private source's
+parts rendering into a public repository fails hard, naming the source and the target, with
+no override and no `--force`. Private into private is the ordinary employer setup and renders
+without a question being asked. Your repository is classified only when a private source is
+about to be committed into it, so an ordinary render still needs no network.
+
+**Anything committed can go stale.** `akit render --check` writes nothing and exits non-zero
+when what the repository commits no longer matches its manifest. It is one hook away:
+
+```yaml
+- repo: https://github.com/ftschindler/federated-agent-kits
+  rev: v0.7.0
+  hooks:
+  - id: akit-render-check
+```
+
+One hook rather than three, because the walk that finds a stale render is the walk that finds
+a leak and the one that finds a committed manifest naming a path off somebody's laptop.
 
 ## What it is for
 
@@ -55,6 +93,7 @@ akit add owner/repo writing      # this repository's manifest; --global for your
 akit list            # what you subscribed to, where it is, and where it would land
 akit update          # fetch, move the pins, and show what moved
 akit render          # safe to run from a git hook
+akit render --check  # write nothing, fail if what you commit is out of date
 akit doctor          # name collisions, stale renders, refusals
 ```
 
@@ -108,12 +147,14 @@ pre-commit hook.
 **Python only**, shipped as a package you run with `uvx`. No dependency lockfile of ours to
 go stale, and no install step for anyone who just wants to work on a repository.
 
-**A new harness is one file.** opencode and GitHub Copilot in VS Code come first. An adapter answers seven
-questions about where that harness keeps things and how to tell it is installed, and nothing
-else in the system changes.
+**A new harness is one file.** opencode, GitHub Copilot in VS Code and GitHub Copilot in CI
+ship today. An adapter answers seven questions about where that harness keeps things and how
+to tell it is installed, and nothing else in the system changes. A test enforces that rather
+than this paragraph asserting it.
 [DESIGN.md](DESIGN.md#4-adding-a-harness) works pi through as an example.
 
-**The file you edit is the only copy.** Everything rendered is generated and disposable.
+**The file you edit is the only copy.** Everything rendered is generated and disposable,
+except what a harness with no machine reads, which has to be committed to exist at all.
 
 ## License
 
