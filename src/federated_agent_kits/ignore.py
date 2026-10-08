@@ -75,7 +75,7 @@ def rewrite(text: str, directories: Iterable[str]) -> str:
     return "\n".join(kept) + "\n"
 
 
-def maintain(root: Path, directories: Iterable[str]) -> bool:
+def maintain(root: Path, directories: Iterable[str], *, writing: bool = True) -> bool:
     """Put the block in this repository's `.gitignore`, and say whether anything changed.
 
     A repository with nothing to ignore and no `.gitignore` gets no file,
@@ -83,13 +83,19 @@ def maintain(root: Path, directories: Iterable[str]) -> bool:
     written by a tool is noise somebody has to work out the meaning of. That
     falls out of the comparison rather than needing a branch: an absent file
     reads as nothing, and nothing is what an empty block rewrites to.
+
+    `writing=False` works the answer out and leaves the file alone, which is
+    what `render --check` needs: the block is generated and committed like any
+    render, so a stale one is a repository ignoring the directory its cloud
+    agent reads, and the files would be correct and absent at the same time.
     """
     path = root / GITIGNORE
     before = path.read_text(encoding="utf-8").replace("\r\n", "\n") if path.is_file() else ""
     after = rewrite(before, directories)
     if after == before:
         return False
-    path.write_text(after, encoding="utf-8", newline="\n")
+    if writing:
+        path.write_text(after, encoding="utf-8", newline="\n")
     return True
 
 

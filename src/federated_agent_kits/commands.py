@@ -178,13 +178,16 @@ COMMANDS: tuple[Command, ...] = (
             "it wrote with a hash. It deletes only what that record explains and whose bytes "
             "still match, so anything you wrote or edited yourself survives, and a block "
             "inside your `AGENTS.md` is taken out without the file around it being touched. "
-            "It fetches nothing, which is why a render on a train is yesterday's render."
+            "It fetches nothing, which is why a render on a train is yesterday's render. "
+            "`--check` is the exception: it writes nothing, judges only what this repository "
+            "commits for the harnesses it names that have no machine, and fetches the pinned "
+            "commits a fresh checkout has no cache for."
         ),
         examples=("akit render", "akit render --check", "akit render --project --harness opencode"),
         arguments=(
             Argument(
                 ("--check",),
-                "Write nothing and exit non-zero if a committed render is stale; lands with T8",
+                "Write nothing and exit non-zero if what this repository commits is out of date",
                 action="store_true",
             ),
             Argument(
@@ -376,14 +379,19 @@ TOPICS: tuple[Topic, ...] = (
         body=(
             "A source is private when fetching it needed credentials, which is observable\n"
             "only while fetching and is therefore recorded when it happens. A target is\n"
-            "public when its remotes resolve anonymously; no remote means private, and\n"
-            "anything else is refused rather than guessed at.\n"
+            "public when any of its remotes resolves anonymously. No remote means private,\n"
+            "and so does a remote that answers only with your credentials. A remote that\n"
+            "cannot be reached at all is refused rather than guessed at.\n"
             "\n"
             "A private source's parts do not render into a public target, and a private\n"
             "source is not named in a public target's committed manifest. Both fail hard,\n"
             "naming the source and the target, and there is no `--force`. The check is per\n"
             "harness, not per repository: rendering a private kit for a laptop harness in a\n"
-            "public repository commits nothing and is fine.\n"
+            "public repository commits nothing and is fine. Naming a harness with no machine\n"
+            "is what starts committing things, and `akit harness remove` is what stops it.\n"
+            "\n"
+            "Your repository is only ever classified when a private source is about to be\n"
+            "committed into it, so an ordinary render still needs no network.\n"
             "\n"
             "This is a guardrail, not a boundary. It judges a remote at the moment it runs,\n"
             "so it cannot help with a repository made public next month."

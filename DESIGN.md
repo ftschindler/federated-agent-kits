@@ -711,9 +711,14 @@ like yours.
 `./kits` mean the same thing on every machine. `../my-kits` and `/home/me/kits` mean something
 only on yours, and committing one breaks the repository for everybody else.
 
-That is a check rather than a convention, and it belongs in a pre-commit hook this project
-ships for other repositories to pin, the way the leak refusal does
-([§8](#8-keeping-the-employers-kits-in)). `akit doctor` reports the same thing.
+That is a check rather than a convention, and `akit render` is where it lives: a committed
+manifest naming an escaping path is refused outright, with the same exit code and the same
+absence of an override as the leak refusal ([§8](#8-keeping-the-employers-kits-in)). So the
+pre-commit hook this project ships for other repositories to pin carries one command rather
+than two, and `akit doctor` reports the same thing without a check of its own.
+
+Your own manifest is never asked, because it is not committed and the paths in it are
+supposed to mean something only on your disk.
 
 **To work on a source a committed manifest names**, edit the key to your checkout and do not
 commit that line. `git status` shows the file is dirty, `git checkout --` undoes it, and the
@@ -1018,9 +1023,25 @@ with.
 
 ### How a target is known to be public
 
-By its git remotes. No remote means private, since nothing can leave. A remote that resolves
-anonymously means public. Anything else, including a remote that cannot be reached, is
-refused rather than guessed at.
+By its git remotes, with the same test a source gets. A remote that resolves anonymously
+means public. No remote means private, since nothing can leave, and so does a remote that
+answers and asks for credentials.
+
+Only a remote that cannot be reached at all is refused rather than guessed at. That is a
+failure to classify rather than a classification: the repository may be either, and a
+network that is down is not evidence about who can read it.
+
+**Asking twice is what separates the two.** `git ls-remote` with the credential helpers
+turned off and no prompt answers for a public remote and fails for every other kind. The
+same call with this machine's helper allowed then answers for a remote you have access to,
+which makes the target private, and fails again for one nothing can reach, which is the
+refusal. Reading git's error text instead would make the classification depend on the
+wording of a message that is not ours.
+
+An earlier version of this section put a credential-needing remote in the refused branch
+alongside the unreachable one. That contradicted the two refusals named below and broke the
+case this whole section is for: a kit from the employer's repository, rendered into the
+employer's other repository, where both need the same credentials and nothing leaves.
 
 ### The rule
 
@@ -1384,6 +1405,29 @@ that part of the list reads the same on every machine.
 **So `--check` refuses the narrowing flags.** `--no-harness copilot-ci` excludes the only
 harness committing anything, leaving a check with nothing to look at, which then passes. That
 would happen inside a pre-commit hook, which is the one place a false pass costs something.
+
+Concretely, the list it judges is the project scope and the harnesses the manifest names
+that have no machine. Those two facts are the same in every clone. A repository naming no
+such harness commits no renders, so the check has nothing to look at and says so rather than
+inventing work.
+
+**The `.gitignore` block is judged too.** It is generated and committed like any render, and
+it is the inverse of what gets committed ([§6](#6-the-manifest)), so a stale one is how a
+repository that just named the cloud agent carries on ignoring the directory that agent reads.
+The files would be correct and absent at the same time, which is the silent failure the rest
+of this section is built to avoid.
+
+**`--check` is the one render that fetches.** Everything above keeps `render` offline by
+reading the commits already in the cache, and a CI runner has no cache at all: it has never
+rendered, so it has nothing to recompute a committed render from. So this flag fetches the
+commits its subscriptions are already pinned to, which moves no pin and changes no manifest.
+It needs a network, which the hook it runs in already does, and it learns each source's
+privacy on the way ([§8](#8-keeping-the-employers-kits-in)), which is what lets it answer the
+leak question on a machine that has never seen the source.
+
+**A committed manifest naming a path that leaves the repository is refused here**, by
+`render` and by `--check` alike ([§6](#where-a-source-actually-is)). It is the third thing
+the pre-commit hook has to catch and it needs no command of its own.
 
 ### `update`
 

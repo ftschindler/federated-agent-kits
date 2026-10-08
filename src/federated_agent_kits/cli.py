@@ -187,19 +187,18 @@ def show_topic(name: str, as_json: bool, out: TextIO) -> Exit:
 def render_command(arguments: argparse.Namespace, out: TextIO) -> Exit:
     """`akit render`, with the flags turned into the two values the engine takes.
 
-    `--check` is the one flag this build does not answer. It judges committed
-    renders, and nothing is committed until the machineless harness lands, so a
-    check today would be a check with nothing to look at - which passes, inside
-    a pre-commit hook, which is the one place a false pass costs something.
+    `--check` is a different enough call to be its own function in the engine:
+    it writes nothing, it judges only what this repository commits, and it may
+    fetch. What it shares with a render is the walk, which is the point.
     """
-    if arguments.check:
-        raise NotImplementedYetError("render --check", "T8, with the harness whose renders are committed")
     choices = render.Choices(
         scopes=render.scopes_from(only_global=arguments.global_scope, only_project=arguments.project),
         only=tuple(arguments.harness or ()),
         without=tuple(arguments.no_harness or ()),
         prune=arguments.prune,
     )
+    if arguments.check:
+        return render.check(out, as_json=arguments.json, choices=choices)
     return render.run(out, as_json=arguments.json, choices=choices)
 
 

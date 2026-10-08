@@ -51,10 +51,23 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
 
-from federated_agent_kits import adapters, cache, discovery, ignore, manifest, record, rules, sources
+from federated_agent_kits import (
+    adapters,
+    cache,
+    discovery,
+    ignore,
+    leaks,
+    manifest,
+    privacy,
+    record,
+    rules,
+    sources,
+    targets,
+)
 from federated_agent_kits.adapters import Adapter
 from federated_agent_kits.adapters.adapter import SEPARATOR
-from federated_agent_kits.exits import AkitError, Exit, UsageError
+from federated_agent_kits.cache import Privacy
+from federated_agent_kits.exits import AkitError, Exit, RefusalError, UsageError
 from federated_agent_kits.listing import PLURAL, SCOPE_TITLE, joined
 from federated_agent_kits.manifest import Kind, Merged, Scope, Subscription
 from federated_agent_kits.record import Explanation, Record, Records, Region, Spot, Written
@@ -160,6 +173,12 @@ class Outcome:
     suspended: str | None = None
     """Why nothing was withdrawn, or `None` when withdrawal ran."""
 
+    checking: bool = False
+    """Whether this was `--check`, which reports a verdict rather than a diary."""
+
+    unexplained: tuple[Path, ...] = ()
+    """Committed files nothing in the manifest accounts for, which only `--check` looks for."""
+
     @property
     def problems(self) -> tuple[Entry, ...]:
         return tuple(entry for entry in self.entries if entry.problem is not None)
@@ -193,11 +212,34 @@ class Outcome:
         changed = any(changed for _, _, changed in self.ignored)
         return not (self.written or self.blocks_written or self.deleted or self.pruned or changed)
 
+    @property
+    def stale(self) -> tuple[str, ...]:
+        """What a committed render would have to change to be correct, in sentences.
+
+        Three things can be out of date and all three are committed. A file
+        whose bytes differ from what the manifest says, a file sitting in a
+        directory we own that the manifest no longer accounts for, and the
+        ignore block, which is the inverse of what gets committed and so goes
+        stale the moment a machineless harness is named (DESIGN.md section 6).
+        """
+        found: list[str] = []
+        if self.written or self.blocks_written:
+            found.append(f"{counted(self.written + self.blocks_written, 'committed file')} would be written")
+        if self.unexplained:
+            found.append(f"{counted(len(self.unexplained), 'committed file')} nothing subscribes to any more")
+            found.extend(f"  {path}" for path in self.unexplained)
+        for root, _, changed in self.ignored:
+            if changed:
+                found.append(f"the akit block in {root / ignore.GITIGNORE} is out of date")
+        return tuple(found)
+
     def of_scope(self, scope: Scope) -> tuple[Entry, ...]:
         return tuple(entry for entry in self.entries if entry.subscription.scope is scope)
 
     @property
     def exit_code(self) -> Exit:
+        if self.checking and self.stale:
+            return Exit.ERROR
         return Exit.ERROR if self.problems or self.unknown else Exit.OK
 
 
@@ -230,6 +272,51 @@ EVERYTHING = Choices()
 
 
 @dataclass(frozen=True)
+class Mode:
+    """Whether this pass may fetch, may write, and answers with a verdict.
+
+    Three independent facts about one pass, grouped because only one caller
+    ever sets any of them. `render` is the default and `--check` is the other,
+    and a third combination would be a new command rather than a new flag.
+    """
+
+    offline: bool = True
+    """False only for `--check`, which runs where there is no cache at all.
+
+    An ordinary render reads the commits already in the cache, so it can change
+    files on disk and never what a kit contains. A CI runner has never
+    rendered, and has nothing to recompute a committed render from unless it
+    fetches the commits its pins already name (DESIGN.md section 10).
+    """
+
+    writing: bool = True
+    """False is the same walk with every act suspended.
+
+    The copy, the withdrawal, the ignore block and the two record saves all ask
+    this before they touch a file, and the counting happens either way.
+    """
+
+    checking: bool = False
+    """Whether this is judging rather than doing, which changes who it judges for.
+
+    A check drops `detected` and keeps only the harnesses a manifest names that
+    have no machine, so its verdict reads the same in every clone.
+    """
+
+
+#: An ordinary render: offline, writing, reporting what it did.
+RENDERING = Mode()
+
+#: `--check`: fetches what it must, writes nothing, answers yes or no.
+CHECKING = Mode(offline=False, writing=False, checking=True)
+
+#: The half of the world `--check` looks at. Your own subscriptions render to
+#: machine-level directories that no repository commits, so they cannot go
+#: stale and are not its business.
+COMMITTED = Choices(scopes=(Scope.PROJECT,))
+
+
+@dataclass(frozen=True)
 class Directories:
     """The roots this render reads and writes under.
 
@@ -259,6 +346,14 @@ class _Target:
     digest: str
     explained_by: set[str] = field(default_factory=set)
     harnesses: set[str] = field(default_factory=set)
+    sources: set[str] = field(default_factory=set)
+    """The source keys behind this spot, which the leak refusal asks about.
+
+    Kept apart from `explained_by` rather than parsed back out of it: an
+    explanation is a sentence for a record, and a refusal that recovered a URL
+    by splitting one on colons would break on the first `git@host:org/repo.git`.
+    """
+
     scopes: set[Scope] = field(default_factory=set)
     """Which records get an entry for this file.
 
@@ -322,6 +417,32 @@ class _Pass:
     cache_root: Path | None
     before: Records
     chosen: dict[Scope, tuple[Adapter, ...]]
+    offline: bool = True
+    """Whether resolution may go near the network, which only `--check` sets.
+
+    An ordinary render reads the commits already in the cache, so it can change
+    files on disk and never what a kit contains. A check runs where there is no
+    cache at all, because a CI runner has never rendered, and has nothing to
+    recompute a committed render from unless it fetches the commits its pins
+    already name (DESIGN.md section 10).
+    """
+
+    writing: bool = True
+    """Whether anything on disk may actually change.
+
+    False is the same walk with every act suspended, which is what `--check`
+    is: the copy, the withdrawal, the ignore block and the two record saves all
+    ask this before they touch a file, and the counting happens either way.
+    """
+
+    resolutions: list[tuple[str, cache.Resolved]] = field(default_factory=list)
+    """Every source this pass resolved, so the ones it fetched can be classified.
+
+    An ordinary render fetches nothing and this stays empty of classifications,
+    which makes carrying it a no-op. `--check` fetches, and what it learns on
+    the way is the privacy of each source, which is the one fact the leak
+    refusal cannot work out for itself (DESIGN.md section 8).
+    """
 
     def anchor(self, adapter: Adapter, scope: Scope) -> Path:
         """The base a target is computed against, which is the harness's and not ours."""
@@ -332,7 +453,11 @@ class _Pass:
     def resolve(self, subscription: Subscription) -> cache.Resolved:
         anchor = self.home if subscription.scope is Scope.USER else (manifest.worktree_root(self.start) or self.start)
         key = sources.parse(subscription.source)
-        return cache.resolve(key, pin=subscription.pin, anchor=anchor, cache_root=self.cache_root, offline=True)
+        found = cache.resolve(
+            key, pin=subscription.pin, anchor=anchor, cache_root=self.cache_root, offline=self.offline
+        )
+        self.resolutions.append((subscription.source, found))
+        return found
 
 
 @dataclass(frozen=True)
@@ -369,6 +494,7 @@ def _spot_wanted(writes: dict[Spot, _Target], spot: Spot, data: bytes, wanted: _
             digest=digest,
             explained_by={wanted.explanation},
             harnesses={harness},
+            sources={wanted.subscription.source},
             scopes={wanted.scope},
         )
         return None
@@ -381,6 +507,7 @@ def _spot_wanted(writes: dict[Spot, _Target], spot: Spot, data: bytes, wanted: _
         )
     standing.explained_by.add(wanted.explanation)
     standing.harnesses.add(harness)
+    standing.sources.add(wanted.subscription.source)
     standing.scopes.add(wanted.scope)
     return None
 
@@ -530,7 +657,7 @@ def _plan(walk: _Pass, merged: Merged) -> tuple[list[Entry], dict[Spot, _Target]
 
 
 def _perform(
-    entries: list[Entry], writes: dict[Spot, _Target], removals: Iterable[Region]
+    entries: list[Entry], writes: dict[Spot, _Target], removals: Iterable[Region], *, writing: bool = True
 ) -> tuple[list[Entry], dict[Spot, bool]]:
     """Fill every planned spot whose bytes are not already there, and count both.
 
@@ -542,16 +669,20 @@ def _perform(
     than being deleted where that decision was made, because a shared file is
     written once: the blocks that stay, the blocks that arrive and the blocks
     that go are one rewrite of one file, not three.
+
+    `writing=False` performs the comparison and skips the write, which is the
+    whole of `--check`: what it wants to know is which spots *would* have
+    changed, and that is the number this counts either way.
     """
     done: dict[Spot, bool] = {}
     for (target, region), planned in writes.items():
         if region is not None:
             continue
         done[(target, region)] = record.digest_of(target) != planned.digest
-        if done[(target, region)]:
+        if done[(target, region)] and writing:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(planned.data)
-    done.update(_weave(writes, removals))
+    done.update(_weave(writes, removals, writing=writing))
     counted: list[Entry] = []
     for entry in entries:
         placements = tuple(
@@ -579,7 +710,7 @@ def _perform(
     return counted, done
 
 
-def _weave(writes: dict[Spot, _Target], removals: Iterable[Region]) -> dict[Spot, bool]:
+def _weave(writes: dict[Spot, _Target], removals: Iterable[Region], *, writing: bool = True) -> dict[Spot, bool]:
     """Rewrite every file we share, once each, and say which blocks changed.
 
     A host file is somebody's prose and may not exist yet. It is created when a
@@ -610,7 +741,7 @@ def _weave(writes: dict[Spot, _Target], removals: Iterable[Region]) -> dict[Spot
             moved = index >= len(was) or was[index] != block.id
             done[(path, block.id)] = moved or standing.get(block.id) != block.body
         after = rules.weave(before, blocks, remove=taken.get(path, set()))
-        if after != before:
+        if after != before and writing:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(after, encoding="utf-8", newline="\n")
     return done
@@ -656,6 +787,10 @@ def _withdraw(
     A block is decided here and removed later. Its host holds other blocks and
     somebody's prose, so taking it out is part of the one rewrite that file
     gets rather than a deletion of its own.
+
+    This never runs on a pass that may not write, because every such pass is a
+    check and every check suspends withdrawal (`_suspension`). So there is no
+    dry run threaded through here: the caller decides, once, whether to call it.
     """
     rendered = set(scopes)
     silent = [record for scope, record in before.items() if scope not in rendered]
@@ -748,12 +883,35 @@ def _remove(path: Path) -> None:
         path.unlink()
 
 
+def _committed(picked: Iterable[Adapter], scope: Scope) -> set[str]:
+    """The directories a harness with no machine reads, which this repository commits.
+
+    The inverse of the ignore block, computed rather than maintained (DESIGN.md
+    section 6). Nobody runs `akit` in a cloud agent's checkout, so a file it
+    reads and that is not committed does not exist, and naming that harness is
+    what takes its directories out of the block.
+
+    **A directory with two readers is committed if either of them commits**,
+    which is why this answers in directory names rather than per harness. Skills
+    share one directory, so naming the cloud agent puts the skills opencode was
+    reading privately into the repository's history. That is the intended
+    behaviour and the reason the leak refusal lands in the same task.
+    """
+    found: set[str] = set()
+    for adapter in adapters.machineless(picked):
+        for kind in RENDERED:
+            destination = adapter.destination(kind, scope)
+            found.update({} if destination is None or destination.write is None else {destination.write})
+    return found
+
+
 def _ignore_block(
     walk: _Pass,
     owned: dict[Path, set[str]],
     explained: Iterable[Path],
     scopes: Sequence[Scope],
-    kept: Path | None,
+    *,
+    keeps_a_record: bool,
 ) -> tuple[tuple[Path, tuple[str, ...], bool], ...]:
     """Maintain the repository's ignore block, from the directories it wrote into.
 
@@ -768,49 +926,212 @@ def _ignore_block(
     shared repository, so it is ignored for the same reason everything else here
     is, and it leaves the block on the render that removes it.
 
+    **Whether it is listed follows from what this render would leave behind,
+    not from the file being there now.** A CI runner has never rendered, so the
+    record is absent on every fresh checkout, and a block computed from the file
+    on disk would call every repository's `.gitignore` stale the moment
+    `--check` looked at it.
+
     Only inside a repository, and only for the project scope: your home
     directory is not a working tree, so nothing rendered there can be committed
-    by accident. Every harness shipped today has a machine, so everything here
-    is ignored; T8 is where naming a machineless harness starts taking entries
-    back out.
+    by accident.
+
+    **What a machineless harness reads is subtracted**, so this block and the
+    committed set are each other's inverse and nobody keeps two lists in step by
+    hand.
     """
     root = manifest.worktree_root(walk.start)
     if root is None or Scope.PROJECT not in scopes:
         return ()
+    committed = _committed(walk.chosen.get(Scope.PROJECT, ()), Scope.PROJECT)
     inside = [path for path in explained if path.is_relative_to(root)]
     listed = {
         f"{directory.relative_to(root).as_posix()}/"
         for base, written in owned.items()
         for relative in written
+        if relative not in committed
         for directory in (base.joinpath(*relative.split(SEPARATOR)),)
         if directory.is_relative_to(root) and any(path.is_relative_to(directory) for path in inside)
     }
-    if kept is not None and kept.is_file():
+    if keeps_a_record:
         listed.add(f"{record.DIRECTORY}/")
-    return ((root, tuple(sorted(listed)), ignore.maintain(root, listed)),)
+    return ((root, tuple(sorted(listed)), ignore.maintain(root, listed, writing=walk.writing)),)
 
 
-def render(start: Path, places: Directories, choices: Choices = EVERYTHING) -> Outcome:
-    """Make the files on disk match the manifests, and say everything that happened."""
+def _escaping(merged: Merged, root: Path | None) -> None:
+    """Refuse a committed manifest that names a path outside its own repository.
+
+    `.` and `./kits` mean the same thing in every clone. `../my-kits` means
+    something only on the machine it was written on, and committing one breaks
+    the repository for everybody else (DESIGN.md section 6). Your own manifest
+    is never asked, because it is not committed and its paths are supposed to
+    mean something only here.
+
+    A refusal rather than a warning, so the one hook this project ships carries
+    one command. `akit doctor` reports the same thing without a second check.
+
+    **Only a manifest git actually tracks is asked.** The rule is about what a
+    colleague gets when they clone, so a `.akit.yaml` nobody else has cannot
+    break anybody's clone. That is also what makes writing a kit work: you
+    subscribe to `~/kits/the-new-thing` in a scratch repository, render, and
+    nothing objects until you try to commit the file saying so.
+    """
+    if root is None or merged.project is None or merged.project.path is None:
+        return
+    if not targets.tracked(merged.project.path, root=root):
+        return
+    escaping = [
+        subscription.source
+        for subscription in merged.subscriptions
+        if subscription.scope is Scope.PROJECT and sources.escapes(sources.parse(subscription.source), anchor=root)
+    ]
+    if not escaping:
+        return
+    listed = "\n".join(f"{INDENT * 2}{source}" for source in sorted(set(escaping)))
+    raise RefusalError(
+        f"{merged.project.path} is committed, and names a path outside {root}:\n"
+        f"{listed}\n"
+        f"{INDENT}Nothing was written. Those paths exist on this machine and on no other, so a colleague "
+        f"cloning this repository gets a render that fails.\n"
+        f"{INDENT}Subscribe to them in your own manifest instead: `akit remove <name>` then "
+        f"`akit add <path> <name> --global`."
+    )
+
+
+def _committed_spots(walk: _Pass, writes: dict[Spot, _Target], root: Path) -> dict[Spot, _Target]:
+    """Every planned spot this repository would commit, which is what can leak.
+
+    Two kinds, and they are the two DESIGN.md section 6 says have to be
+    committed. Anything inside a directory a machineless harness reads, because
+    nobody renders in its checkout. And any rule written between markers in a
+    file somebody else owns, because that file is committed for reasons of its
+    own and a block of the employer's prose inside it is in the history either
+    way.
+    """
+    directories = [
+        root.joinpath(*relative.split(SEPARATOR))
+        for relative in _committed(walk.chosen.get(Scope.PROJECT, ()), Scope.PROJECT)
+    ]
+    return {
+        (path, region): planned
+        for (path, region), planned in writes.items()
+        if path.is_relative_to(root)
+        and (region is not None or any(path.is_relative_to(directory) for directory in directories))
+    }
+
+
+def _unexplained(walk: _Pass, writes: dict[Spot, _Target], root: Path | None) -> tuple[Path, ...]:
+    """Committed files sitting in a directory we own that this plan does not explain.
+
+    What `--check` asks instead of asking the render record. The record is
+    machine state and a CI runner has none, and a check narrowed to the
+    harnesses that commit would read every other harness's entries as
+    unexplained and call a perfectly good repository stale.
+
+    Asking the disk has neither problem. These directories are ours, everything
+    in them is committed, and a file in one that the manifest no longer accounts
+    for is a stale render whoever rendered it and whenever they did.
+    """
+    if root is None:
+        return ()
+    found: list[Path] = []
+    for relative in sorted(_committed(walk.chosen.get(Scope.PROJECT, ()), Scope.PROJECT)):
+        directory = root.joinpath(*relative.split(SEPARATOR))
+        if not directory.is_dir():
+            continue
+        found.extend(
+            path for path in sorted(directory.rglob("*")) if path.is_file() and (path.resolve(), None) not in writes
+        )
+    return tuple(found)
+
+
+def _refuse_leaks(walk: _Pass, merged: Merged, writes: dict[Spot, _Target], known: Mapping[str, Privacy]) -> None:
+    """Both halves of DESIGN.md section 8, asked only when there is something to lose.
+
+    **The target is classified lazily**, which is what keeps an ordinary render
+    offline. Every source public means no leak is possible, so there is no
+    question worth a network call and a render on a train is the same render as
+    yesterday's. The one that goes near a remote is the one with a private kit
+    about to be committed.
+
+    **The manifest half asks only about a manifest git tracks**, because the
+    URL is the leak and an untracked file publishes nothing. `.akit.yaml` naming
+    `git@git.acme.example:team/unreleased.git` tells a reader the project
+    exists, who is building it and roughly what it is for, whether or not they
+    can clone it. That is true the moment it is pushed and not before.
+    """
+    root = manifest.worktree_root(walk.start)
+    if root is None or Scope.PROJECT not in walk.chosen:
+        return
+    parts = leaks.exposures(
+        sorted(
+            {
+                (source, path)
+                for (path, _), planned in _committed_spots(walk, writes, root).items()
+                for source in planned.sources
+            }
+        ),
+        known,
+    )
+    named = (
+        [(subscription.source, merged.project.path) for subscription in merged.project.subscriptions]
+        if merged.project is not None
+        and merged.project.path is not None
+        and targets.tracked(merged.project.path, root=root)
+        else []
+    )
+    manifested = leaks.exposures(named, known)
+    if not parts and not manifested:
+        return
+    target = targets.classify(root)
+    if not target.is_public:
+        return
+    if parts:
+        raise leaks.of_parts(root, target.remotes, parts)
+    raise leaks.of_manifest(root, target.remotes, manifested)
+
+
+def render(start: Path, places: Directories, choices: Choices = EVERYTHING, mode: Mode = RENDERING) -> Outcome:
+    """Make the files on disk match the manifests, and say everything that happened.
+
+    `mode` is `RENDERING` for every caller but one. `CHECKING` is the same walk
+    that fetches what the cache lacks, writes nothing, and judges only what this
+    repository commits.
+    """
+    offline, writing, checking = mode.offline, mode.writing, mode.checking
     _check_names(choices.only, "--harness")
     _check_names(choices.without, "--no-harness")
     merged = manifest.load(start, user_path=places.user_manifest)
+    _escaping(merged, manifest.worktree_root(start))
     files = record.locations(start, state_root=places.state)
     before = {scope: record.load(path) for scope, path in files.items()}
     chosen: dict[Scope, tuple[Adapter, ...]] = {}
     unknown: list[str] = []
     for scope in choices.scopes:
-        picked, missing = adapters.expand(merged.harnesses(scope), places.home)
-        chosen[scope] = _narrow(picked, choices.only, choices.without)
+        expand = adapters.named if checking else adapters.expand
+        picked, missing = expand(merged.harnesses(scope), places.home)
+        chosen[scope] = _narrow(adapters.machineless(picked) if checking else picked, choices.only, choices.without)
         unknown.extend(name for name in missing if name not in unknown)
-    walk = _Pass(start=start, home=places.home, cache_root=places.cache, before=Records(by_scope=before), chosen=chosen)
+    walk = _Pass(
+        start=start,
+        home=places.home,
+        cache_root=places.cache,
+        before=Records(by_scope=before),
+        chosen=chosen,
+        offline=offline,
+        writing=writing,
+    )
     wanted = Merged(
         subscriptions=tuple(entry for entry in merged.subscriptions if entry.scope in set(choices.scopes)),
         user=merged.user,
         project=merged.project,
     )
     planned, writes = _plan(walk, wanted)
-    suspended = _suspension(planned, choices)
+    known = privacy.learned(privacy.load(places.state), walk.resolutions)
+    if writing:
+        privacy.save(known, places.state)
+    _refuse_leaks(walk, merged, writes, known)
+    suspended = _suspension(planned, choices, checking=checking)
     owned = {
         base: written
         for scope in choices.scopes
@@ -823,14 +1144,19 @@ def render(start: Path, places: Directories, choices: Choices = EVERYTHING) -> O
         withdrawals, kept, removals = _withdraw(
             before, writes, choices.scopes, _directories(adapters.ADAPTERS, walk, choices.scopes)
         )
-    entries, done = _perform(planned, writes, removals)
+    entries, done = _perform(planned, writes, removals, writing=writing)
     standing: set[Path] = set()
+    keeps_a_record = False
     for scope, path in files.items():
         after = _record_after(before[scope], writes, scope, kept.get(scope, ()))
-        record.save(after, path)
+        if writing:
+            record.save(after, path)
+        if scope is Scope.PROJECT:
+            keeps_a_record = bool(after.written)
         standing |= set(after.paths)
-    pruned = _prune(owned, standing) if choices.prune and suspended is None else []
+    pruned = _prune(owned, standing) if choices.prune and suspended is None and writing else []
     return Outcome(
+        checking=checking,
         manifests={
             Scope.USER: merged.user.path if merged.user else None,
             Scope.PROJECT: merged.project.path if merged.project else None,
@@ -843,18 +1169,26 @@ def render(start: Path, places: Directories, choices: Choices = EVERYTHING) -> O
         blocks_unchanged=sum(1 for spot, changed in done.items() if not changed and spot[1] is not None),
         withdrawals=tuple(withdrawals),
         pruned=tuple(pruned),
-        ignored=_ignore_block(walk, owned, standing, choices.scopes, files.get(Scope.PROJECT)),
+        ignored=_ignore_block(walk, owned, standing, choices.scopes, keeps_a_record=keeps_a_record),
+        unexplained=_unexplained(walk, writes, manifest.worktree_root(start)) if checking else (),
         unknown=tuple(unknown),
         suspended=suspended,
     )
 
 
-def _suspension(entries: Sequence[Entry], choices: Choices) -> str | None:
+def _suspension(entries: Sequence[Entry], choices: Choices, *, checking: bool) -> str | None:
     """Why this render may not delete anything, or `None` when it may.
 
-    Both reasons are the same shape: the candidate list the record offers is
+    Every reason is the same shape: the candidate list the record offers is
     only trustworthy when this render saw everything that could explain a file.
+
+    A check never saw everything by construction, since it keeps only the
+    harnesses that commit, so the record's entries for every other harness would
+    read as unexplained. It asks the disk a narrower question instead, which is
+    also the only one a CI runner can answer (`_unexplained`).
     """
+    if checking:
+        return "this is a check, which judges the disk rather than the record and deletes nothing"
     if choices.narrowed:
         return "a narrowing flag was given, and narrowing skips work rather than undoing it"
     if any(entry.problem is not None for entry in entries):
@@ -929,6 +1263,28 @@ def _print_withdrawals(outcome: Outcome, out: TextIO) -> None:
     for path in outcome.pruned:
         print(f"{INDENT}pruned {path}, which nothing explains and no record claims", file=out)
     print("", file=out)
+
+
+def verdict(outcome: Outcome, out: TextIO) -> None:
+    """What `--check` prints, which is an answer rather than a list of what it did.
+
+    A check is read by a person watching a hook refuse their commit, and by the
+    CI log nobody reads until it is red. Both want the verdict first and the
+    detail under it.
+    """
+    harnesses = joined(outcome.harnesses.get(Scope.PROJECT, ()))
+    if not harnesses:
+        offered = joined([adapter.name for adapter in adapters.machineless(adapters.ADAPTERS)])
+        print("Nothing to check: this repository names no harness whose renders it commits.", file=out)
+        print(f"{INDENT}`akit harness add <name>` with one of {offered} is what commits rendered kits.", file=out)
+        return
+    if not outcome.stale:
+        print(f"Up to date: what this repository commits for {harnesses} matches its manifest.", file=out)
+        return
+    print(f"Out of date: what this repository commits for {harnesses} does not match its manifest.", file=out)
+    for reason in outcome.stale:
+        print(f"{INDENT}{reason}", file=out)
+    print(f"{INDENT}fix: run `akit render` and commit what it writes.", file=out)
 
 
 def text(outcome: Outcome, out: TextIO) -> None:
@@ -1009,8 +1365,10 @@ def payload(outcome: Outcome) -> dict[str, Any]:
             {"repository": str(root), "lists": list(listed), "changed": changed}
             for root, listed, changed in outcome.ignored
         ],
+        "unexplained": [str(path) for path in outcome.unexplained],
         "withdrawal_suspended": outcome.suspended,
         "changed_nothing": outcome.quiet,
+        "stale": list(outcome.stale),
     }
 
 
@@ -1046,17 +1404,65 @@ def run(
     return outcome.exit_code
 
 
+def check(
+    out: TextIO,
+    *,
+    as_json: bool,
+    choices: Choices = EVERYTHING,
+    start: Path | None = None,
+    home: Path | None = None,
+) -> Exit:
+    """`akit render --check`. Non-zero when a committed render is out of date.
+
+    The same walk with three things changed. It writes nothing. It judges the
+    project scope and the harnesses the manifest names that have no machine, so
+    its verdict is the same in every clone rather than a report that every
+    repository is stale on a runner with no editors installed. And it fetches,
+    because a runner has never rendered and has no cache to recompute a
+    committed render from (DESIGN.md section 10).
+
+    The narrowing flags are refused rather than honoured. Excluding the only
+    harness that commits anything would leave a check with nothing to look at,
+    which passes; inside a pre-commit hook that is the one place a false pass
+    costs something.
+    """
+    if choices.narrowed:
+        raise UsageError(
+            "render --check does not take --harness or --no-harness.\n"
+            "  Narrowing a check leaves it with less to look at, and a check that looked at nothing passes.\n"
+            "  Run `akit render --check` on its own."
+        )
+    places = Directories(home=home or Path.home())
+    outcome = render(
+        start or Path.cwd(),
+        places,
+        COMMITTED,
+        CHECKING,
+    )
+    if as_json:
+        print(json.dumps(payload(outcome), indent=2), file=out)
+    else:
+        verdict(outcome, out)
+    return outcome.exit_code
+
+
 __all__ = [
+    "CHECKING",
+    "COMMITTED",
+    "RENDERING",
     "Choices",
     "Directories",
     "Entry",
+    "Mode",
     "Outcome",
     "Placement",
     "Withdrawal",
+    "check",
     "counted",
     "payload",
     "render",
     "run",
     "scopes_from",
     "text",
+    "verdict",
 ]

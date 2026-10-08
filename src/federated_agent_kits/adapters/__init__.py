@@ -15,13 +15,13 @@ from __future__ import annotations
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-from federated_agent_kits.adapters import copilot_vscode, opencode
+from federated_agent_kits.adapters import copilot_ci, copilot_vscode, opencode
 from federated_agent_kits.adapters.adapter import Adapter, Destination, Pointer, RuleShape, git_root
 from federated_agent_kits.manifest import Kind, Scope
 
 #: Every harness this build knows. One line per adapter, and nothing else in the
 #: system is edited when one arrives.
-ADAPTERS: tuple[Adapter, ...] = (opencode.ADAPTER, copilot_vscode.ADAPTER)
+ADAPTERS: tuple[Adapter, ...] = (opencode.ADAPTER, copilot_vscode.ADAPTER, copilot_ci.ADAPTER)
 
 BY_NAME: dict[str, Adapter] = {adapter.name: adapter for adapter in ADAPTERS}
 
@@ -55,6 +55,28 @@ def expand(names: Sequence[str], home: Path) -> tuple[tuple[Adapter, ...], tuple
         elif name not in unknown:
             unknown.append(name)
     return tuple(chosen.values()), tuple(unknown)
+
+
+def machineless(chosen: Iterable[Adapter]) -> tuple[Adapter, ...]:
+    """The harnesses among these that `akit` can never run on.
+
+    What they have in common is the only thing callers care about: everything
+    written for one has to be committed or it does not exist (DESIGN.md section
+    4). So this is the set the ignore block subtracts, the set the leak refusal
+    asks about, and the set `render --check` judges.
+    """
+    return tuple(adapter for adapter in chosen if not adapter.has_a_machine)
+
+
+def named(names: Sequence[str], home: Path) -> tuple[tuple[Adapter, ...], tuple[str, ...]]:
+    """The same expansion with `detected` dropped, which is what `--check` judges.
+
+    A CI runner has none of the harnesses on your laptop installed, so a check
+    that honoured detection would call every repository stale forever. What it
+    judges instead is the part of the list that reads the same in every clone,
+    which is the names somebody wrote down (DESIGN.md section 10).
+    """
+    return expand([name for name in names if name != DETECTED], home)
 
 
 def source_directories(kind: Kind) -> tuple[str, ...]:
@@ -92,5 +114,7 @@ __all__ = [
     "expand",
     "git_root",
     "kinds_taken",
+    "machineless",
+    "named",
     "source_directories",
 ]

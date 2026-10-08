@@ -34,10 +34,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
 
-from federated_agent_kits import adapters, cache, discovery, editing, render, sources
+from federated_agent_kits import adapters, cache, discovery, editing, privacy, render, sources
 from federated_agent_kits import manifest as manifests
-from federated_agent_kits.cache import Fetched, RefKind, UnreachableError
-from federated_agent_kits.exits import Exit, UsageError
+from federated_agent_kits.cache import Fetched, Privacy, RefKind, UnreachableError
+from federated_agent_kits.exits import Exit, RefusalError, UsageError
 from federated_agent_kits.manifest import Kind, Manifest, Scope, Subscription
 from federated_agent_kits.sources import SourceKey
 
@@ -180,6 +180,7 @@ def _resolve_for_add(
     *,
     anchor: Path,
     cache_root: Path | None,
+    state_root: Path | None,
 ) -> tuple[Path, str | None, str | None]:
     """The source as a directory, the commit to pin to, and what the comment says.
 
@@ -188,6 +189,12 @@ def _resolve_for_add(
     the remote is asked what it points at now, and a machine that cannot reach it
     but already holds a clone pins to what it has rather than failing: `add` of a
     cached source works offline (DESIGN.md section 10).
+
+    **Whatever the fetch learned about how private the source is, is written
+    down here.** It is only observable while cloning, and the command that
+    refuses to commit a private kit runs long afterwards and on a different day
+    (DESIGN.md section 8). A fetch that classified nothing, because the cache
+    already held the source, leaves what was already known.
     """
     if not key.is_remote:
         if ref is not None:
@@ -198,13 +205,28 @@ def _resolve_for_add(
         return cache.resolve(key, anchor=anchor, cache_root=cache_root).root, None, None
     if ref is not None and COMMIT.fullmatch(ref):
         resolved = cache.resolve(key, pin=ref, anchor=anchor, cache_root=cache_root)
+        _classified(key, resolved.privacy, state_root)
         return resolved.root, ref, None
     try:
         fetched = cache.refresh(key, ref=ref, cache_root=cache_root)
     except UnreachableError:
         resolved = cache.resolve(key, anchor=anchor, cache_root=cache_root, offline=True)
         return resolved.root, resolved.commit, "frozen: the commit this machine already had"
+    _classified(key, fetched.privacy, state_root)
     return fetched.root, fetched.commit, _frozen(fetched)
+
+
+def _classified(key: SourceKey, found: Privacy | None, state_root: Path | None) -> None:
+    """Remember what this fetch turned out to need, or leave what was known.
+
+    `None` means this resolution never went near the network, so it learned
+    nothing and has nothing to say. Writing it as a classification would turn a
+    silence into an answer, and the answer it would turn into is the guess
+    DESIGN.md section 8 forbids.
+    """
+    if found is None:
+        return
+    privacy.save({**privacy.load(state_root), key.raw: found}, state_root)
 
 
 def _frozen(fetched: Fetched) -> str:
@@ -252,7 +274,9 @@ def add(call: Call, *, source: str, name: str, rename: str | None = None, kind: 
     raw, ref = manifests.split_pin(source)
     key = sources.parse(raw)
     anchor = _anchor(chosen.scope, call.start, call.places.home)
-    root, pin, comment = _resolve_for_add(key, ref, anchor=anchor, cache_root=call.places.cache)
+    root, pin, comment = _resolve_for_add(
+        key, ref, anchor=anchor, cache_root=call.places.cache, state_root=call.places.state
+    )
     holding = _kinds_holding(root, name, kind)
     if not holding:
         wanted = "" if kind is None else f", as a {SINGULAR[kind]}"
@@ -519,6 +543,7 @@ def _update_key(entry: _Key, places: render.Directories, anchor: Path) -> _Moved
         )
     before = _before(entry, places, anchor)
     fetched = cache.refresh(key, ref=key.ref, cache_root=places.cache)
+    _classified(key, fetched.privacy, places.state)
     if fetched.commit == entry.pin:
         return _unmoved(
             entry,
@@ -582,18 +607,49 @@ def update(call: Call, *, name: str | None = None) -> Outcome:
 
 
 def _finish(call: Call, chosen: editing.Chosen, edit: _Edit) -> Outcome:
-    """Write the manifest if it changed, then render, which every one of these ends with."""
+    """Write the manifest if it changed, then render, which every one of these ends with.
+
+    **A refusal puts the manifest back.** `add` and `harness add` are the two
+    commands that can create a leak, and the render that follows them is what
+    notices (DESIGN.md section 8). It cannot notice before the line is written,
+    because what it judges is the manifest on disk, and asking the question a
+    second way here would be a second definition of the word "leak" that could
+    drift from the engine's. So the line is written, the render decides, and a
+    refusal restores the file byte for byte before it reaches the caller.
+
+    What that leaves is total from where the caller stands: exit code 3, the
+    manifest it had, and nothing rendered.
+    """
+    before = _bytes_of(chosen.path) if edit.changed else None
     if edit.changed:
         manifests.write(edit.written, chosen.path)
+    try:
+        rendered = render.render(call.start, call.places)
+    except RefusalError:
+        _restore(chosen.path, before)
+        raise
     return Outcome(
         command=edit.command,
         path=chosen.path,
         created=edit.changed and not chosen.existed,
         notes=tuple(edit.notes),
-        rendered=render.render(call.start, call.places),
+        rendered=rendered,
         changed=edit.changed,
         diffs=tuple(edit.diffs),
     )
+
+
+def _bytes_of(path: Path) -> bytes | None:
+    """What the manifest held, or `None` for one this command is about to create."""
+    return path.read_bytes() if path.is_file() else None
+
+
+def _restore(path: Path, before: bytes | None) -> None:
+    """Put the manifest back exactly, including back to not existing at all."""
+    if before is None:
+        path.unlink(missing_ok=True)
+    else:
+        path.write_bytes(before)
 
 
 def text(outcome: Outcome, out: TextIO) -> None:

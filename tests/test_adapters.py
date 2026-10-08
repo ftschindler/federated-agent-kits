@@ -26,6 +26,11 @@ from federated_agent_kits.manifest import Kind, Scope
 pytestmark = pytest.mark.unit
 
 EVERY = pytest.mark.parametrize("adapter", adapters.ADAPTERS, ids=lambda adapter: adapter.name)
+ON_A_MACHINE = pytest.mark.parametrize(
+    "adapter",
+    [adapter for adapter in adapters.ADAPTERS if adapter.has_a_machine],
+    ids=lambda adapter: adapter.name,
+)
 
 
 class TestTheContractEveryAdapterKeeps:
@@ -128,33 +133,55 @@ class TestWhereAPartWouldLand:
         # The reason `copilot-vscode` writes `.agents/skills/` rather than its
         # own directory: Copilot reads the same one opencode does, so the bytes
         # and the path both agree and DESIGN.md section 7's preference for one
-        # copy is the ordinary case rather than the lucky one.
+        # copy is the ordinary case rather than the lucky one. The cloud agent
+        # reads it too, which is what makes naming that harness commit the
+        # skills every other one was reading privately.
         for scope in Scope:
             written = {adapter.target(Kind.SKILL, scope, "writing", tmp_path) for adapter in adapters.ADAPTERS}
 
-            assert len(written) == 1
+            assert written - {None} == {tmp_path / ".agents" / "skills" / "writing"}
 
-    def test_a_rule_wanted_by_both_harnesses_is_not(self, tmp_path: Path):
+    def test_a_rule_wanted_by_several_harnesses_is_not_one_copy(self, tmp_path: Path):
+        # A rule is translated per harness, so the shape decides the path. The
+        # two Copilot harnesses agree on `.github/instructions/` because they
+        # read the same files from the same checkout; opencode does not, and
+        # that is the whole reason rules are not written once for everybody.
         written = {adapter.target(Kind.RULE, Scope.PROJECT, "prose-style", tmp_path) for adapter in adapters.ADAPTERS}
 
-        assert len(written) == len(adapters.ADAPTERS)
+        assert written == {
+            tmp_path / "AGENTS.md",
+            tmp_path / ".github" / "instructions" / "prose-style.instructions.md",
+        }
 
 
 class TestDetection:
     def test_a_harness_that_left_nothing_here_is_not_detected(self, tmp_path: Path):
         assert adapters.detected(tmp_path) == ()
 
-    @EVERY
+    @ON_A_MACHINE
     def test_the_obvious_evidence_is_enough(self, adapter: Adapter, tmp_path: Path):
         tmp_path.joinpath(*adapter.evidence[0].split("/")).mkdir(parents=True)
 
         assert adapter.detected(tmp_path)
 
-    @EVERY
+    @ON_A_MACHINE
     def test_an_unusual_place_is_enough_too(self, adapter: Adapter, tmp_path: Path):
         tmp_path.joinpath(*adapter.evidence[-1].split("/")).mkdir(parents=True)
 
         assert adapter.detected(tmp_path)
+
+    def test_a_harness_with_no_machine_is_never_detected(self, tmp_path: Path):
+        for adapter in adapters.ADAPTERS:
+            if adapter.has_a_machine:
+                continue
+            for kind in adapter.kinds:
+                destination = adapter.destination(kind, Scope.PROJECT)
+                assert destination is not None
+                assert destination.write is not None
+                tmp_path.joinpath(*destination.write.split("/")).mkdir(parents=True, exist_ok=True)
+
+            assert not adapter.detected(tmp_path)
+            assert adapter.evidence == ()
 
     def test_detection_never_asks_what_a_repository_contains(self, tmp_path: Path):
         for directory in (".github/instructions", ".agents/skills", ".opencode", ".vscode"):

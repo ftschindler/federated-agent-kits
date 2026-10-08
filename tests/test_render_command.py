@@ -17,7 +17,8 @@ from pathlib import Path
 
 import pytest
 from fake_home import FakeHome
-from git_environment import local_remote
+from git_environment import FIXED_AUTHOR, git, local_remote
+from ruamel.yaml import YAML
 
 from federated_agent_kits.exits import Exit
 
@@ -256,13 +257,21 @@ class TestWhenItWillNotRun:
         assert "not in the cache" in done.stdout
         assert "does not fetch" in done.stdout
 
-    def test_check_is_a_usage_error_naming_the_task_it_waits_for(self, machine: Machine, remote: str):
+    def test_check_on_a_repository_that_commits_nothing_passes_and_says_why(self, machine: Machine, remote: str):
         project = repository(machine, "project", remote)
 
         done = machine.home.run("render", "--check", cwd=project)
 
+        assert done.returncode == Exit.OK
+        assert "names no harness whose renders it commits" in done.stdout
+
+    def test_check_refuses_the_narrowing_flags_rather_than_passing_on_nothing(self, machine: Machine, remote: str):
+        project = repository(machine, "project", remote)
+
+        done = machine.home.run("render", "--check", "--no-harness", "opencode", cwd=project)
+
         assert done.returncode == Exit.USAGE
-        assert "T8" in done.stderr
+        assert "does not take --harness or --no-harness" in done.stderr
 
     def test_a_harness_nobody_knows_is_a_usage_error_rather_than_a_silent_skip(self, machine: Machine, remote: str):
         project = repository(machine, "project", remote)
@@ -301,3 +310,77 @@ class TestTheEntryPointAPersonActuallyTypes:
         assert done.returncode == Exit.OK
         assert "render record" in done.stdout or "hash" in done.stdout
         assert "Next:" in done.stdout
+
+
+def a_real_repository(machine: Machine, name: str, source: str, body: str) -> Path:
+    """A repository git actually knows about, which the committed checks need.
+
+    The `repository` helper above makes a bare `.git` directory, which is enough
+    for everything that only walks up looking for one. Deciding whether a
+    manifest is committed, or who can read this repository, is git's answer
+    rather than a directory's.
+    """
+    root = machine.home.root / name
+    root.mkdir(parents=True)
+    git("-C", str(root), "init", "-q")
+    (root / ".akit.yaml").write_text(body, encoding="utf-8")
+    return root
+
+
+class TestTheCheckAHookRuns:
+    """`akit render --check`, run the way `.pre-commit-hooks.yaml` runs it.
+
+    Installing the hook is pre-commit's business and needs a network and an
+    install of its own. What this repository owns is the entry, so the entry is
+    what gets run, as a subprocess, in a throwaway repository.
+    """
+
+    def entry(self) -> list[str]:
+        declared = YAML(typ="safe").load(
+            (Path(__file__).parent.parent / ".pre-commit-hooks.yaml").read_text(encoding="utf-8")
+        )
+        return declared[0]["entry"].removeprefix("akit ").split()
+
+    def test_it_passes_on_a_fresh_render_of_a_committing_repository(self, machine: Machine, remote: str):
+        project = a_real_repository(
+            machine, "project", remote, f"version: 1\nharnesses: [copilot-ci]\n\nskills:\n  {remote}: [writing]\n"
+        )
+        assert machine.home.run("render", cwd=project).returncode == Exit.OK
+
+        done = machine.home.run(*self.entry(), cwd=project)
+
+        assert done.returncode == Exit.OK, done.stderr
+        assert "Up to date" in done.stdout
+
+    def test_it_fails_after_somebody_edits_a_committed_file(self, machine: Machine, remote: str):
+        project = a_real_repository(
+            machine, "project", remote, f"version: 1\nharnesses: [copilot-ci]\n\nskills:\n  {remote}: [writing]\n"
+        )
+        machine.home.run("render", cwd=project)
+        (project / SKILLS / "writing" / "SKILL.md").write_text("# edited\n", encoding="utf-8")
+
+        done = machine.home.run(*self.entry(), cwd=project)
+
+        assert done.returncode == Exit.ERROR
+        assert "Out of date" in done.stdout
+        assert "akit render" in done.stdout
+
+    def test_it_refuses_a_committed_manifest_naming_somebodys_laptop(self, machine: Machine, remote: str):
+        outside = machine.home.root / "my-kits"
+        (outside / "skills" / "writing").mkdir(parents=True)
+        (outside / "skills" / "writing" / "SKILL.md").write_text("# writing\n", encoding="utf-8")
+        project = a_real_repository(machine, "project", remote, f"version: 1\n\nskills:\n  {outside}: [writing]\n")
+        git("-C", str(project), "add", "-A")
+        git("-C", str(project), *FIXED_AUTHOR, "commit", "-qm", "subscribe")
+
+        done = machine.home.run(*self.entry(), cwd=project)
+
+        assert done.returncode == Exit.REFUSAL
+        assert str(outside) in done.stderr
+
+    def test_a_repository_committing_nothing_is_not_called_stale(self, machine: Machine, remote: str):
+        project = a_real_repository(machine, "project", remote, f"version: 1\n\nskills:\n  {remote}: [writing]\n")
+
+        done = machine.home.run(*self.entry(), cwd=project)
+
+        assert done.returncode == Exit.OK, done.stderr

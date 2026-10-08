@@ -144,13 +144,28 @@ def _environment(*, anonymous: bool) -> dict[str, str]:
     return environment
 
 
-def _git(
+def git(
     *arguments: str,
     cwd: Path | None = None,
     anonymous: bool,
     check: bool = True,
+    timeout: float | None = None,
 ) -> subprocess.CompletedProcess[str]:
-    """One git invocation. No shell, no `&&`, and never the ambient git environment."""
+    """One git invocation. No shell, no `&&`, and never the ambient git environment.
+
+    Public because the target classification in `targets.py` needs the same two
+    things this gives a clone: an environment with the surrounding repository's
+    `GIT_*` variables taken out, and an `anonymous` switch that decides whether
+    this machine's credentials are allowed to answer. Those are the whole test
+    for how private something is (DESIGN.md section 8), and a second
+    implementation of them would be a second definition of the word.
+
+    `timeout` raises `subprocess.TimeoutExpired`, which is a `SubprocessError`
+    and deliberately not a `TimeoutError`, so a caller has to name it. Nothing
+    here passes one: a clone is as slow as the repository is big. The one caller
+    that does is probing a remote from inside a git hook, where hanging is worse
+    than failing.
+    """
     flags = ANONYMOUS_FLAGS if anonymous else ()
     return subprocess.run(
         ["git", *flags, *arguments],
@@ -159,12 +174,13 @@ def _git(
         capture_output=True,
         text=True,
         check=check,
+        timeout=timeout,
     )
 
 
 def _clone(source: SourceKey, destination: Path, *, anonymous: bool) -> subprocess.CompletedProcess[str]:
     branch = ("--branch", source.ref) if source.ref is not None else ()
-    return _git(
+    return git(
         "clone",
         *SHALLOW,
         *branch,
@@ -226,6 +242,27 @@ def _fetch(source: SourceKey, destination: Path) -> Privacy:
     )
 
 
+def _over_the_network(destination: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    """One git command that talks to the remote, anonymously if it can and with credentials if it must.
+
+    The same two attempts a clone makes, and for the same reason. A private
+    source is one that needed credentials, so every later question put to the
+    same remote needs them too: `ls-remote` to find out what a branch points at
+    now, `fetch` to deepen past a pin. Asking anonymously first costs a public
+    source nothing, because for a public source the first attempt is the only
+    one.
+
+    Without this, `akit add` of a private source clones it, learns it is
+    private, and then fails on the very next call, taking the classification
+    with it. The leak refusal in DESIGN.md section 8 then has nothing to go on,
+    which is the failure that found this.
+    """
+    found = git(*arguments, cwd=destination, anonymous=True, check=False)
+    if found.returncode == 0:
+        return found
+    return git(*arguments, cwd=destination, anonymous=False, check=False)
+
+
 def _said(result: subprocess.CompletedProcess[str]) -> str:
     """git's own last word, which is the only thing that says what actually went wrong."""
     text = (result.stderr or result.stdout).strip()
@@ -235,7 +272,7 @@ def _said(result: subprocess.CompletedProcess[str]) -> str:
 
 def _holds(destination: Path, commit: str) -> bool:
     """Whether the clone already has this commit, which decides whether anything is fetched."""
-    found = _git("cat-file", "-e", f"{commit}^{{commit}}", cwd=destination, anonymous=True, check=False)
+    found = git("cat-file", "-e", f"{commit}^{{commit}}", cwd=destination, anonymous=True, check=False)
     return found.returncode == 0
 
 
@@ -245,11 +282,14 @@ def _deepen(source: SourceKey, destination: Path, commit: str) -> None:
     Fetching a commit by name is what most forges allow and what keeps this
     cheap. The ones that do not allow it fail the same way whatever you ask for,
     so the fall back is the whole history rather than a cleverer request.
+
+    Both attempts go through `_over_the_network`, so a source that needed
+    credentials to clone can be deepened with them too.
     """
-    by_name = _git("fetch", *SHALLOW, "--quiet", "origin", commit, cwd=destination, anonymous=True, check=False)
+    by_name = _over_the_network(destination, "fetch", *SHALLOW, "--quiet", "origin", commit)
     if by_name.returncode == 0 and _holds(destination, commit):
         return
-    everything = _git("fetch", "--unshallow", "--quiet", "origin", cwd=destination, anonymous=True, check=False)
+    everything = _over_the_network(destination, "fetch", "--unshallow", "--quiet", "origin")
     if everything.returncode != 0 or not _holds(destination, commit):
         raise CacheError(
             source,
@@ -261,7 +301,7 @@ def _deepen(source: SourceKey, destination: Path, commit: str) -> None:
 def _checkout(source: SourceKey, destination: Path, commit: str) -> None:
     if not _holds(destination, commit):
         _deepen(source, destination, commit)
-    _git(
+    git(
         "-c",
         "advice.detachedHead=false",
         "checkout",
@@ -274,7 +314,7 @@ def _checkout(source: SourceKey, destination: Path, commit: str) -> None:
 
 
 def _head(destination: Path) -> str:
-    return _git("rev-parse", "HEAD", cwd=destination, anonymous=True).stdout.strip()
+    return git("rev-parse", "HEAD", cwd=destination, anonymous=True).stdout.strip()
 
 
 def _inside(source: SourceKey, directory: Path) -> Path:
@@ -388,7 +428,7 @@ class Fetched:
 
 def _asked(source: SourceKey, destination: Path, *patterns: str) -> dict[str, str]:
     """One `ls-remote`, as the mapping of ref name to commit that it prints."""
-    found = _git("ls-remote", *patterns, cwd=destination, anonymous=True, check=False)
+    found = _over_the_network(destination, "ls-remote", *patterns)
     if found.returncode != 0:
         raise UnreachableError(
             source,
@@ -410,7 +450,7 @@ def _ls_remote(source: SourceKey, destination: Path, ref: str | None) -> tuple[s
     guessing the kind from the name is how `v2` becomes a branch.
     """
     if ref is None:
-        found = _git("ls-remote", "--symref", "origin", "HEAD", cwd=destination, anonymous=True, check=False)
+        found = _over_the_network(destination, "ls-remote", "--symref", "origin", "HEAD")
         if found.returncode != 0:
             raise UnreachableError(
                 source,
@@ -489,7 +529,7 @@ def difference(source: SourceKey, old: str, new: str, paths: Sequence[str], *, c
             _deepen(source, destination, old)
     except CacheError:
         return ""
-    found = _git(
+    found = git(
         "diff",
         "--no-color",
         old,
@@ -511,6 +551,7 @@ __all__ = [
     "Resolved",
     "UnreachableError",
     "difference",
+    "git",
     "location",
     "refresh",
     "resolve",

@@ -119,6 +119,10 @@ repos:
     files: ^\.github/dependabot\.ya?ml$
     args: ["--schemafile", "https://json.schemastore.org/dependabot-2.0.json"]
   - id: check-jsonschema
+    name: Validate the hooks we publish against schema
+    files: ^\.pre-commit-hooks\.ya?ml$
+    args: ["--schemafile", "https://json.schemastore.org/pre-commit-hooks.json"]
+  - id: check-jsonschema
     name: Validate markdownlint-cli2 config against schema
     files: ^\.markdownlint-cli2\.jsonc$
     # identify tags .jsonc as only [file,text], so the hook's built-in
