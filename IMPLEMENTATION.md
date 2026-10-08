@@ -463,17 +463,35 @@ manifest says.
 **Deliverable.** The three rule renderers, the marker-block writer, and the opencode pointer.
 
 **Specified by DESIGN.md.** The three shapes, the ordering rule, and why the first is
-preferred ([§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them)).
+preferred ([§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them)); how the record
+describes a rule inside somebody else's file ([§6](DESIGN.md#what-a-render-leaves-behind)).
 
 **Build.**
 
 - Shape one, a directory we own: one file per rule, so removing one does not touch its
   neighbours. Copilot's `.github/instructions/*.instructions.md` is the worked case.
-- Shape two, pointed once: write the pointer at setup, never at render, and touch exactly one
-  key in a config a person owns, leaving the rest byte-identical. opencode's `instructions` is
-  the worked case.
 - Shape three, one shared file: each rule between `BEGIN <id>` and `END <id>`, everything
-  between and around the blocks preserved.
+  between and around the blocks preserved. opencode's `AGENTS.md` is the worked case, at both
+  scopes, and it is the shape this task has to get right rather than the one it can treat as
+  a fallback ([§4](DESIGN.md#what-opencode-looks-like)).
+- Shape two, pointed once: write the pointer at setup, never at render, and touch exactly one
+  key in a config a person owns, leaving the rest byte-identical. **No adapter shipping for
+  1.0 answers this way**, since opencode stopped loading the key that made it work, so this
+  renderer is built against a fixture adapter or deferred to whoever adds a harness that wants
+  it. Deciding which is part of this task.
+- **A pointer this tool wrote is never withdrawn.** `harness remove` names the file and the
+  key it would have to edit, and `doctor` reports a pointer aimed at a directory that is not
+  there. Editing somebody's config on the way out is a second in-place editor for one line of
+  benefit, and the asymmetry with the `.gitignore` block is deliberate: we clean up files we
+  created, and we do not edit a file we only added a line to.
+- **The record grows the region entry here**, because this is the task that first writes one.
+  [T5](#t5---the-render-engine-and-skills) left `src/federated_agent_kits/record.py` holding
+  whole files only, since all three adapters shipping for 1.0 take rules as a directory and
+  nothing writes the third shape yet. The rule it follows is settled in
+  [§6](DESIGN.md#what-a-render-leaves-behind) and is not T6's to reopen: the entry names a
+  marker id, the hash covers the bytes between the markers, and the entry may never delete its
+  host file. The field is additive and an absent one already means "leave alone", so this
+  needs no record version bump.
 - Honour manifest order, which is the only place order means anything.
 
 **Tests.** A hand-authored paragraph between two marker blocks survives three renders, and so

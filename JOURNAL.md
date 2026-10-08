@@ -674,3 +674,66 @@ machine rather than about this repository.
 So the block is now computed from the render record: a directory is listed when something the
 record explains is inside it. The two differ only in the case that matters, which is why the
 first version passed every test except the one that withdrew everything and then looked.
+
+## 2026-10-08 - opencode kept the key and stopped loading it
+
+A question about a detail found a harness moving underneath the design, which is twice in
+three days and the second entry of this kind.
+
+The detail: what the adapter should do when somebody's `instructions` array holds explicit
+paths and no glob. Checking opencode's documentation rather than answering from the design
+settled it immediately, because the documented example is already a mixed array:
+
+```json
+{ "instructions": ["CONTRIBUTING.md", "docs/guidelines.md", ".cursor/rules/*.md"] }
+```
+
+So one glob of ours sits beside somebody's explicit paths, and nothing has to adapt. The same
+page answered a question nobody had asked yet. From the [v2 config
+docs](https://opencode.ai/v2/docs/config/):
+
+> OpenCode accepts this field but does not load its entries; use `AGENTS.md` for instructions.
+
+And from the [v2 instructions docs](https://opencode.ai/v2/docs/instructions/):
+
+> The V2 config schema accepts an `instructions` array, but V2 does not currently resolve its
+> files, glob patterns, or URLs.
+
+[DESIGN.md](DESIGN.md#what-opencode-looks-like) had opencode as the second rule shape, pointed
+once at `.opencode/instructions/` and never edited again, which was the pleasant answer and
+the one [§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them) prefers. On v2 that
+renders files, writes a config key, and produces an agent that never sees any of it. The
+files are there, the command exits 0, and nothing fails.
+
+`AGENTS.md` is read by v1 and v2 both, so opencode is now the third shape: one file shared
+with the user, each rule between its own markers. [§4](DESIGN.md#what-opencode-looks-like) and
+[§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them) are rewritten rather than
+annotated, and `src/federated_agent_kits/adapters/opencode.py` with them, because a snapshot
+known to be wrong is worse than no snapshot. The adapter contract test caught the change by
+itself: it asserted every rule is a file named after the rule, which was an assertion that no
+adapter is ever the third shape.
+
+**Calibration, because the fix is not urgent in the way it reads.** The latest release is
+`v1.18.35`, published two days ago, and there is no v2 tag. The pointed shape works for
+everybody running opencode today. What it has is an expiry date and a silent failure at the
+end of it.
+
+Two things fell out of the same hour and are worth recording beside it.
+
+**`.agents/skills/` survives.** v2's skill discovery lists `.agents/skills` and
+`~/.agents/skills` as compatibility sources, so what T5 shipped is read by both versions. The
+alarm was raised and is closed.
+
+**A glob's expansion order is not defined.** opencode preserves the order of entries in the
+`instructions` array, and the order of files matched by one pattern is whatever the glob
+implementation returns. Rules are the one kind with an order
+([§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them)), so wherever a harness
+reads a directory of ours, manifest order has to be carried by the filenames. That is T6's to
+settle and nothing in DESIGN.md says it yet.
+
+**The standing lesson.** [IMPLEMENTATION.md](IMPLEMENTATION.md)'s "What every task delivers"
+already says a task reads the harness's documentation before writing a path. Both times it
+has been followed, it has paid for itself within the hour, and both times the trigger was
+somebody asking an unrelated question rather than a scheduled check. That is the evidence
+[T14](IMPLEMENTATION.md#t14---iterate-on-what-use-earns) wants for deciding whether this needs
+a test that reads documentation rather than a habit that remembers to.

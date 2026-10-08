@@ -199,14 +199,20 @@ of those paths will move.
 
 ### What opencode looks like
 
-opencode reads a list, which makes rules the easy case. Its config takes an `instructions`
-key of files, globs and even https URLs, and combines all of them with whatever `AGENTS.md`
-files it found. So it is the second shape: pointed once at a directory we own, and never
-edited again.
+opencode has two ways in, and only one of them survives its next major version. Its v1 config
+takes an `instructions` key of files, globs and even https URLs, and combines all of them with
+whatever `AGENTS.md` files it found. That would make it the second shape: pointed once at a
+directory we own, and never edited again. v2 keeps the key, declines to load it, and says to
+use `AGENTS.md` instead.
+
+`AGENTS.md` is read by both versions, so that is where rules go, and **opencode is the third
+shape**: one file shared with the user, each rule between its own markers. The second shape
+would be pleasanter to render into and fails silently on v2, which is the worse of the two
+failures available ([§4](#4-adding-a-harness), question 6).
 
 | opencode | Repository | User-wide |
 | --- | --- | --- |
-| Rules | `AGENTS.md` up to the worktree root, plus `instructions` globs | `~/.config/opencode/AGENTS.md`, plus `instructions` in the global config |
+| Rules | `AGENTS.md` up to the worktree root | `~/.config/opencode/AGENTS.md` |
 | Skills | `.opencode/skills/`, `.claude/skills/`, `.agents/skills/` | the same three under `~` |
 | Agents | `.opencode/agent/*.md` | `~/.config/opencode/agent/*.md` |
 
@@ -737,6 +743,18 @@ destroys nothing. One that no longer matches is a rendered file somebody edited,
 only file in a rendered directory that contains anything, so it is reported and left where it
 is ([§10](#10-commands)).
 
+**A rule written into a file we do not own is recorded as a region rather than as a file.**
+The third rule shape puts our text between markers inside somebody's own file
+([§7](#rules-and-the-three-ways-a-harness-can-take-them)), so such an entry names the marker
+id beside the path, the hash is of the bytes between the markers, and the entry may never
+delete its host. Withdrawal is then the same three outcomes one level down: the block is
+unchanged, so it is removed; the block was edited, so it is left and reported; there is no
+entry, so nothing is touched.
+
+Hashing the whole file instead would fail in the ordinary case rather than a rare one. The
+host file is prose somebody edits, so the hash would stop matching the week after it was
+written, and every rule in it would become un-withdrawable from then on.
+
 It also records how each remote source was classified when it was fetched
 ([§8](#8-keeping-the-employers-kits-in)), because needing credentials to clone is only
 observable while cloning. A path is not fetched and does not need the record: it takes the
@@ -809,6 +827,12 @@ with whatever the user wrote there, so each rule sits between `BEGIN <id>` and `
 markers and everything between blocks survives. It is committed whatever we do, because its
 host is, which makes it one of the things [§8](#8-keeping-the-employers-kits-in) counts as
 able to leak.
+
+**The fallback is not hypothetical, and a harness can take your preferred shape away.**
+opencode offered the second shape and then stopped loading the key that made it work, so
+`AGENTS.md` and the third shape are what both of its versions have in common
+([§4](#what-opencode-looks-like)). A preference is about which shape to choose when a harness
+offers several, not about which ones we can afford to build.
 
 Rules are the only kind with an order. Two rules can contradict each other and something has
 to win. The order they appear in the manifest decides it, and we are not looking for a

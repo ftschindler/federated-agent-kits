@@ -20,6 +20,13 @@ it, whatever directory it is sitting in and whatever it is called.
 **An absent record is not an error.** A machine that has never rendered has none,
 and that is the state every fresh clone is in.
 
+**Every entry is a whole file, until T6.** A rule written into a file somebody
+else owns is recorded as a region: the marker id beside the path, the hash over
+the bytes between the markers, and no permission to delete the host
+(DESIGN.md section 6). No adapter shipping for 1.0 takes rules that way, so the
+field lands with the renderer that first writes one. An absent field already
+means "leave alone", so adding it then costs no version bump.
+
 **Deleting it costs one `akit render`**, which is why it is written whole each
 time rather than edited. One thing does not come back: a file rendered before the
 record was lost is now unknown rather than unexplained, and `render --prune` is
