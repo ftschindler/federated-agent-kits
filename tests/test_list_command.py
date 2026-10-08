@@ -180,7 +180,7 @@ class TestListInAFakeHome:
               rules prose-style, from <remote>, at <commit>
                 read from <cache>/<slug>
                 prose-style, at rules/prose-style.md in the source
-                  opencode: <repo>/.opencode/instructions/prose-style.md (not rendered)
+                  opencode: <repo>/AGENTS.md (not rendered)
 
             Harnesses
               opencode: detected on this machine

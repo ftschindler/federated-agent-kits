@@ -149,7 +149,7 @@ class _Reading:
     start: Path
     home: Path
     cache_root: Path | None
-    written: record.Record
+    written: record.Records
     chosen: dict[Scope, tuple[Adapter, ...]]
 
     def anchor(self, adapter: Adapter, scope: Scope) -> Path:
@@ -261,7 +261,7 @@ def survey(
 ) -> Inventory:
     """Read the manifests, the record and the disk, and work out what is where."""
     merged = manifest.load(start, user_path=user_path)
-    written = record.load(state_root)
+    written = record.load_all(start, state_root=state_root)
     harnesses, chosen = _harness_lines(merged, home)
     reading = _Reading(start=start, home=home, cache_root=cache_root, written=written, chosen=chosen)
     lines = tuple(reading.line(subscription) for subscription in merged.subscriptions)

@@ -23,7 +23,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as installed_version
 from typing import Any, TextIO
 
-from federated_agent_kits import listing
+from federated_agent_kits import listing, render
 from federated_agent_kits.commands import COMMANDS, TOPICS, TOPICS_BY_NAME, Argument, Command
 from federated_agent_kits.exits import AkitError, Exit, NotImplementedYetError
 
@@ -178,12 +178,33 @@ def show_topic(name: str, as_json: bool, out: TextIO) -> Exit:
     return Exit.OK
 
 
+def render_command(arguments: argparse.Namespace, out: TextIO) -> Exit:
+    """`akit render`, with the flags turned into the two values the engine takes.
+
+    `--check` is the one flag this build does not answer. It judges committed
+    renders, and nothing is committed until the machineless harness lands, so a
+    check today would be a check with nothing to look at - which passes, inside
+    a pre-commit hook, which is the one place a false pass costs something.
+    """
+    if arguments.check:
+        raise NotImplementedYetError("render --check", "T8, with the harness whose renders are committed")
+    choices = render.Choices(
+        scopes=render.scopes_from(only_global=arguments.global_scope, only_project=arguments.project),
+        only=tuple(arguments.harness or ()),
+        without=tuple(arguments.no_harness or ()),
+        prune=arguments.prune,
+    )
+    return render.run(out, as_json=arguments.json, choices=choices)
+
+
 def dispatch(arguments: argparse.Namespace, out: TextIO) -> Exit:
     """Run the chosen verb, or say which task it is waiting for."""
     if arguments.command == "help":
         return show_topic(arguments.topic, arguments.json, out)
     if arguments.command == "list":
         return listing.run(out, as_json=arguments.json)
+    if arguments.command == "render":
+        return render_command(arguments, out)
     command = next(entry for entry in COMMANDS if entry.name == arguments.command)
     raise NotImplementedYetError(command.name, command.task or "")
 

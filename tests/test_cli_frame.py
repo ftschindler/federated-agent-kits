@@ -50,7 +50,7 @@ class TestExitCodes:
         assert self.code_for(RefusalError("private source into a public target")) == Exit.REFUSAL
 
     def test_a_verb_that_has_not_landed_is_a_usage_error(self) -> None:
-        assert NotImplementedYetError("render", "T5").exit_code == Exit.USAGE
+        assert NotImplementedYetError("render --check", "T8").exit_code == Exit.USAGE
 
     @staticmethod
     def code_for(error: Exception) -> int:
@@ -182,10 +182,10 @@ class TestNotImplementedYet:
     """
 
     def test_the_list_is_exactly_what_has_not_landed(self) -> None:
-        assert unimplemented() == ["add", "remove", "harness", "render", "update", "doctor"]
+        assert unimplemented() == ["add", "remove", "harness", "update", "doctor"]
 
     def test_the_verbs_that_work_are_exactly_the_ones_whose_tasks_landed(self) -> None:
-        assert [command.name for command in COMMANDS if command.implemented] == ["list", "help"]
+        assert [command.name for command in COMMANDS if command.implemented] == ["list", "render", "help"]
 
     @pytest.mark.parametrize("name", unimplemented())
     def test_each_one_names_its_task(self, name: str) -> None:

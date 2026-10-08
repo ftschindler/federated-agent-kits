@@ -79,9 +79,13 @@ def test_a_help_topic_as_json_is_json(fake_home: FakeHome) -> None:
 
 
 def test_nothing_was_written_into_the_house(fake_home: FakeHome) -> None:
-    """A frame that only parses may not leave a file behind."""
+    """A command that only reads may not leave a file behind.
+
+    `render` is not in the list and cannot be: it writes the render record, in
+    the state directory, which is the whole point of it.
+    """
     before = sorted(path.relative_to(fake_home.root) for path in fake_home.root.rglob("*"))
-    for argv in (("--help",), ("help", "manifest"), ("list",), ("render",)):
+    for argv in (("--help",), ("help", "manifest"), ("list",)):
         fake_home.run(*argv)
     after = sorted(path.relative_to(fake_home.root) for path in fake_home.root.rglob("*"))
     assert before == after

@@ -97,11 +97,25 @@ class TestWhereAPartWouldLand:
         assert target == tmp_path.joinpath(*destination.write.split("/"), "writing")
 
     @EVERY
-    def test_a_rule_takes_the_suffix_its_harness_insists_on(self, adapter: Adapter, tmp_path: Path):
+    def test_a_rule_is_a_file_named_after_it_unless_the_harness_shares_one(self, adapter: Adapter, tmp_path: Path):
+        """Two answers, because the third rule shape has no file of its own.
+
+        A shared-file harness answers with the host file, and which bytes inside
+        it belong to this rule is the marker block's business rather than the
+        path's (DESIGN.md section 7). Asserting one filename for every adapter
+        would be asserting that no adapter is ever the third shape, which
+        opencode now is.
+        """
+        destination = adapter.destination(Kind.RULE, Scope.PROJECT)
+        assert destination is not None and destination.write is not None
+
         target = adapter.target(Kind.RULE, Scope.PROJECT, "prose-style", tmp_path)
 
         assert target is not None
-        assert target.name == f"prose-style{adapter.rule_suffix}"
+        if adapter.rule_shape is RuleShape.SHARED_FILE:
+            assert target == tmp_path.joinpath(*destination.write.split("/"))
+        else:
+            assert target.name == f"prose-style{adapter.rule_suffix}"
 
     def test_the_two_scopes_do_not_write_to_one_place(self, tmp_path: Path):
         for adapter in adapters.ADAPTERS:

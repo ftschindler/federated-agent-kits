@@ -623,3 +623,214 @@ they were in code, and T4 copied them faithfully. "Every path in §4 will move" 
 two places in IMPLEMENTATION.md, and what neither said is that an adapter task has to go and
 look. It now says so in "What every task delivers", so it binds every task rather than only
 the one that writes the guide.
+
+## 2026-10-08 - Rendering in one repository deleted another repository's files
+
+[T5](IMPLEMENTATION.md#t5---the-render-engine-and-skills)'s withdrawal rule was written
+against the scope a file belongs to, which is what the render record carries. The unit layer
+agreed with it for twelve tests. The `cli` layer, which renders twice in two repositories in
+one fake home, did not:
+
+```text
+E       AssertionError: assert {} == {'writing/SKILL.md': ...}
+E         Right contains 2 more items
+```
+
+The empty side is the repository rendered *first*. Both checkouts are project scope, both
+their rendered files were in the record, and the second render found the first one's files
+sitting in the record with a scope it was rendering and nothing in *this* repository's
+manifest explaining them. So it deleted them, reported the deletion in full sentences, and
+exited 0.
+
+The rule was right about scope and silent about place. A record is machine-wide and a render
+happens somewhere: your home directory holds one set of directories, and every repository on
+this disk holds its own. `render._territory` is the missing half - the directories this
+particular run is responsible for, computed from every registered adapter anchored at this
+render's roots - and withdrawal now needs a file to be inside it as well as in a scope it is
+rendering.
+
+Every registered adapter rather than the chosen ones, deliberately. Withdrawal has to reach
+the files of a harness that has just left the `harnesses:` list, which is exactly the moment
+the chosen list stops naming it, and that is what `akit harness remove` will be in
+[T7](IMPLEMENTATION.md#t7---add-remove-update-harness).
+
+**What found it was a layer, not a test.** Nothing in the unit layer renders twice in two
+places, because a unit test builds the setup it is about and this bug needs two setups that
+have nothing to do with each other. The `cli` layer gets that for free: one fake home, several
+repositories in it, which is also what a laptop is.
+
+## 2026-10-08 - The ignore block listed a directory that had stopped being rendered
+
+A smaller correction from the same test run, and the first version of it read reasonably.
+The `.gitignore` block was computed from the directories the adapters in scope declare, which
+is a list that changes only when a harness is installed or named.
+
+[DESIGN.md](DESIGN.md#what-a-repository-commits) asks for something else: "a directory that
+stops being rendered leaves the block on the next render". An adapter-shaped list cannot do
+that. It would go on ignoring `.agents/skills/` for as long as opencode was installed, whether
+or not anything of ours had ever been in it, which makes the block a statement about this
+machine rather than about this repository.
+
+So the block is now computed from the render record: a directory is listed when something the
+record explains is inside it. The two differ only in the case that matters, which is why the
+first version passed every test except the one that withdrew everything and then looked.
+
+## 2026-10-08 - opencode kept the key and stopped loading it
+
+A question about a detail found a harness moving underneath the design, which is twice in
+three days and the second entry of this kind.
+
+The detail: what the adapter should do when somebody's `instructions` array holds explicit
+paths and no glob. Checking opencode's documentation rather than answering from the design
+settled it immediately, because the documented example is already a mixed array:
+
+```json
+{ "instructions": ["CONTRIBUTING.md", "docs/guidelines.md", ".cursor/rules/*.md"] }
+```
+
+So one glob of ours sits beside somebody's explicit paths, and nothing has to adapt. The same
+page answered a question nobody had asked yet. From the [v2 config
+docs](https://opencode.ai/v2/docs/config/):
+
+> OpenCode accepts this field but does not load its entries; use `AGENTS.md` for instructions.
+
+And from the [v2 instructions docs](https://opencode.ai/v2/docs/instructions/):
+
+> The V2 config schema accepts an `instructions` array, but V2 does not currently resolve its
+> files, glob patterns, or URLs.
+
+[DESIGN.md](DESIGN.md#what-opencode-looks-like) had opencode as the second rule shape, pointed
+once at `.opencode/instructions/` and never edited again, which was the pleasant answer and
+the one [§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them) prefers. On v2 that
+renders files, writes a config key, and produces an agent that never sees any of it. The
+files are there, the command exits 0, and nothing fails.
+
+`AGENTS.md` is read by v1 and v2 both, so opencode is now the third shape: one file shared
+with the user, each rule between its own markers. [§4](DESIGN.md#what-opencode-looks-like) and
+[§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them) are rewritten rather than
+annotated, and `src/federated_agent_kits/adapters/opencode.py` with them, because a snapshot
+known to be wrong is worse than no snapshot. The adapter contract test caught the change by
+itself: it asserted every rule is a file named after the rule, which was an assertion that no
+adapter is ever the third shape.
+
+**Calibration, because the fix is not urgent in the way it reads.** The latest release is
+`v1.18.35`, published two days ago, and there is no v2 tag. The pointed shape works for
+everybody running opencode today. What it has is an expiry date and a silent failure at the
+end of it.
+
+Two things fell out of the same hour and are worth recording beside it.
+
+**`.agents/skills/` survives.** v2's skill discovery lists `.agents/skills` and
+`~/.agents/skills` as compatibility sources, so what T5 shipped is read by both versions. The
+alarm was raised and is closed.
+
+**A glob's expansion order is not defined.** opencode preserves the order of entries in the
+`instructions` array, and the order of files matched by one pattern is whatever the glob
+implementation returns. Rules are the one kind with an order
+([§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them)), so wherever a harness
+reads a directory of ours, manifest order has to be carried by the filenames. That is T6's to
+settle and nothing in DESIGN.md says it yet.
+
+**The standing lesson.** [IMPLEMENTATION.md](IMPLEMENTATION.md)'s "What every task delivers"
+already says a task reads the harness's documentation before writing a path. Both times it
+has been followed, it has paid for itself within the hour, and both times the trigger was
+somebody asking an unrelated question rather than a scheduled check. That is the evidence
+[T14](IMPLEMENTATION.md#t14---iterate-on-what-use-earns) wants for deciding whether this needs
+a test that reads documentation rather than a habit that remembers to.
+
+## 2026-10-08 - Copilot declines to promise an order, and ignores a rule with no frontmatter
+
+Asking how manifest order survives a directory read produced two answers from one page of
+Copilot's documentation, and the one nobody asked for is the expensive one.
+
+On order, under "Resolve conflicting instructions":
+
+> Applicable instruction sources are additive. Do not depend on a file order or precedence
+> rule to resolve conflicts because discovery and merge behavior can differ by harness.
+
+A numeric filename prefix is a bet against a sentence written to stop people making it. So
+[§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them)'s promise is narrowed to what
+it could always deliver: manifest order holds across the text we write, and a harness that
+reads a directory decides the rest. `akit list` says which of the two each harness is, so
+nobody learns it from behaviour.
+
+Narrowing it costs less than it looks, because the wider promise was never true. Copilot
+merges organisation, user and repository instructions additively, so even one file of ours is
+one contribution among several we never see.
+
+The finding nobody was looking for is what `.github/instructions/` actually is:
+
+> If you omit both `description` and `applyTo`, attach the file manually when you want to use
+> it.
+
+Those are *targeted* instructions. A rule rendered there as a bare body is discovered, listed
+in the customizations editor, and never loaded. T6 would have shipped a renderer whose output
+was inert for one of the three harnesses, and every test would have passed, because the files
+are exactly where the adapter says they go.
+
+So every Copilot rule carries `applyTo: '**'`, and [§12](DESIGN.md#12-still-open)'s open
+question is sharpened rather than answered: `applyTo` is not a field we may decline, it is the
+switch that makes a rule always-on, and what is still open is whether any real rule wants a
+glob narrower than everything.
+
+**Three for three.** Every time this project has read a harness's documentation before writing
+a path, it has found something that would have failed silently. opencode's `instructions` key,
+Copilot's directory, and now Copilot's frontmatter. The pattern in all three is identical: the
+files land where the adapter promised, the command exits 0, and the agent behaves as if
+nothing was rendered.
+
+## 2026-10-08 - One record for the machine was three bugs wearing a coat
+
+The render record started as one file in the state directory covering everything `akit` had
+written anywhere on this disk. Fixing a bug in it produced a check, then the check needed a
+schema field to survive adapters moving their directories, and the second layer of repair is
+what prompted the question that killed the design: is one record right at all?
+
+It was not, and the evidence was already written down. Three separate problems, one cause.
+
+**Two repositories rendering at once overwrote each other.** `record.save` writes the file
+whole with no lock. Two pre-commit hooks in two checkouts is not an exotic case, it is the
+headline use for `render`, and the loser's entries vanish while its files stay on disk. They
+become orphans only `--prune` can reach, and `--prune` is the one deletion this tool cannot
+prove is safe.
+
+**A deleted repository left entries nothing could collect.** Withdrawal only runs in the root
+an entry belongs to, so once that root is gone the entry is unreachable forever. The file
+grew monotonically with every repository anybody had ever rendered in.
+
+**A render in one repository could withdraw another's files.** That one shipped, and
+[the entry above](#2026-10-08---rendering-in-one-repository-deleted-another-repositorys-files)
+has it. Scope says which manifest, not which checkout, so from inside repository A every file
+B rendered looked unexplained.
+
+All three are the same sentence: a record entry belongs to a root, and the file had been
+deliberately separated from the root it belonged to.
+
+So there is one record per scope root now. Yours stays in the state directory. A repository's
+moves inside the repository, at `.akit/render.json`, which gives it the lifetime of its
+subject: delete the checkout and it goes, move the checkout and it moves. The containment
+check and the anchor field that was going to shore it up both disappeared, because the record
+you can open is the record you are responsible for.
+
+**Two things fell out that are worth more than the fix.**
+
+The source classifications had to leave. They record how private each remote source was when
+it was fetched, which is a fact about the cache and about a source key, true however many
+repositories subscribe to it. One record made that easy to overlook. N records make it either
+the same fact stored once per project or one record being the odd one that also carries
+machine state, so it now has its own file beside them, `sources.json`, with one job.
+
+And the split broke a case the single record had been handling correctly without anybody
+noticing. [DESIGN.md](DESIGN.md#two-files-one-format) said the two scopes never write to the
+same place. For a home directory that is also a git repository, which is what dotfiles are,
+that is false: the project anchor and your home directory are one directory, so both scopes
+land in `~/.agents/skills/`. One entry with two explanations handled it. Two records each
+claim the path and neither can see the other, so `akit render --global` would have deleted a
+file the repository still wanted. Withdrawal now reads the sibling record before deleting
+anything.
+
+**The lesson is about which bugs are worth a redesign.** The first fix was a check, and it
+worked. What it could not do was explain why the check was needed, and a check you cannot
+derive from the shape of the data is usually a shape that is wrong. Three unrelated-looking
+symptoms with one cause is the signal, and all three were visible before the redesign: two of
+them had simply never been written down as problems.

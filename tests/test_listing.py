@@ -149,14 +149,14 @@ class TestASubscriptionThatResolves:
 
         assert sorted(part.name for part in found) == ["fkb", "writing"]
 
-    def test_a_rule_lands_in_the_directory_its_harness_wants(
+    def test_a_rule_lands_in_the_file_its_harness_shares_with_you(
         self, repository: Path, home: Path, kits: Path, tmp_path: Path
     ):
         manifest_at(repository / ".akit.yaml", f"version: 1\nrules:\n- {kits}: prose-style\n")
 
         target = survey(repository, home, tmp_path).lines[0].found[0].targets[0]
 
-        assert target.path == repository / ".opencode" / "instructions" / "prose-style.md"
+        assert target.path == repository / "AGENTS.md"
 
     def test_the_two_scopes_render_to_two_places(self, repository: Path, home: Path, kits: Path, tmp_path: Path):
         manifest_at(repository / ".akit.yaml", f"version: 1\nskills:\n  {kits}: [writing]\n")

@@ -40,7 +40,7 @@ builds a part of it or keeps it releasable.
 - [x] **[T2](#t2---manifests)** - Manifests
 - [x] **[T3](#t3---sources-resolution-cache-discovery)** - Sources: resolution, cache, discovery
 - [x] **[T4](#t4---adapters-detection-and-akit-list)** - Adapters, detection, and `akit list`
-- [ ] **[T5](#t5---the-render-engine-and-skills)** - The render engine, and skills
+- [x] **[T5](#t5---the-render-engine-and-skills)** - The render engine, and skills
 - [ ] **[T6](#t6---rules)** - Rules
 - [ ] **[T7](#t7---add-remove-update-harness)** - `add`, `remove`, `update`, `harness`
 - [ ] **[T8](#t8---the-machineless-harness-and-the-leak-refusal)** - The machineless harness, and the leak refusal
@@ -411,6 +411,13 @@ disk without inventing a second, quieter definition of the word. This task adds 
 owns every decision about when the record changes. Changing the schema is allowed and means
 changing T4's tests in the same diff.
 
+**It owns where the record lives, and that moved.** T4 wrote one record for the machine. One
+file for every root has three faults that are one fault, all of them written up in
+[§6](DESIGN.md#what-a-render-leaves-behind): two repositories rendering at once overwrite
+each other, a deleted repository leaves entries nothing can collect, and a render in one
+repository can withdraw another's files. So there is one record per scope root, yours in the
+state directory and a repository's in `.akit/` inside it.
+
 **Specified by DESIGN.md.** Rendering always copies, the render record and its exhaustiveness
 ([§6](DESIGN.md#what-a-render-leaves-behind)); one copy where the bytes agree
 ([§7](DESIGN.md#7-rendering)); the whole of [§10](DESIGN.md#render); the ignore block
@@ -423,8 +430,19 @@ changing T4's tests in the same diff.
   never link. Both adapters [T4](#t4---adapters-detection-and-akit-list) ships write there,
   so one copy really is one copy; the per-harness directories each of them also *reads* are a
   separate list and discovery's business.
-- The render record in the state directory: every file written, every subscription and harness
-  that explains it, and a hash of the copy. Explained by a set, not by one subscription.
+- One record per scope root: yours in the state directory, a repository's in `.akit/` beside
+  its `.akit.yaml`. Each holds every file written under its own root, every subscription and
+  harness that explains it, and a hash of the copy. Explained by a set, not by one
+  subscription. A record that empties is removed rather than written empty.
+- Reading takes both and writing takes one. `akit list` and discovery ask about the disk;
+  withdrawal asks about one root and may only reach what that root's record names.
+- The one overlap is a home directory that is itself a git repository, where both scopes land
+  on one path. Withdrawal reads the sibling record before deleting, so `--global` in a
+  dotfiles repository cannot take a file the repository still wants.
+- **The source classifications are not in the record.** They are a fact about the cache,
+  learned by fetching and true however many repositories subscribe, so they live beside the
+  records in the state directory with a file of their own. `render` never fetches and never
+  touches them.
 - Withdrawal, exactly three outcomes: in the record and unexplained and matching, deleted and
   reported; in the record and the hash differs, left alone, named, pointed at `doctor`; not in
   the record, never touched.
@@ -445,7 +463,11 @@ directory that stops being rendered leaves the block. A shared skill survives on
 harnesses going out of scope and goes when the second does. Deleting the rendered tree and
 re-rendering restores it byte for byte. Deleting the record leaves orphans that `--prune`
 removes and nothing else does. `--no-harness` deletes nothing. A `file://` source and a path
-source render identically.
+source render identically. Two repositories in one fake home render without either reaching
+the other's record, and unsubscribing in one withdraws only its own copy, which is the `cli`
+layer's job because nothing in the `unit` layer renders twice in two unrelated places. A
+dotfiles-shaped home renders both scopes onto one path, and narrowing to either one deletes
+nothing the other still wants.
 
 **Done when.** A skill subscribed from a public source renders on both operating systems, a
 second render is a proven no-op, and no test can get the engine to delete a file it did not
@@ -463,22 +485,53 @@ manifest says.
 **Deliverable.** The three rule renderers, the marker-block writer, and the opencode pointer.
 
 **Specified by DESIGN.md.** The three shapes, the ordering rule, and why the first is
-preferred ([§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them)).
+preferred ([§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them)); how the record
+describes a rule inside somebody else's file ([§6](DESIGN.md#what-a-render-leaves-behind)).
 
 **Build.**
 
 - Shape one, a directory we own: one file per rule, so removing one does not touch its
   neighbours. Copilot's `.github/instructions/*.instructions.md` is the worked case.
-- Shape two, pointed once: write the pointer at setup, never at render, and touch exactly one
-  key in a config a person owns, leaving the rest byte-identical. opencode's `instructions` is
-  the worked case.
 - Shape three, one shared file: each rule between `BEGIN <id>` and `END <id>`, everything
-  between and around the blocks preserved.
-- Honour manifest order, which is the only place order means anything.
+  between and around the blocks preserved. opencode's `AGENTS.md` is the worked case, at both
+  scopes, and it is the shape this task has to get right rather than the one it can treat as
+  a fallback ([§4](DESIGN.md#what-opencode-looks-like)).
+- Shape two, pointed once: write the pointer at setup, never at render, and touch exactly one
+  key in a config a person owns, leaving the rest byte-identical. **No adapter shipping for
+  1.0 answers this way**, since opencode stopped loading the key that made it work, so this
+  renderer is built against a fixture adapter or deferred to whoever adds a harness that wants
+  it. Deciding which is part of this task.
+- **A pointer this tool wrote is never withdrawn.** `harness remove` names the file and the
+  key it would have to edit, and `doctor` reports a pointer aimed at a directory that is not
+  there. Editing somebody's config on the way out is a second in-place editor for one line of
+  benefit, and the asymmetry with the `.gitignore` block is deliberate: we clean up files we
+  created, and we do not edit a file we only added a line to.
+- **The record grows the region entry here**, because this is the task that first writes one.
+  [T5](#t5---the-render-engine-and-skills) left `src/federated_agent_kits/record.py` holding
+  whole files only, since all three adapters shipping for 1.0 take rules as a directory and
+  nothing writes the third shape yet. The rule it follows is settled in
+  [§6](DESIGN.md#what-a-render-leaves-behind) and is not T6's to reopen: the entry names a
+  marker id, the hash covers the bytes between the markers, and the entry may never delete its
+  host file. The field is additive and an absent one already means "leave alone", so this
+  needs no record version bump.
+- Honour manifest order where the harness lets us, and say so where it does not. A shared
+  file gets it for free, because the blocks are ours and sequential. Copilot's documentation
+  declines to promise an order at all, so nothing is prefixed, nothing is renamed, and
+  `akit list` grows a word per harness saying which of the two it is
+  ([§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them)).
+- **Copilot rules carry `applyTo: "**"` in their frontmatter.** A `.instructions.md` file
+  with neither `applyTo` nor `description` is discovered, listed, and loaded only when
+  somebody attaches it by hand, so rendering the body alone produces rules that never run
+  ([§4](DESIGN.md#what-github-copilot-in-vs-code-looks-like)). Whether any rule wants a
+  narrower glob than `**` stays open and stays out of the renderer
+  ([§12](DESIGN.md#12-still-open)).
 
 **Tests.** A hand-authored paragraph between two marker blocks survives three renders, and so
-does a block somebody reordered by hand being put back. Two contradicting rules render in
-manifest order, and swapping the manifest swaps the output. The opencode config keeps its
+does a block somebody reordered by hand being put back. Two contradicting rules render into a shared file in
+manifest order, and swapping the manifest swaps the output; the same pair rendered for a
+directory-shaped harness asserts only that both arrived, because that harness promises
+nothing about which is read first. A Copilot rule carries `applyTo: "**"` and a body
+byte-identical to its source. The opencode config keeps its
 comments, its key order and its unrelated keys. A rule removed from the manifest leaves shape
 one as a deleted file and shape three as a closed-up file with its neighbours intact. A rule
 whose id is not a safe filename is refused rather than sanitised.
@@ -486,9 +539,12 @@ whose id is not a safe filename is refused rather than sanitised.
 **Done when.** One rule renders to all three shapes from one source file, and the marker-block
 survival test passes on both operating systems.
 
-**Settles.** Nothing yet. [§12](DESIGN.md#12-still-open)'s `applyTo` question needs ten real
-rules, which is [T14](#t14---iterate-on-what-use-earns)'s business, so the renderer carries no
-`applyTo` field and a rule that wants one is a journal entry.
+**Settles.** How far manifest order travels, which is as far as the text we write and no
+further. [§12](DESIGN.md#12-still-open)'s `applyTo` question stays open in the only part of
+it that was ever a choice: every Copilot rule gets `applyTo: "**"` because without it the
+rule never loads, and whether any rule wants a narrower glob needs ten real rules, which is
+[T14](#t14---iterate-on-what-use-earns)'s business. The renderer takes no `applyTo` from a
+manifest, and a rule that wants one is a journal entry.
 
 **Leave alone.** Agents.
 
@@ -564,6 +620,13 @@ refusal, and the hooks other repositories pin.
   a public target's committed manifest.
 - `render --check`: the same walk, writing nothing, non-zero when a committed render is stale,
   judging only committed renders, and refusing the narrowing flags.
+- **Expect to split the engine before `--check` works.**
+  [T5](#t5---the-render-engine-and-skills) shipped `render` as one pass that plans and writes
+  together, so "the same walk, writing nothing" means threading a dry run through four places
+  that currently act: the copy, the withdrawal, the ignore block and the two record saves.
+  Cheap if this task expects it, a surprise refactor if it does not. `--check` also runs where
+  no record exists, because a CI runner has never rendered, so it has to judge a committed
+  render by recomputing it rather than by reading what we wrote last time.
 - `.pre-commit-hooks.yaml`, so other repositories pin this package by revision and get
   `render --check`, the leak refusal and the escaping-path check without installing anything.
 
@@ -600,9 +663,22 @@ server has nothing to report until agents render, so it lands with
 `render` does, and exits non-zero when it found something. `--json` carries the findings as
 data, because the skill reads this more often than a person does.
 
+**It reports on the setup it is standing in, which is two records and not every record on the
+disk.** Yours, and the one in the repository you ran it from
+([§6](DESIGN.md#what-a-render-leaves-behind)). Run outside a repository it sees your home
+directory and says so. A check that went looking for every repository ever rendered into
+would have to guess where they are, and would report each one's files as orphans from
+wherever it happened to be run.
+
+**Two findings the split adds.** A repository holding a `.akit/` that no manifest explains
+any more, which is what a deleted `.akit.yaml` leaves behind. And a pointer written into a
+harness config aimed at a directory that is not there, which is what
+[T6](#t6---rules) leaves rather than editing somebody's config on the way out.
+
 **Tests.** One test per bullet, each constructing the broken state deliberately: two kits on
 one name, an unexplained render, a hand-edited render caught by its hash, an orphan from a
-lost record, a missing cache entry, a pin the cache does not hold, a committed manifest naming
+lost record, a repository record no manifest explains, a dangling pointer, a missing cache
+entry, a pin the cache does not hold, a committed manifest naming
 an escaping path, a stale committed render, files in
 place for a harness that is not reading them, a detected harness the list leaves out, a named
 harness no adapter knows, and both `.gitignore` failures. A healthy setup reports nothing and
@@ -787,13 +863,23 @@ construction: no completion date, and its first output is evidence rather than c
   somebody, a rendered copy edited by mistake, a collision the rename did not solve, a source
   whose layout moved, a harness that changed its directories.
 - **Write ten real rules**, the ones actually wanted on this machine, and see whether any of
-  them wants an `applyTo` glob. That is the evidence
+  them wants an `applyTo` glob narrower than the `**` every Copilot rule already carries. That is the evidence
   [§12](DESIGN.md#12-still-open) asks for, and it cannot be gathered before the renderer
   exists.
 - Add a harness when somebody wants one, not before, and write it from
   [T10](#t10---adding-an-adapter-documented)'s guide rather than from the existing adapters.
   Each addition tests both the claim and the guide, and the first one needing a change outside
   its own file, or a step the guide did not mention, is worth writing down.
+- **Make withdrawal suspension finer, if the coarse rule ever costs anything.**
+  [T5](#t5---the-render-engine-and-skills) suspends every deletion when a narrowing flag is
+  given or any source fails to resolve. The precise rule is per entry: a file may be withdrawn
+  when every explanation it carries was evaluated this run. That is strictly better and more
+  machinery, and the evidence that would buy it is somebody finding orphans left behind by a
+  render that failed on an unrelated source.
+- Settle the two questions [§12](DESIGN.md#12-still-open) gained from T5: whether a record that
+  has not changed needs rewriting, and whether reading a harness's documentation should be a
+  test rather than a habit. The second has three incidents behind it already and wants
+  deciding rather than more evidence.
 - Revisit MCP servers only on evidence ([§13](DESIGN.md#13-not-doing)). The entry that would
   move them is an agent that is useless without one, more than once.
 

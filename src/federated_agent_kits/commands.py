@@ -179,7 +179,9 @@ COMMANDS: tuple[Command, ...] = (
         examples=("akit render", "akit render --check", "akit render --project --harness opencode"),
         arguments=(
             Argument(
-                ("--check",), "Write nothing and exit non-zero if a committed render is stale", action="store_true"
+                ("--check",),
+                "Write nothing and exit non-zero if a committed render is stale; lands with T8",
+                action="store_true",
             ),
             Argument(
                 ("--prune",),
@@ -204,7 +206,6 @@ COMMANDS: tuple[Command, ...] = (
             Argument(("--project",), "Only this repository's subscriptions, rendered inside it"),
         ),
         following="akit doctor, if anything it reported looked wrong",
-        task="T5",
     ),
     Command(
         name="update",
