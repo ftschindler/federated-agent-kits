@@ -737,3 +737,44 @@ has been followed, it has paid for itself within the hour, and both times the tr
 somebody asking an unrelated question rather than a scheduled check. That is the evidence
 [T14](IMPLEMENTATION.md#t14---iterate-on-what-use-earns) wants for deciding whether this needs
 a test that reads documentation rather than a habit that remembers to.
+
+## 2026-10-08 - Copilot declines to promise an order, and ignores a rule with no frontmatter
+
+Asking how manifest order survives a directory read produced two answers from one page of
+Copilot's documentation, and the one nobody asked for is the expensive one.
+
+On order, under "Resolve conflicting instructions":
+
+> Applicable instruction sources are additive. Do not depend on a file order or precedence
+> rule to resolve conflicts because discovery and merge behavior can differ by harness.
+
+A numeric filename prefix is a bet against a sentence written to stop people making it. So
+[§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them)'s promise is narrowed to what
+it could always deliver: manifest order holds across the text we write, and a harness that
+reads a directory decides the rest. `akit list` says which of the two each harness is, so
+nobody learns it from behaviour.
+
+Narrowing it costs less than it looks, because the wider promise was never true. Copilot
+merges organisation, user and repository instructions additively, so even one file of ours is
+one contribution among several we never see.
+
+The finding nobody was looking for is what `.github/instructions/` actually is:
+
+> If you omit both `description` and `applyTo`, attach the file manually when you want to use
+> it.
+
+Those are *targeted* instructions. A rule rendered there as a bare body is discovered, listed
+in the customizations editor, and never loaded. T6 would have shipped a renderer whose output
+was inert for one of the three harnesses, and every test would have passed, because the files
+are exactly where the adapter says they go.
+
+So every Copilot rule carries `applyTo: '**'`, and [§12](DESIGN.md#12-still-open)'s open
+question is sharpened rather than answered: `applyTo` is not a field we may decline, it is the
+switch that makes a rule always-on, and what is still open is whether any real rule wants a
+glob narrower than everything.
+
+**Three for three.** Every time this project has read a harness's documentation before writing
+a path, it has found something that would have failed silently. opencode's `instructions` key,
+Copilot's directory, and now Copilot's frontmatter. The pattern in all three is identical: the
+files land where the adapter promised, the command exits 0, and the agent behaves as if
+nothing was rendered.

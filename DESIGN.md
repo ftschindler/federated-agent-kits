@@ -245,6 +245,14 @@ preference for one copy is the ordinary case rather than the lucky one. The
 harness-specific directories stay in the table because a *source* may have left a skill in
 any of them, which is the half of question 1 that is about reading.
 
+**A rule with no frontmatter is discovered and never loaded.** `.github/instructions/` holds
+Copilot's *targeted* instructions: such a file is attached automatically when its `applyTo`
+glob matches a file being changed, or on demand when its `description` matches the task, and
+with neither of those it has to be attached by hand in a chat. So every rule rendered here
+carries `applyTo: '**'`, which is the documented way to match everything. Rendering the body
+alone leaves the files in place and the agent behaving as if they were never there, which is
+question 6's whole point.
+
 Two settings would make either kind the second shape and neither is usable.
 `chat.instructionsFilesLocations` and `chat.agentSkillsLocations` both take absolute and `~`
 paths, and the documentation marks both deprecated and says only the Local agent honours
@@ -835,8 +843,18 @@ opencode offered the second shape and then stopped loading the key that made it 
 offers several, not about which ones we can afford to build.
 
 Rules are the only kind with an order. Two rules can contradict each other and something has
-to win. The order they appear in the manifest decides it, and we are not looking for a
-cleverer answer than that.
+to win, and the order they appear in the manifest decides it.
+
+**That promise covers the text we write and stops there.** A harness that reads one file of
+ours gets the manifest's order, because the blocks are ours and sequential. A harness that
+reads a directory does not, and Copilot's documentation says so outright: do not depend on
+file order or precedence, because discovery and merge behaviour differ by harness. A numeric
+filename prefix would be a bet against a sentence written to stop people making it.
+
+Nothing we could render would fix that. Copilot merges organisation, user and repository
+instructions additively, so a file of ours is one contribution among several we never see and
+cannot sequence. So `akit list` says which harnesses honour order and which do not, and
+nobody has to learn it from behaviour.
 
 ### Agents are the hard one
 
@@ -1413,10 +1431,13 @@ file. That is the only thing that survives being copied into a skills directory.
 
 None of these blocks the first piece of work.
 
-**Do rules need an `applyTo` glob?** Copilot in VS Code has one, deciding when a rule applies. opencode
-and pi have nothing like it, so such a rule would simply be always-on there. A field that one
-harness out of four honours may be worse than no field. Write ten real rules and see whether
-any of them wants it.
+**Does any rule want an `applyTo` glob narrower than everything?** Copilot's targeted
+instruction files load on an `applyTo` match or a `description` match, and with neither they
+have to be attached by hand, so every rule rendered for Copilot already carries
+`applyTo: '**'` ([§4](#what-github-copilot-in-vs-code-looks-like)). What is open is whether a
+rule ever wants a narrower one. opencode and pi have nothing like it, so such a rule would
+simply be always-on there, and a field that one harness out of four honours may be worse than
+no field. Write ten real rules and see whether any of them wants it.
 
 **How do tool names map between harnesses?** A table maintained by hand that fails on
 anything unknown. Whether that table is per harness or per agent is open. Not worth deciding

@@ -23,6 +23,14 @@ makes a skill wanted by two harnesses one copy rather than two
 per rule, so removing one rule is a deleted file rather than an edit to a file
 holding its neighbours.
 
+Two things about that directory are not paths and are easy to miss. A file there
+is a *targeted* instruction: it loads when its `applyTo` glob matches a file
+being changed, or when its `description` matches the task, and with neither it
+waits to be attached by hand. So T6 writes `applyTo: "**"` into every rule it
+renders here, or renders rules that are never read. And Copilot's documentation
+declines to promise any order between them, so nothing here is prefixed or
+renamed to imply one (DESIGN.md section 7).
+
 Two settings would make either kind the second shape and neither is usable.
 `chat.instructionsFilesLocations` and `chat.agentSkillsLocations` both take
 absolute and `~` paths, and both are deprecated and honoured only by the Local

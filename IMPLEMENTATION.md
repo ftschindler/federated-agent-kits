@@ -492,11 +492,24 @@ describes a rule inside somebody else's file ([§6](DESIGN.md#what-a-render-leav
   marker id, the hash covers the bytes between the markers, and the entry may never delete its
   host file. The field is additive and an absent one already means "leave alone", so this
   needs no record version bump.
-- Honour manifest order, which is the only place order means anything.
+- Honour manifest order where the harness lets us, and say so where it does not. A shared
+  file gets it for free, because the blocks are ours and sequential. Copilot's documentation
+  declines to promise an order at all, so nothing is prefixed, nothing is renamed, and
+  `akit list` grows a word per harness saying which of the two it is
+  ([§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them)).
+- **Copilot rules carry `applyTo: "**"` in their frontmatter.** A `.instructions.md` file
+  with neither `applyTo` nor `description` is discovered, listed, and loaded only when
+  somebody attaches it by hand, so rendering the body alone produces rules that never run
+  ([§4](DESIGN.md#what-github-copilot-in-vs-code-looks-like)). Whether any rule wants a
+  narrower glob than `**` stays open and stays out of the renderer
+  ([§12](DESIGN.md#12-still-open)).
 
 **Tests.** A hand-authored paragraph between two marker blocks survives three renders, and so
-does a block somebody reordered by hand being put back. Two contradicting rules render in
-manifest order, and swapping the manifest swaps the output. The opencode config keeps its
+does a block somebody reordered by hand being put back. Two contradicting rules render into a shared file in
+manifest order, and swapping the manifest swaps the output; the same pair rendered for a
+directory-shaped harness asserts only that both arrived, because that harness promises
+nothing about which is read first. A Copilot rule carries `applyTo: "**"` and a body
+byte-identical to its source. The opencode config keeps its
 comments, its key order and its unrelated keys. A rule removed from the manifest leaves shape
 one as a deleted file and shape three as a closed-up file with its neighbours intact. A rule
 whose id is not a safe filename is refused rather than sanitised.
@@ -504,9 +517,12 @@ whose id is not a safe filename is refused rather than sanitised.
 **Done when.** One rule renders to all three shapes from one source file, and the marker-block
 survival test passes on both operating systems.
 
-**Settles.** Nothing yet. [§12](DESIGN.md#12-still-open)'s `applyTo` question needs ten real
-rules, which is [T14](#t14---iterate-on-what-use-earns)'s business, so the renderer carries no
-`applyTo` field and a rule that wants one is a journal entry.
+**Settles.** How far manifest order travels, which is as far as the text we write and no
+further. [§12](DESIGN.md#12-still-open)'s `applyTo` question stays open in the only part of
+it that was ever a choice: every Copilot rule gets `applyTo: "**"` because without it the
+rule never loads, and whether any rule wants a narrower glob needs ten real rules, which is
+[T14](#t14---iterate-on-what-use-earns)'s business. The renderer takes no `applyTo` from a
+manifest, and a rule that wants one is a journal entry.
 
 **Leave alone.** Agents.
 
@@ -805,7 +821,7 @@ construction: no completion date, and its first output is evidence rather than c
   somebody, a rendered copy edited by mistake, a collision the rename did not solve, a source
   whose layout moved, a harness that changed its directories.
 - **Write ten real rules**, the ones actually wanted on this machine, and see whether any of
-  them wants an `applyTo` glob. That is the evidence
+  them wants an `applyTo` glob narrower than the `**` every Copilot rule already carries. That is the evidence
   [§12](DESIGN.md#12-still-open) asks for, and it cannot be gathered before the renderer
   exists.
 - Add a harness when somebody wants one, not before, and write it from
