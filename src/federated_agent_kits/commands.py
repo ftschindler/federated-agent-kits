@@ -123,7 +123,6 @@ COMMANDS: tuple[Command, ...] = (
             *SCOPE_FLAGS,
         ),
         following="akit list, to see what it rendered and where",
-        task="T7",
     ),
     Command(
         name="remove",
@@ -138,10 +137,14 @@ COMMANDS: tuple[Command, ...] = (
         examples=("akit remove writing", "akit remove --global fkb"),
         arguments=(
             Argument(("name",), "The subscription to drop, by the name it is rendered under"),
+            Argument(
+                ("--kind",),
+                "Only drop a subscription of this kind, for a name used by two",
+                choices=("skill", "rule", "agent"),
+            ),
             *SCOPE_FLAGS,
         ),
         following="akit doctor, to check nothing was left behind",
-        task="T7",
     ),
     Command(
         name="harness",
@@ -164,7 +167,6 @@ COMMANDS: tuple[Command, ...] = (
             *SCOPE_FLAGS,
         ),
         following="akit render, to see the harness pick the files up",
-        task="T7",
     ),
     Command(
         name="render",
@@ -226,7 +228,6 @@ COMMANDS: tuple[Command, ...] = (
             *SCOPE_FLAGS,
         ),
         following="akit list, to confirm the new pins",
-        task="T7",
     ),
     Command(
         name="doctor",

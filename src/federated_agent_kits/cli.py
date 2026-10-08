@@ -21,11 +21,17 @@ import textwrap
 from collections.abc import Callable, Sequence
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as installed_version
+from pathlib import Path
 from typing import Any, TextIO
 
-from federated_agent_kits import listing, render
+from federated_agent_kits import listing, render, subscribing
 from federated_agent_kits.commands import COMMANDS, TOPICS, TOPICS_BY_NAME, Argument, Command
 from federated_agent_kits.exits import AkitError, Exit, NotImplementedYetError
+from federated_agent_kits.manifest import Kind
+
+#: The verbs that edit a manifest and then render. One branch rather than four,
+#: because what differs between them is their arguments and not their shape.
+WRITING = frozenset({"add", "remove", "harness", "update"})
 
 DISTRIBUTION = "federated-agent-kits"
 WIDTH = 88
@@ -197,6 +203,44 @@ def render_command(arguments: argparse.Namespace, out: TextIO) -> Exit:
     return render.run(out, as_json=arguments.json, choices=choices)
 
 
+def manifest_flags(arguments: argparse.Namespace) -> subscribing.Call:
+    """The three flags every manifest-writing command shares, as the call they describe."""
+    named = getattr(arguments, "manifest", None)
+    return subscribing.Call(
+        start=Path.cwd(),
+        places=render.Directories(home=Path.home()),
+        only_global=arguments.global_scope,
+        only_project=arguments.project,
+        named=None if named is None else Path(named),
+    )
+
+
+def chosen_kind(arguments: argparse.Namespace) -> Kind | None:
+    """`--kind skill` as the kind the manifest spells `skills:`."""
+    named = getattr(arguments, "kind", None)
+    return None if named is None else subscribing.BY_FLAG[named]
+
+
+def writing_command(arguments: argparse.Namespace, out: TextIO) -> Exit:
+    """The four verbs that edit a manifest and then render what they changed."""
+    call = manifest_flags(arguments)
+    if arguments.command == "add":
+        outcome = subscribing.add(
+            call,
+            source=arguments.source,
+            name=arguments.name,
+            rename=arguments.rename,
+            kind=chosen_kind(arguments),
+        )
+    elif arguments.command == "remove":
+        outcome = subscribing.remove(call, name=arguments.name, kind=chosen_kind(arguments))
+    elif arguments.command == "harness":
+        outcome = subscribing.harness(call, action=arguments.action, name=arguments.name)
+    else:
+        outcome = subscribing.update(call, name=arguments.name)
+    return subscribing.report(outcome, out, as_json=arguments.json)
+
+
 def dispatch(arguments: argparse.Namespace, out: TextIO) -> Exit:
     """Run the chosen verb, or say which task it is waiting for."""
     if arguments.command == "help":
@@ -205,6 +249,8 @@ def dispatch(arguments: argparse.Namespace, out: TextIO) -> Exit:
         return listing.run(out, as_json=arguments.json)
     if arguments.command == "render":
         return render_command(arguments, out)
+    if arguments.command in WRITING:
+        return writing_command(arguments, out)
     command = next(entry for entry in COMMANDS if entry.name == arguments.command)
     raise NotImplementedYetError(command.name, command.task or "")
 

@@ -197,7 +197,7 @@ def _shape(value: object) -> str:
     return "a value"
 
 
-def _split_pin(key: str) -> tuple[str, str | None]:
+def split_pin(key: str) -> tuple[str, str | None]:
     """A source key into its source and its commit.
 
     Split from the right, because the pin is at the end and a key may legitimately
@@ -374,7 +374,7 @@ def parse(text: str, *, scope: Scope, path: Path | None = None) -> Manifest:
         _check_shape(document, kind, path)
         seen: dict[str, int] = {}
         for key, value, node, index in _sources(document, kind, path):
-            source, pin = _split_pin(key)
+            source, pin = split_pin(key)
             line = _line_of(node, index)
             for name, rename in _entries(value, node, index, path):
                 rendered = rename or name
@@ -554,6 +554,8 @@ def load(start: Path, *, user_path: Path | None = None) -> Merged:
 
 __all__ = [
     "DEFAULT_HARNESSES",
+    "ORDERED",
+    "PIN",
     "PROJECT_MANIFEST",
     "SUPPORTED_VERSION",
     "Kind",
@@ -568,6 +570,7 @@ __all__ = [
     "merge",
     "parse",
     "read",
+    "split_pin",
     "user_manifest_path",
     "worktree_root",
     "write",

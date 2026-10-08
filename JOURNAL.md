@@ -947,3 +947,92 @@ Worth noting what did not catch it. The idempotence test compares the whole tree
 after two renders, which passes, because the second render of a swapped manifest genuinely is
 a no-op. The report is a separate claim about the first one, and the test that exists now
 asserts `not outcome.quiet` for exactly that render.
+
+## 2026-10-08 - A name is a kit, which decided three things at once
+
+[T7](IMPLEMENTATION.md#t7---add-remove-update-harness) specifies `akit add` as "write one
+line", and a source holding both `skills/writing/` and `rules/writing.md` makes that one
+line ambiguous. Three answers were available: refuse and ask for `--kind`, take the first
+kind found, or take both.
+
+Both, because the README has already answered it: a kit "may be one skill, or a skill with
+the rule that makes a model reach for it", and what makes them one kit is that you want them
+together. So `akit add <source> writing` writes two lines, one per block, `--kind skill`
+narrows it to one, and `akit remove writing` drops whatever the name brought in. The
+alternative would have made the common case - a skill and its activation rule - two commands
+that a person has to know to run.
+
+That decision then settled `remove` as well. [§10](DESIGN.md#remove) makes two manifests
+subscribing to one name a refusal, and nothing else, so the kind ambiguity could not become
+a second one without contradicting the file it came from.
+
+## 2026-10-08 - "Cannot be reached" and "no such ref" are different errors
+
+[§10](DESIGN.md#10-commands) says `add` works offline for a source this machine already has.
+The first implementation got that by catching `CacheError` around the ref lookup and pinning
+to the cached commit, which is right for a laptop on a train and wrong in a way that writes a
+manifest:
+
+```text
+$ akit add file:///tmp/remote#nope prose-style
+Subscribed: rule `prose-style` from file:///tmp/remote at e410b30c6.   # frozen: the commit this machine already had
+```
+
+A mistyped branch name is the remote answering, not failing, and the answer is "that is not
+here". `cache.UnreachableError` now exists for the half that may fall back, and the unknown
+ref keeps the plain `CacheError` that stops the command. Both come out of the same
+`git ls-remote` call, which is why they were one error to begin with.
+
+Worth noting what the fallback cannot be reached by. `refresh` clones before it asks, so a
+source nobody has fails at the clone and never reaches the ref lookup at all. The offline
+path is therefore only ever taken by a source already in the cache, and the branch that
+checked for one was dead code protecting against that.
+
+## 2026-10-08 - ruamel keeps a comment's column and its blank line inside the token
+
+`akit update` rewrites a key in a file somebody owns, and the first version of the rewrite
+reformatted two things nobody asked it to. Replacing the comment beside the key moved it to
+column 0 of the comment field and closed up the blank line between two blocks:
+
+```yaml
+  acme/kits#deadbee: solo # frozen: main
+rules:
+```
+
+where the file had `solo   # frozen: main, 2026-10-05` and an empty line after it. Both are
+inside the `CommentToken`: the alignment is `start_mark.column`, and the blank line is a
+second `\n` at the end of the token's own value. A replacement built from the text alone
+loses both. `editing._comment` now carries the old token's column and its trailing newlines
+across.
+
+The test that catches it asserts on the bytes around the edit rather than on the parsed
+result, because every one of these failures round-trips perfectly and still shows up in
+`git diff` on a file this tool does not own.
+
+## 2026-10-08 - `update` cannot follow a tag, because the tag is only in a comment
+
+Found with the built wheel, in a scratch repository, which is the second time that has found
+something a test did not think to ask. A kit added at a tag:
+
+```text
+$ akit add file:///tmp/wheelqa/src#v1 writing
+  file:///tmp/wheelqa/src#35884ea44...: writing  # frozen: v1
+$ akit update
+  file:///tmp/wheelqa/src#47b898537...: writing  # frozen: main, 2026-10-08
+```
+
+The key moved from the commit `v1` pointed at onto the default branch, without being asked
+to. It is not a bug in `update` so much as a contradiction between two parts of
+[DESIGN.md](DESIGN.md): [§10](DESIGN.md#update) said `update` follows "whatever the comment
+says the pin follows", and [§6](DESIGN.md#6-the-manifest) says a comment is for a reader and
+nothing parses one. Both cannot be true.
+
+[§6](DESIGN.md#6-the-manifest) wins, because a comment somebody edits by hand deciding which
+commit lands in their repository is the worse of the two. So `update` follows the ref in the
+key, or the source's default branch, and [§10](DESIGN.md#update) now says that outright
+rather than describing a thing this tool must not do.
+
+What that leaves is a real gap rather than a tidy answer, so it went into
+[§12](DESIGN.md#12-still-open) with the three ways out and no decision: a ref in the key, a
+flag that excludes a key from an update, or nothing at all on the grounds that a tag is a
+commit and the person who wants the next one can say so.

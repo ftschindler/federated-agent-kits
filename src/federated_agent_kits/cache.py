@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -77,6 +78,16 @@ class CacheError(AkitError):
     def __init__(self, source: SourceKey, problem: str, fix: str) -> None:
         self.source = source
         super().__init__(f"{source.raw}: {problem}\n  {fix}")
+
+
+class UnreachableError(CacheError):
+    """A remote that could not be asked, as opposed to one that answered "no such ref".
+
+    Its own type because the two want opposite treatment: `akit add` falls back
+    to the commit this machine already has when the remote cannot be reached,
+    and must not do that for a branch name somebody mistyped (DESIGN.md section
+    10, "Offline, `add` therefore works for a source you already have").
+    """
 
 
 class Privacy(StrEnum):
@@ -341,11 +352,167 @@ def resolve(
     )
 
 
+class RefKind(StrEnum):
+    """What the name somebody typed turned out to be on the other end.
+
+    Only two, and a commit is neither: a commit is already an answer, so nothing
+    asks the remote about one. The distinction is kept because it is what the
+    comment beside a pin says, and a tag frozen on a date reads as a lie.
+    """
+
+    TAG = "tag"
+    BRANCH = "branch"
+
+
+@dataclass(frozen=True)
+class Fetched:
+    """One ref, looked up on the remote and brought back.
+
+    This is what `add` and `update` work from and what `resolve` deliberately is
+    not: resolution is offline and takes a commit, while these two are the only
+    commands that may change what a kit contains (DESIGN.md section 10).
+    """
+
+    source: SourceKey
+    root: Path
+    """The directory discovery reads, with a subdirectory key already applied."""
+
+    commit: str
+    ref: str
+    """The branch or tag the commit was read from, which is what the comment says."""
+
+    kind: RefKind
+    privacy: Privacy | None
+    """Set when this fetch was the clone that classified the source, `None` otherwise."""
+
+
+def _asked(source: SourceKey, destination: Path, *patterns: str) -> dict[str, str]:
+    """One `ls-remote`, as the mapping of ref name to commit that it prints."""
+    found = _git("ls-remote", *patterns, cwd=destination, anonymous=True, check=False)
+    if found.returncode != 0:
+        raise UnreachableError(
+            source,
+            "the remote could not be reached",
+            f"Check that you can reach it yourself:\n    git ls-remote {source.url}\n  git said: {_said(found)}",
+        )
+    seen: dict[str, str] = {}
+    for line in found.stdout.splitlines():
+        commit, _, name = line.partition("\t")
+        seen[name.strip()] = commit.strip()
+    return seen
+
+
+def _ls_remote(source: SourceKey, destination: Path, ref: str | None) -> tuple[str, RefKind, str]:
+    """Ask the remote what a name points at, or what its default branch is.
+
+    One network call that answers both halves of the question. Resolving the ref
+    locally would need the tags a shallow clone deliberately does not fetch, and
+    guessing the kind from the name is how `v2` becomes a branch.
+    """
+    if ref is None:
+        found = _git("ls-remote", "--symref", "origin", "HEAD", cwd=destination, anonymous=True, check=False)
+        if found.returncode != 0:
+            raise UnreachableError(
+                source,
+                "the remote could not be reached to ask which branch it defaults to",
+                f"Check that you can reach it yourself:\n    git ls-remote {source.url}\n  git said: {_said(found)}",
+            )
+        # git prints the symbolic ref before the commit it resolves to, so the
+        # answer is the first line or there is no answer: a repository with no
+        # commits in it prints nothing at all and still exits 0.
+        first = found.stdout.partition("\n")[0]
+        if not first.startswith("ref:"):
+            raise CacheError(
+                source,
+                "the remote did not say which branch it defaults to",
+                "Name the branch or tag yourself, as `source#main`.",
+            )
+        _, target, _ = first.split(maxsplit=2)
+        return _ls_remote(source, destination, target.removeprefix("refs/heads/"))
+    seen = _asked(source, destination, "origin", f"refs/heads/{ref}", f"refs/tags/{ref}", f"refs/tags/{ref}^{{}}")
+    # The peeled tag first: an annotated tag's own object is not the commit, and
+    # pinning to it would record a hash nothing can be checked out as a tree.
+    for name, kind in (
+        (f"refs/tags/{ref}^{{}}", RefKind.TAG),
+        (f"refs/tags/{ref}", RefKind.TAG),
+        (f"refs/heads/{ref}", RefKind.BRANCH),
+    ):
+        if name in seen:
+            return ref, kind, seen[name]
+    raise CacheError(
+        source,
+        f"the source has no branch or tag called `{ref}`",
+        "Check the name, or pin to a commit instead. `akit list` shows what you are on now.",
+    )
+
+
+def refresh(
+    source: SourceKey,
+    *,
+    ref: str | None = None,
+    cache_root: Path | None = None,
+) -> Fetched:
+    """The newest commit of a branch or tag, with the objects behind it on this disk.
+
+    The one thing `resolve` may not do. A source nobody has yet is cloned here,
+    which is also where it is classified; one that is already here is asked what
+    moved and handed the commits to answer with.
+    """
+    destination = location(source, cache_root=cache_root)
+    privacy = None if (destination / ".git").exists() else _fetch(source, destination)
+    name, kind, commit = _ls_remote(source, destination, ref)
+    if not _holds(destination, commit):
+        _deepen(source, destination, commit)
+    _checkout(source, destination, commit)
+    return Fetched(
+        source=source,
+        root=_inside(source, destination),
+        commit=commit,
+        ref=name,
+        kind=kind,
+        privacy=privacy,
+    )
+
+
+def difference(source: SourceKey, old: str, new: str, paths: Sequence[str], *, cache_root: Path | None = None) -> str:
+    """What changed between two commits, under the directories a subscription names.
+
+    The diff is the point of `update` rather than a courtesy: a rule you have
+    never read is text added to every prompt your agents see (DESIGN.md section
+    10). An empty string means those paths did not change, or that the old
+    commit is one this cache no longer holds, which `akit doctor` reports and
+    which this command is on its way to replacing anyway.
+    """
+    destination = location(source, cache_root=cache_root)
+    try:
+        if not _holds(destination, old):
+            _deepen(source, destination, old)
+    except CacheError:
+        return ""
+    found = _git(
+        "diff",
+        "--no-color",
+        old,
+        new,
+        "--",
+        *paths,
+        cwd=destination,
+        anonymous=True,
+        check=False,
+    )
+    return found.stdout if found.returncode == 0 else ""
+
+
 __all__ = [
     "CacheError",
+    "Fetched",
     "Privacy",
+    "RefKind",
     "Resolved",
+    "UnreachableError",
+    "difference",
     "location",
+    "refresh",
     "resolve",
     "root",
 ]
