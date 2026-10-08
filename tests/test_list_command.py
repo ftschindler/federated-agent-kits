@@ -180,13 +180,15 @@ class TestListInAFakeHome:
               rules prose-style, from <remote>, at <commit>
                 read from <cache>/<slug>
                 prose-style, at rules/prose-style.md in the source
-                  opencode: <repo>/AGENTS.md (not rendered)
+                  opencode: <repo>/AGENTS.md, as the "prose-style" block (not rendered)
 
             Harnesses
               opencode: detected on this machine
                 takes skills and rules, and is rendering for your manifest and this repository
+                reads rules in the order your manifest lists them
               copilot-vscode: not detected on this machine
                 takes skills and rules, and is in no manifest's harness list
+                promises no order between rules, so two that contradict are a coin toss
               emacs: named in a manifest, and no adapter answers to it
                 named by this repository
 

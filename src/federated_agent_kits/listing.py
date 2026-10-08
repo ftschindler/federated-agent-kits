@@ -44,6 +44,17 @@ PLURAL: dict[Kind, str] = {Kind.SKILL: "skills", Kind.RULE: "rules", Kind.AGENT:
 #: How a scope is named inside a sentence, as opposed to as a heading.
 SCOPE_NAMED: dict[Scope, str] = {Scope.USER: "your manifest", Scope.PROJECT: "this repository"}
 
+#: What `list` says about a harness and the order of its rules. Two rules can
+#: contradict each other and the manifest decides which wins, but only as far as
+#: the text we write: a harness reading one file of ours gets the sequence, and
+#: a harness reading a directory is told by its own documentation not to depend
+#: on one (DESIGN.md section 7). Nobody should have to learn which from
+#: behaviour.
+ORDER: dict[bool, str] = {
+    True: "reads rules in the order your manifest lists them",
+    False: "promises no order between rules, so two that contradict are a coin toss",
+}
+
 NOTHING = "  nothing subscribed here"
 INDENT = "  "
 
@@ -66,6 +77,15 @@ class Target:
     harness: str
     path: Path
     rendered: bool
+    region: str | None = None
+    """The marker id, where this lands inside a file somebody else owns."""
+
+    @property
+    def described(self) -> str:
+        """How this reads in a sentence, since a block is not a path."""
+        if self.region is None:
+            return str(self.path)
+        return f'{self.path}, as the "{self.region}" block'
 
 
 @dataclass(frozen=True)
@@ -109,6 +129,9 @@ class HarnessLine:
 
     detected: bool
     has_a_machine: bool
+    orders_rules: bool
+    """Whether this harness reads our rules in the order the manifest put them."""
+
     kinds: tuple[Kind, ...]
     scopes: tuple[Scope, ...]
     """The manifests whose `harnesses:` list puts this one in play."""
@@ -169,7 +192,15 @@ class _Reading:
             path = adapter.target(subscription.kind, subscription.scope, name, self.anchor(adapter, subscription.scope))
             if path is None:
                 continue
-            found.append(Target(harness=adapter.name, path=path, rendered=self.written.holds(path)))
+            region = adapter.region(subscription.kind, name)
+            found.append(
+                Target(
+                    harness=adapter.name,
+                    path=path,
+                    rendered=self.written.holds(path, region),
+                    region=region,
+                )
+            )
         return tuple(found)
 
     def resolve(self, subscription: Subscription) -> cache.Resolved:
@@ -231,6 +262,7 @@ def _harness_lines(merged: Merged, home: Path) -> tuple[tuple[HarnessLine, ...],
             known=True,
             detected=adapter.detected(home),
             has_a_machine=adapter.has_a_machine,
+            orders_rules=adapter.orders_rules,
             kinds=adapter.kinds,
             scopes=tuple(scopes.get(adapter.name, ())),
         )
@@ -243,6 +275,7 @@ def _harness_lines(merged: Merged, home: Path) -> tuple[tuple[HarnessLine, ...],
             known=False,
             detected=False,
             has_a_machine=False,
+            orders_rules=False,
             kinds=(),
             scopes=tuple(where),
         )
@@ -306,7 +339,7 @@ def _print_line(line: Line, out: TextIO) -> None:
             print(f"{INDENT * 3}no harness in this scope takes {PLURAL[subscription.kind]}", file=out)
         for target in part.targets:
             state = "rendered" if target.rendered else "not rendered"
-            print(f"{INDENT * 3}{target.harness}: {target.path} ({state})", file=out)
+            print(f"{INDENT * 3}{target.harness}: {target.described} ({state})", file=out)
 
 
 def _print_harness(entry: HarnessLine, out: TextIO) -> None:
@@ -326,6 +359,8 @@ def _print_harness(entry: HarnessLine, out: TextIO) -> None:
     )
     print(f"{INDENT}{entry.name}: {presence}", file=out)
     print(f"{INDENT * 2}takes {takes}, and is {rendering}", file=out)
+    if Kind.RULE in entry.kinds:
+        print(f"{INDENT * 2}{ORDER[entry.orders_rules]}", file=out)
 
 
 def text(inventory: Inventory, out: TextIO) -> None:
@@ -374,7 +409,12 @@ def payload(inventory: Inventory) -> dict[str, Any]:
                         "found_as": part.found_as,
                         "relative": part.relative,
                         "targets": [
-                            {"harness": target.harness, "path": str(target.path), "rendered": target.rendered}
+                            {
+                                "harness": target.harness,
+                                "path": str(target.path),
+                                "region": target.region,
+                                "rendered": target.rendered,
+                            }
                             for target in part.targets
                         ],
                     }
@@ -389,6 +429,7 @@ def payload(inventory: Inventory) -> dict[str, Any]:
                 "known": entry.known,
                 "detected": entry.detected,
                 "has_a_machine": entry.has_a_machine,
+                "orders_rules": entry.orders_rules,
                 "kinds": [str(kind) for kind in entry.kinds],
                 "scopes": [str(scope) for scope in entry.scopes],
             }

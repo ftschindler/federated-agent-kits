@@ -170,11 +170,13 @@ COMMANDS: tuple[Command, ...] = (
         name="render",
         summary="Make the files each harness reads match what the manifests say",
         writes=(
-            "Copies subscribed parts into the directories each harness reads, rewrites the "
-            "`.gitignore` marker block whole, and records every file it wrote with a hash. "
-            "It deletes only files that record explains and whose bytes still match, so "
-            "anything you wrote or edited yourself survives. It fetches nothing, which is "
-            "why a render on a train is yesterday's render."
+            "Copies subscribed skills into the directories each harness reads, writes each "
+            "rule either as a file of ours or as a marked block inside a file you also "
+            "write in, rewrites the `.gitignore` marker block whole, and records everything "
+            "it wrote with a hash. It deletes only what that record explains and whose bytes "
+            "still match, so anything you wrote or edited yourself survives, and a block "
+            "inside your `AGENTS.md` is taken out without the file around it being touched. "
+            "It fetches nothing, which is why a render on a train is yesterday's render."
         ),
         examples=("akit render", "akit render --check", "akit render --project --harness opencode"),
         arguments=(
@@ -351,6 +353,13 @@ TOPICS: tuple[Topic, ...] = (
             "takes rules in, how a project anchor is computed, and how to tell it is\n"
             "installed. An adapter may decline a kind, and every adapter shipped today\n"
             "declines agents.\n"
+            "\n"
+            "Rules arrive in one of two shapes. A harness that reads a directory gets one\n"
+            "file per rule, and promises nothing about which it reads first. A harness that\n"
+            "reads one file, such as opencode's `AGENTS.md`, gets each rule between markers\n"
+            "inside it, and that one does read them in the order your manifest lists them.\n"
+            "`akit list` says which of the two each harness is, so nobody has to find out\n"
+            "from behaviour.\n"
             "\n"
             "Detection is by evidence on this disk, never by what a repository contains. When\n"
             "detection is not enough, name the harness in a manifest's `harnesses:` list.\n"

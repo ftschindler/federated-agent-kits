@@ -41,7 +41,7 @@ builds a part of it or keeps it releasable.
 - [x] **[T3](#t3---sources-resolution-cache-discovery)** - Sources: resolution, cache, discovery
 - [x] **[T4](#t4---adapters-detection-and-akit-list)** - Adapters, detection, and `akit list`
 - [x] **[T5](#t5---the-render-engine-and-skills)** - The render engine, and skills
-- [ ] **[T6](#t6---rules)** - Rules
+- [x] **[T6](#t6---rules)** - Rules
 - [ ] **[T7](#t7---add-remove-update-harness)** - `add`, `remove`, `update`, `harness`
 - [ ] **[T8](#t8---the-machineless-harness-and-the-leak-refusal)** - The machineless harness, and the leak refusal
 - [ ] **[T9](#t9---doctor)** - `doctor`
@@ -500,7 +500,14 @@ describes a rule inside somebody else's file ([§6](DESIGN.md#what-a-render-leav
   key in a config a person owns, leaving the rest byte-identical. **No adapter shipping for
   1.0 answers this way**, since opencode stopped loading the key that made it work, so this
   renderer is built against a fixture adapter or deferred to whoever adds a harness that wants
-  it. Deciding which is part of this task.
+  it. Deciding which is part of this task. **It was deferred.** `RuleShape.POINTED` and
+  `Pointer` stay in the interface with no code behind them, because the rendering half is the
+  first shape's copied and the other half is a second in-place editor of somebody's config,
+  written against a fixture rather than a harness.
+  [§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them) says so outright and
+  [§12](DESIGN.md#12-still-open) carries what it costs: the first person to add a pointed
+  harness writes that editor too, and [T10](#t10---adding-an-adapter-documented)'s guide has
+  to say so rather than describing three shapes as if all three were built.
 - **A pointer this tool wrote is never withdrawn.** `harness remove` names the file and the
   key it would have to edit, and `doctor` reports a pointer aimed at a directory that is not
   there. Editing somebody's config on the way out is a second in-place editor for one line of
@@ -531,16 +538,23 @@ does a block somebody reordered by hand being put back. Two contradicting rules 
 manifest order, and swapping the manifest swaps the output; the same pair rendered for a
 directory-shaped harness asserts only that both arrived, because that harness promises
 nothing about which is read first. A Copilot rule carries `applyTo: "**"` and a body
-byte-identical to its source. The opencode config keeps its
-comments, its key order and its unrelated keys. A rule removed from the manifest leaves shape
-one as a deleted file and shape three as a closed-up file with its neighbours intact. A rule
-whose id is not a safe filename is refused rather than sanitised.
+byte-identical to its source, and a `description:` the author wrote survives beside it. A
+rule removed from the manifest leaves shape one as a deleted file and shape three as a
+closed-up file with its neighbours intact. A rule whose id is not a safe filename is refused
+rather than sanitised.
+
+The opencode-config test this task was written with is gone with the shape it tested. What
+replaced it is the same assertion one level out: the file opencode actually reads is
+`AGENTS.md`, it is prose somebody owns rather than a config, and a render has to give back
+every line of it that is not ours.
 
 **Done when.** One rule renders to all three shapes from one source file, and the marker-block
 survival test passes on both operating systems.
 
 **Settles.** How far manifest order travels, which is as far as the text we write and no
-further. [§12](DESIGN.md#12-still-open)'s `applyTo` question stays open in the only part of
+further. And that the pointed shape is an interface rather than a renderer until a harness
+wants it, which [§12](DESIGN.md#12-still-open) now carries as an open question with a
+trigger rather than as a gap. [§12](DESIGN.md#12-still-open)'s `applyTo` question stays open in the only part of
 it that was ever a choice: every Copilot rule gets `applyTo: "**"` because without it the
 rule never loads, and whether any rule wants a narrower glob needs ten real rules, which is
 [T14](#t14---iterate-on-what-use-earns)'s business. The renderer takes no `applyTo` from a

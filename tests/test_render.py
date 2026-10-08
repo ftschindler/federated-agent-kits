@@ -208,27 +208,7 @@ class TestWhatARenderPutsOnDisk:
         assert not (places.home / SKILLS / "writing").exists()
 
 
-class TestTheKindsThatAreNotRenderedYet:
-    def test_a_rule_says_which_task_it_is_waiting_for_and_writes_nothing(
-        self, project: Path, places: render.Directories, kits: Path
-    ):
-        subscribe(
-            project / ".akit.yaml",
-            f"""
-            version: 1
-
-            rules:
-            - {kits}: prose-style
-            """,
-        )
-
-        outcome = render.render(project, places)
-
-        assert outcome.entries[0].waiting is not None
-        assert "T6" in outcome.entries[0].waiting
-        assert not (project / ".github" / "instructions").exists()
-        assert outcome.exit_code is Exit.OK
-
+class TestTheKindThatIsNotRenderedYet:
     def test_an_agent_is_declined_by_every_adapter_and_crashes_nothing(
         self, project: Path, places: render.Directories, kits: Path
     ):
@@ -691,6 +671,19 @@ class TestAHarnessThatDeclinesTheKind:
         assert outcome.entries[0].problem is None
         assert not (project / ".agents").exists()
 
+    def test_a_rule_a_harness_takes_in_one_scope_and_not_the_other_lands_once(
+        self, project: Path, places: render.Directories, kits: Path, only_paper: None
+    ):
+        """PAPER takes rules in a repository and nowhere else, which is a valid answer."""
+        assert places.user_manifest is not None
+        subscribe(places.user_manifest, f"version: 1\nharnesses: [paper]\n\nrules:\n- {kits}: prose-style\n")
+        subscribe(project / ".akit.yaml", f"version: 1\nharnesses: [paper]\n\nrules:\n- {kits}: prose-style\n")
+
+        outcome = render.render(project, places)
+
+        assert [entry.placements for entry in outcome.entries if entry.subscription.scope is Scope.USER] == [()]
+        assert (project / "paper" / "rules" / "prose-style.md").is_file()
+
     def test_a_harness_that_writes_no_kind_we_render_puts_nothing_in_the_ignore_block(
         self, project: Path, places: render.Directories, kits: Path, only_paper: None
     ):
@@ -825,9 +818,9 @@ class TestTheReport:
         assert "pruned" in printed
 
     def test_a_kind_that_is_waiting_names_its_task(self, project: Path, places: render.Directories, kits: Path):
-        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {kits}: prose-style\n")
+        subscribe(project / ".akit.yaml", f"version: 1\n\nagents:\n  {kits}: [reviewer]\n")
 
-        assert "not rendered: rules are not rendered yet" in self.report(render.render(project, places))
+        assert "not rendered: every adapter declines agents" in self.report(render.render(project, places))
 
     def test_a_problem_is_printed_with_its_fix_on_its_own_line(
         self, project: Path, places: render.Directories, tmp_path: Path
@@ -918,3 +911,346 @@ class TestTheCommandLine:
 
         assert "T8" in str(raised.value)
         assert raised.value.exit_code is Exit.USAGE
+
+
+INSTRUCTIONS = Path(".github") / "instructions"
+
+
+def agents_md(root: Path) -> str:
+    path = root / "AGENTS.md"
+    return path.read_text(encoding="utf-8") if path.is_file() else ""
+
+
+@pytest.fixture
+def two_rules(tmp_path: Path) -> Path:
+    """A source holding two rules that contradict each other, which is why order exists."""
+    return build(
+        tmp_path / "opinions",
+        {
+            "rules/tabs.md": "Indent with tabs.\n",
+            "rules/spaces.md": "Indent with spaces.\n",
+        },
+    )
+
+
+class TestWhereARuleLands:
+    """One source file, two shapes, because the harnesses disagree (DESIGN.md section 7)."""
+
+    def test_a_directory_shaped_harness_gets_one_file_per_rule(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {kits}: prose-style\n")
+
+        render.render(project, places)
+
+        assert (project / INSTRUCTIONS / "prose-style.instructions.md").is_file()
+
+    def test_a_copilot_rule_carries_apply_to_and_the_body_it_was_given(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {kits}: prose-style\n")
+
+        render.render(project, places)
+
+        rendered = (project / INSTRUCTIONS / "prose-style.instructions.md").read_text(encoding="utf-8")
+        assert rendered == '---\napplyTo: "**"\n---\n\n# prose\n'
+
+    def test_a_shared_file_harness_gets_a_block_in_a_file_it_did_not_have(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {kits}: prose-style\n")
+
+        render.render(project, places)
+
+        assert agents_md(project) == "<!-- BEGIN akit prose-style -->\n# prose\n<!-- END akit prose-style -->\n"
+
+    def test_the_two_scopes_write_two_different_shared_files(
+        self, project: Path, places: render.Directories, kits: Path, tmp_path: Path
+    ):
+        assert places.user_manifest is not None
+        subscribe(places.user_manifest, f"version: 1\n\nrules:\n- {kits}: prose-style\n")
+
+        render.render(project, places)
+
+        assert "akit prose-style" in agents_md(places.home / ".config" / "opencode")
+        assert agents_md(project) == ""
+
+    def test_a_rename_decides_both_the_filename_and_the_marker(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        subscribe(
+            project / ".akit.yaml",
+            f"""
+            version: 1
+
+            rules:
+            - {kits}:
+              - name: prose-style
+                as: house-style
+            """,
+        )
+
+        render.render(project, places)
+
+        assert (project / INSTRUCTIONS / "house-style.instructions.md").is_file()
+        assert "BEGIN akit house-style" in agents_md(project)
+
+    def test_a_rule_whose_name_is_not_a_filename_is_refused_rather_than_sanitised(
+        self, project: Path, places: render.Directories, tmp_path: Path
+    ):
+        source = build(tmp_path / "bad", {"rules/two words.md": "Body.\n"})
+        subscribe(project / ".akit.yaml", f'version: 1\n\nrules:\n- {source}: "two words"\n')
+
+        outcome = render.render(project, places)
+
+        assert "not a name a rule can have" in (outcome.entries[0].problem or "")
+        assert not (project / INSTRUCTIONS).exists()
+        assert agents_md(project) == ""
+        assert outcome.exit_code is Exit.ERROR
+
+
+class TestTheOrderTwoRulesAreReadIn:
+    """The one promise rules have, and exactly how far it reaches (DESIGN.md section 7)."""
+
+    def manifest(self, project: Path, source: Path, first: str, second: str) -> None:
+        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {source}: [{first}, {second}]\n")
+
+    def test_a_shared_file_gets_the_manifest_order(self, project: Path, places: render.Directories, two_rules: Path):
+        self.manifest(project, two_rules, "tabs", "spaces")
+
+        render.render(project, places)
+
+        text = agents_md(project)
+        assert text.index("BEGIN akit tabs") < text.index("BEGIN akit spaces")
+
+    def test_swapping_the_manifest_swaps_the_output(self, project: Path, places: render.Directories, two_rules: Path):
+        self.manifest(project, two_rules, "tabs", "spaces")
+        render.render(project, places)
+
+        self.manifest(project, two_rules, "spaces", "tabs")
+        render.render(project, places)
+
+        text = agents_md(project)
+        assert text.index("BEGIN akit spaces") < text.index("BEGIN akit tabs")
+
+    def test_a_reorder_is_reported_as_a_change_rather_than_as_nothing(
+        self, project: Path, places: render.Directories, two_rules: Path
+    ):
+        """Every block keeps its bytes and the file is still rewritten."""
+        self.manifest(project, two_rules, "tabs", "spaces")
+        render.render(project, places)
+
+        self.manifest(project, two_rules, "spaces", "tabs")
+        outcome = render.render(project, places)
+
+        assert not outcome.quiet
+        assert outcome.blocks_written > 0
+
+    def test_a_directory_shaped_harness_is_only_promised_that_both_arrived(
+        self, project: Path, places: render.Directories, two_rules: Path
+    ):
+        self.manifest(project, two_rules, "tabs", "spaces")
+
+        render.render(project, places)
+
+        assert (project / INSTRUCTIONS / "tabs.instructions.md").is_file()
+        assert (project / INSTRUCTIONS / "spaces.instructions.md").is_file()
+
+    def test_nothing_is_prefixed_or_renamed_to_imply_an_order(
+        self, project: Path, places: render.Directories, two_rules: Path
+    ):
+        self.manifest(project, two_rules, "tabs", "spaces")
+
+        render.render(project, places)
+
+        assert {path.name for path in (project / INSTRUCTIONS).iterdir()} == {
+            "tabs.instructions.md",
+            "spaces.instructions.md",
+        }
+
+
+class TestAFileWeShareWithTheUser:
+    """Everything outside our markers is theirs, on every render and forever."""
+
+    @pytest.fixture
+    def rendered(self, project: Path, places: render.Directories, kits: Path) -> Path:
+        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {kits}: prose-style\n")
+        render.render(project, places)
+        return project / "AGENTS.md"
+
+    def test_prose_written_around_our_block_survives_three_renders(
+        self, project: Path, places: render.Directories, rendered: Path
+    ):
+        rendered.write_text(
+            f"# Their own notes\n\n{rendered.read_text(encoding='utf-8')}\nA closing paragraph.\n",
+            encoding="utf-8",
+        )
+        before = rendered.read_text(encoding="utf-8")
+
+        for _ in range(3):
+            render.render(project, places)
+
+        assert rendered.read_text(encoding="utf-8") == before
+
+    def test_a_second_render_changes_nothing_and_says_so(
+        self, project: Path, places: render.Directories, rendered: Path
+    ):
+        outcome = render.render(project, places)
+
+        assert outcome.quiet
+        assert outcome.blocks_written == 0
+        assert outcome.blocks_unchanged == 1
+
+    def test_a_changed_source_rewrites_only_our_block(
+        self, project: Path, places: render.Directories, rendered: Path, kits: Path
+    ):
+        rendered.write_text(f"Theirs.\n\n{rendered.read_text(encoding='utf-8')}", encoding="utf-8")
+        (kits / "rules" / "prose-style.md").write_text("# prose, revised\n", encoding="utf-8")
+
+        outcome = render.render(project, places)
+
+        assert outcome.blocks_written == 1
+        assert rendered.read_text(encoding="utf-8").startswith("Theirs.\n\n")
+        assert "# prose, revised" in rendered.read_text(encoding="utf-8")
+
+    def test_unsubscribing_takes_our_block_and_leaves_the_file(
+        self, project: Path, places: render.Directories, rendered: Path
+    ):
+        rendered.write_text(f"Theirs.\n\n{rendered.read_text(encoding='utf-8')}", encoding="utf-8")
+        subscribe(project / ".akit.yaml", "version: 1\n")
+
+        outcome = render.render(project, places)
+
+        assert rendered.read_text(encoding="utf-8") == "Theirs.\n"
+        assert "prose-style" in [entry.region for entry in outcome.deleted]
+
+    def test_a_block_somebody_edited_is_left_alone_and_pointed_at_doctor(
+        self, project: Path, places: render.Directories, rendered: Path
+    ):
+        rendered.write_text(
+            rendered.read_text(encoding="utf-8").replace("# prose", "# prose, and my own note"), encoding="utf-8"
+        )
+        subscribe(project / ".akit.yaml", "version: 1\n")
+
+        outcome = render.render(project, places)
+
+        assert "my own note" in rendered.read_text(encoding="utf-8")
+        assert [entry.region for entry in outcome.withdrawals if entry.action == render.KEPT] == ["prose-style"]
+
+    def test_a_host_file_somebody_deleted_is_reported_as_gone(
+        self, project: Path, places: render.Directories, rendered: Path
+    ):
+        rendered.unlink()
+        subscribe(project / ".akit.yaml", "version: 1\n")
+
+        outcome = render.render(project, places)
+
+        assert [entry.region for entry in outcome.withdrawals if entry.action == render.GONE] == ["prose-style"]
+
+    def test_the_host_file_is_never_put_in_the_ignore_block(
+        self, project: Path, places: render.Directories, rendered: Path
+    ):
+        listed = (project / ignore.GITIGNORE).read_text(encoding="utf-8")
+
+        assert "AGENTS.md" not in listed
+        assert ".github/instructions/" in listed
+
+    def test_the_record_names_the_marker_beside_the_path(self, project: Path, rendered: Path):
+        regions = {entry.region for entry in project_record(project).written}
+
+        assert "prose-style" in regions
+
+    def test_the_record_hashes_the_block_and_not_the_file(
+        self, project: Path, places: render.Directories, rendered: Path
+    ):
+        rendered.write_text(f"A paragraph added later.\n\n{rendered.read_text(encoding='utf-8')}", encoding="utf-8")
+        entry = next(found for found in project_record(project).written if found.region == "prose-style")
+
+        assert entry.still_a_copy()
+
+
+class TestOneRuleGoingToBothShapesAtOnce:
+    def test_removing_it_deletes_the_file_and_closes_up_the_shared_one(
+        self, project: Path, places: render.Directories, two_rules: Path
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {two_rules}: [tabs, spaces]\n")
+        render.render(project, places)
+
+        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {two_rules}: [spaces]\n")
+        render.render(project, places)
+
+        assert not (project / INSTRUCTIONS / "tabs.instructions.md").exists()
+        assert (project / INSTRUCTIONS / "spaces.instructions.md").is_file()
+        text = agents_md(project)
+        assert "akit tabs" not in text
+        assert "BEGIN akit spaces" in text
+
+    def test_rendering_it_twice_leaves_the_whole_tree_identical(
+        self, project: Path, places: render.Directories, two_rules: Path
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {two_rules}: [tabs, spaces]\n")
+        render.render(project, places)
+        before = tree(project)
+
+        render.render(project, places)
+
+        assert tree(project) == before
+
+    def test_two_subscriptions_wanting_one_marker_is_a_collision_rather_than_a_winner(
+        self, project: Path, places: render.Directories, two_rules: Path, tmp_path: Path
+    ):
+        """A wildcard cannot know what it will match, so the manifest could not refuse this."""
+        other = build(tmp_path / "other", {"rules/tabs.md": "Indent with something else entirely.\n"})
+        subscribe(project / ".akit.yaml", f'version: 1\n\nrules:\n- {two_rules}: ["*"]\n- {other}: [tabs]\n')
+
+        outcome = render.render(project, places)
+
+        assert any("already wants different bytes" in (entry.problem or "") for entry in outcome.entries)
+        assert "Indent with tabs." in agents_md(project)
+
+
+class TestHowARuleInASharedFileIsReported:
+    @pytest.fixture
+    def rendered(self, project: Path, places: render.Directories, kits: Path) -> Path:
+        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {kits}: prose-style\n")
+        render.render(project, places)
+        return project / "AGENTS.md"
+
+    def report(self, outcome: render.Outcome) -> str:
+        out = io.StringIO()
+        render.text(outcome, out)
+        return out.getvalue()
+
+    def test_a_block_that_was_written_names_the_marker_and_the_file(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {kits}: prose-style\n")
+
+        printed = self.report(render.render(project, places))
+
+        assert 'wrote the "prose-style" block in' in printed
+
+    def test_a_block_already_in_place_says_so_rather_than_claiming_a_write(
+        self, project: Path, places: render.Directories, rendered: Path
+    ):
+        printed = self.report(render.render(project, places))
+
+        assert 'already up to date: the "prose-style" block in' in printed
+
+    def test_a_withdrawn_block_is_named_as_a_block_and_not_as_a_file(
+        self, project: Path, places: render.Directories, rendered: Path
+    ):
+        subscribe(project / ".akit.yaml", "version: 1\n")
+
+        printed = self.report(render.render(project, places))
+
+        assert 'deleted the "prose-style" block in' in printed
+
+    def test_the_data_carries_the_marker_beside_the_path(
+        self, project: Path, places: render.Directories, rendered: Path
+    ):
+        subscribe(project / ".akit.yaml", "version: 1\n")
+
+        payload = render.payload(render.render(project, places))
+
+        assert "prose-style" in [entry["region"] for entry in payload["withdrawn"]]

@@ -119,6 +119,25 @@ class Adapter:
     rule_suffix: str = ".md"
     """What a rule is called in a directory we own, `.instructions.md` for some."""
 
+    rule_frontmatter: Mapping[str, str] = field(default_factory=dict)
+    """Keys every rule rendered for this harness carries, whatever the source said.
+
+    Not a style preference. Copilot's `applyTo` decides whether the file is read
+    at all, so a rule rendered without it is a rule that sits on disk and never
+    loads (DESIGN.md section 4). A harness that needs no such key declares none,
+    and the renderer then writes the body alone.
+    """
+
+    orders_rules: bool = False
+    """Whether this harness reads our rules in the order the manifest put them.
+
+    True only for a harness that takes them as one sequence we write, which is
+    the third shape. A harness reading a directory gets no promise, and Copilot's
+    documentation says outright not to depend on one, so `akit list` reports
+    which it is rather than leaving somebody to learn it from behaviour
+    (DESIGN.md section 7).
+    """
+
     pointer: Mapping[Scope, Pointer] = field(default_factory=dict)
     """Question 3, and empty unless `rule_shape` is `POINTED`."""
 
@@ -145,6 +164,26 @@ class Adapter:
 
     def destination(self, kind: Kind, scope: Scope) -> Destination | None:
         return self.destinations.get((kind, scope))
+
+    def shares_the_file(self, kind: Kind) -> bool:
+        """Whether this kind lands inside a file somebody else owns.
+
+        True for rules in the third shape and for nothing else. The two callers
+        both need it to decide whether a destination is a directory of ours at
+        all: one maintains the ignore block, the other prunes, and both would be
+        wrong about `AGENTS.md`.
+        """
+        return kind is Kind.RULE and self.rule_shape is RuleShape.SHARED_FILE
+
+    def region(self, kind: Kind, name: str) -> str | None:
+        """The marker id this part is written under, or `None` for a whole file.
+
+        A region is what makes several rules one file: the record names the id
+        beside the path, the hash covers only the bytes between those markers,
+        and withdrawal takes the block out rather than the host (DESIGN.md
+        section 6).
+        """
+        return name if self.shares_the_file(kind) else None
 
     def detected(self, home: Path) -> bool:
         """Whether this harness has left something on this disk.

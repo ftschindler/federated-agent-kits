@@ -881,17 +881,54 @@ out of a file the user already owns. **That pointer is setup, not rendering.** I
 once, by `akit` or by hand, and never rewritten, so no render has to preserve somebody's
 comments or key order.
 
+**The second shape ships with no code behind it, deliberately.** No harness this project
+knows answers that way any more: opencode offered it and stopped loading the key. So an
+adapter can declare it and nothing renders it. The rendering half would be the first shape's,
+copied; the half that is not is a second in-place editor of a config somebody owns, and
+writing that against no real config is how you get an editor that is wrong in a way only a
+real config reveals. The interface keeps `POINTED` and its pointer, so whoever adds such a
+harness writes that editor with the harness in front of them.
+[§12](#12-still-open) has what the decision costs, and
+[IMPLEMENTATION.md](IMPLEMENTATION.md) records it under T6.
+
 The third shape is the one that costs. A harness that reads exactly one file means sharing it
-with whatever the user wrote there, so each rule sits between `BEGIN <id>` and `END <id>`
-markers and everything between blocks survives. It is committed whatever we do, because its
-host is, which makes it one of the things [§8](#8-keeping-the-employers-kits-in) counts as
-able to leak.
+with whatever the user wrote there, so each rule sits between its own markers and everything
+between blocks survives. It is committed whatever we do, because its host is, which makes it
+one of the things [§8](#8-keeping-the-employers-kits-in) counts as able to leak.
+
+The markers are HTML comments, `<!-- BEGIN akit <id> -->` and `<!-- END akit <id> -->`,
+because the host is markdown somebody reads. The id is the rule's rendered name, which is
+also its filename in the first shape, so a name that cannot be both is refused rather than
+sanitised: two rules called `my rule` and `my-rule` would otherwise become one file and the
+loser would vanish with nothing failing. `akit` in the middle is what stops us claiming a
+`BEGIN` another tool wrote.
+
+**A block is replaced where it already sits, and our blocks are ordered among themselves.**
+A paragraph somebody wrote between two of our blocks stays between those two blocks, and a
+pair of blocks reordered by hand comes back in the manifest's order. A block we did not plan
+and were not asked to remove is left untouched, which covers both a rendered block somebody
+edited and anything another tool put there.
+
+**The host file is never deleted.** Unsubscribing from the last rule leaves the `AGENTS.md`
+that was there, minus our paragraphs, because a record entry for a block may take its own
+text out and nothing else ([§6](#what-a-render-leaves-behind)).
 
 **The fallback is not hypothetical, and a harness can take your preferred shape away.**
 opencode offered the second shape and then stopped loading the key that made it work, so
 `AGENTS.md` and the third shape are what both of its versions have in common
 ([§4](#what-opencode-looks-like)). A preference is about which shape to choose when a harness
 offers several, not about which ones we can afford to build.
+
+**What a rule's frontmatter is for differs by shape, so the renderer decides the keys that
+decide whether a rule loads and the author keeps the rest.** A rule in a source is a markdown
+file that may open with frontmatter of its own. For the third shape it is dropped, because a
+`---` block inside somebody's `AGENTS.md` is a horizontal rule in the middle of their prose.
+For the first shape the author's keys are carried through in their own order, with one
+exception: a key the harness uses to decide whether to read the file at all is written over.
+Copilot's `applyTo` is the case that exists, and both of its failures are silent. Without it
+a rule is discovered and never loaded; narrowed to `src/**` it stops applying the moment
+somebody opens a different folder as the workspace. `description:` is the author's and
+survives, because it is the other key Copilot loads a rule on.
 
 Rules are the only kind with an order. Two rules can contradict each other and something has
 to win, and the order they appear in the manifest decides it.
@@ -1497,6 +1534,15 @@ have to be attached by hand, so every rule rendered for Copilot already carries
 rule ever wants a narrower one. opencode and pi have nothing like it, so such a rule would
 simply be always-on there, and a field that one harness out of four honours may be worse than
 no field. Write ten real rules and see whether any of them wants it.
+
+**Is the pointed shape worth building before a harness wants it?** No adapter answers that
+way, so [§7](#rules-and-the-three-ways-a-harness-can-take-them) ships it as an interface with
+no renderer. What that costs is that the first person to add such a harness writes the config
+editor as well as the adapter, which is more than the "a harness is a file" claim promises,
+and the guide in `docs/adding-an-adapter.md` has to say so. What building it early would cost
+is a second in-place editor of somebody's config, tested against a fixture rather than
+against a harness, which is the half most likely to be wrong in a way only a real config
+reveals. Decide it when somebody arrives with the harness.
 
 **Does a render need to rewrite a record that has not changed?** Each record is written whole
 on every render, even when the bytes are identical, which costs one write per root per run and

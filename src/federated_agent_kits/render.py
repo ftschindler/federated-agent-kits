@@ -31,9 +31,16 @@ however much that source explained. Deleting on an incomplete list is how an
 offline render takes away the kits a cached source would have kept, so a render
 with a problem in it writes what it can, withdraws nothing, and says so.
 
-**Skills only, for now.** Rules land with T6 and agents with T13, so a
-subscription of either kind is reported as waiting rather than silently
-producing nothing.
+**Skills and rules. Agents land with T13**, so a subscription of that kind is
+reported as waiting rather than silently producing nothing.
+
+**A rule is written in one of two places, and the second is not a file of
+ours.** A harness that reads a directory of rules gets one file per rule, which
+behaves exactly like a skill from here on. A harness that reads one shared file
+gets a block between markers inside it, and that is why everything below is
+keyed by a spot rather than by a path: a path alone cannot tell two rules in one
+`AGENTS.md` apart, and withdrawing one of them has to leave the other and the
+prose around both (DESIGN.md section 6).
 """
 
 from __future__ import annotations
@@ -44,21 +51,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
 
-from federated_agent_kits import adapters, cache, discovery, ignore, manifest, record, sources
+from federated_agent_kits import adapters, cache, discovery, ignore, manifest, record, rules, sources
 from federated_agent_kits.adapters import Adapter
 from federated_agent_kits.adapters.adapter import SEPARATOR
 from federated_agent_kits.exits import AkitError, Exit, UsageError
 from federated_agent_kits.listing import PLURAL, SCOPE_TITLE, joined
 from federated_agent_kits.manifest import Kind, Merged, Scope, Subscription
-from federated_agent_kits.record import Explanation, Record, Records, Written
+from federated_agent_kits.record import Explanation, Record, Records, Region, Spot, Written
 
 INDENT = "  "
 
-#: The kinds this build actually puts on disk. Rules are T6 and agents are T13,
-#: and a kind that is not here is reported as waiting rather than skipped in
-#: silence: a subscription that produces nothing and says nothing is the failure
+#: The kinds this build actually puts on disk. Agents are T13, and a kind that
+#: is not here is reported as waiting rather than skipped in silence: a
+#: subscription that produces nothing and says nothing is the failure
 #: DESIGN.md section 3 spends rule 5 on.
-RENDERED: tuple[Kind, ...] = (Kind.SKILL,)
+RENDERED: tuple[Kind, ...] = (Kind.SKILL, Kind.RULE)
 
 #: The three outcomes of the withdrawal table in DESIGN.md section 10, named
 #: once so the reporter and the engine cannot drift into two spellings.
@@ -67,7 +74,6 @@ KEPT = "kept"
 GONE = "gone"
 
 WAITING: dict[Kind, str] = {
-    Kind.RULE: "rules are not rendered yet; they land with T6",
     Kind.AGENT: "every adapter declines agents for now; they land with T13",
 }
 
@@ -82,16 +88,26 @@ SKIPPED = frozenset({".git"})
 
 @dataclass(frozen=True)
 class Placement:
-    """Where one part landed, and for which harnesses, after the copy was made."""
+    """Where one part landed, and for which harnesses, after the writing was done."""
 
     path: Path
-    """The directory a skill was copied into, which is what a person wants told."""
+    """A skill's directory, a rule's file, or the file a rule's block sits in."""
 
     harnesses: tuple[str, ...]
     written: int
-    """Files that appeared or changed. Zero is the ordinary second render."""
+    """Spots that appeared or changed. Zero is the ordinary second render."""
 
     unchanged: int
+    region: str | None = None
+    """The marker id, when this landed inside a file we do not own."""
+
+    spots: tuple[Spot, ...] = ()
+    """What this placement is counting, which a path alone cannot say.
+
+    Two rules in one `AGENTS.md` are two placements on one path, so attributing
+    a change by "is this under that directory" would credit each of them with
+    the other's work.
+    """
 
 
 @dataclass(frozen=True)
@@ -110,11 +126,21 @@ class Entry:
 
 @dataclass(frozen=True)
 class Withdrawal:
-    """One file the record explained and nothing in scope explains any more."""
+    """One thing the record explained and nothing in scope explains any more."""
 
     path: Path
     action: str
     """`deleted`, `kept` for an edited copy, or `gone` for one already removed."""
+
+    region: str | None = None
+    """The marker id, for a rule removed from a file that stays where it is."""
+
+    @property
+    def described(self) -> str:
+        """How this reads in a sentence, since a block is not a path."""
+        if self.region is None:
+            return str(self.path)
+        return f'the "{self.region}" block in {self.path}'
 
 
 @dataclass(frozen=True)
@@ -147,6 +173,15 @@ class Outcome:
     """
 
     unchanged: int = 0
+    blocks_written: int = 0
+    """Rules that appeared or changed inside a file we do not own.
+
+    Counted apart from files, because the summary would otherwise say it wrote
+    three files into a repository where it edited one and left two paragraphs in
+    it alone.
+    """
+
+    blocks_unchanged: int = 0
 
     @property
     def deleted(self) -> tuple[Withdrawal, ...]:
@@ -156,7 +191,7 @@ class Outcome:
     def quiet(self) -> bool:
         """Whether this render changed nothing at all, which it usually should."""
         changed = any(changed for _, _, changed in self.ignored)
-        return not (self.written or self.deleted or self.pruned or changed)
+        return not (self.written or self.blocks_written or self.deleted or self.pruned or changed)
 
     def of_scope(self, scope: Scope) -> tuple[Entry, ...]:
         return tuple(entry for entry in self.entries if entry.subscription.scope is scope)
@@ -212,9 +247,15 @@ class Directories:
 
 @dataclass
 class _Target:
-    """One file several subscriptions and harnesses may all want in one place."""
+    """One spot several subscriptions and harnesses may all want the same bytes in."""
 
-    source: Path
+    data: bytes
+    """What goes there, computed at plan time.
+
+    Bytes rather than the file to copy from, because a rule is translated on the
+    way out and a skill is not, and the two have to arrive at the same engine.
+    """
+
     digest: str
     explained_by: set[str] = field(default_factory=set)
     harnesses: set[str] = field(default_factory=set)
@@ -294,55 +335,129 @@ class _Pass:
         return cache.resolve(key, pin=subscription.pin, anchor=anchor, cache_root=self.cache_root, offline=True)
 
 
+@dataclass(frozen=True)
+class _Wanted:
+    """One found part, as the thing being placed rather than as four arguments."""
+
+    subscription: Subscription
+    part: discovery.Part
+    name: str
+    """What it is rendered as, which is the `as:` name when there is one."""
+
+    @property
+    def explanation(self) -> str:
+        return str(Explanation(kind=self.subscription.kind, source=self.subscription.source, name=self.name))
+
+    @property
+    def scope(self) -> Scope:
+        return self.subscription.scope
+
+
+def _spot_wanted(writes: dict[Spot, _Target], spot: Spot, data: bytes, wanted: _Wanted, harness: str) -> str | None:
+    """Add one wanted spot to the plan, or say why it could not be added.
+
+    A spot two subscriptions want with different bytes is a collision the
+    manifest could not refuse, because a `"*"` cannot know what it will match.
+    It is reported rather than resolved, and the first writer keeps it: picking
+    a winner silently is what `as:` exists to avoid.
+    """
+    digest = record.digest(data)
+    standing = writes.get(spot)
+    if standing is None:
+        writes[spot] = _Target(
+            data=data,
+            digest=digest,
+            explained_by={wanted.explanation},
+            harnesses={harness},
+            scopes={wanted.scope},
+        )
+        return None
+    if standing.digest != digest:
+        path, region = spot
+        where = path if region is None else f'the "{region}" block in {path}'
+        return (
+            f"another subscription already wants different bytes at {where}; "
+            f"this copy was not written. Give one of them a different name with `as:`"
+        )
+    standing.explained_by.add(wanted.explanation)
+    standing.harnesses.add(harness)
+    standing.scopes.add(wanted.scope)
+    return None
+
+
+def _plan_skill(walk: _Pass, wanted: _Wanted, writes: dict[Spot, _Target]) -> tuple[list[Placement], str | None]:
+    """A skill, copied unchanged into every directory a harness in scope reads."""
+    placements: list[Placement] = []
+    clash: str | None = None
+    for adapter in walk.chosen[wanted.scope]:
+        directory = adapter.target(
+            wanted.subscription.kind, wanted.scope, wanted.name, walk.anchor(adapter, wanted.scope)
+        )
+        if directory is None:
+            continue
+        spots: list[Spot] = []
+        for file in _files_of(wanted.part.path):
+            spot = ((directory / file.relative_to(wanted.part.path)).resolve(), None)
+            problem = _spot_wanted(writes, spot, file.read_bytes(), wanted, adapter.name)
+            if problem is not None:
+                clash = problem
+                continue
+            spots.append(spot)
+        placements.append(
+            Placement(path=directory, harnesses=(adapter.name,), written=0, unchanged=0, spots=tuple(spots))
+        )
+    return placements, clash
+
+
+def _plan_rule(walk: _Pass, wanted: _Wanted, writes: dict[Spot, _Target]) -> tuple[list[Placement], str | None]:
+    """A rule, translated per harness into whichever of the two shapes it wants.
+
+    One source file becomes a file of ours for a harness that reads a directory,
+    carrying whatever frontmatter that harness needs in order to load it at all,
+    and a block between markers for a harness that reads one shared file. The
+    translation is why rules are not written once for everybody the way skills
+    are (DESIGN.md section 7).
+    """
+    placements: list[Placement] = []
+    clash: str | None = None
+    data = wanted.part.path.read_bytes()
+    for adapter in walk.chosen[wanted.scope]:
+        target = adapter.target(wanted.subscription.kind, wanted.scope, wanted.name, walk.anchor(adapter, wanted.scope))
+        if target is None:
+            continue
+        region = adapter.region(wanted.subscription.kind, wanted.name)
+        written = (
+            rules.as_block(data, name=wanted.name)
+            if region is not None
+            else rules.as_file(data, name=wanted.name, keys=adapter.rule_frontmatter)
+        )
+        spot = (target.resolve(), region)
+        problem = _spot_wanted(writes, spot, written, wanted, adapter.name)
+        if problem is not None:
+            clash = problem
+            continue
+        placements.append(
+            Placement(path=target, harnesses=(adapter.name,), written=0, unchanged=0, region=region, spots=(spot,))
+        )
+    return placements, clash
+
+
 def _plan_part(
     walk: _Pass,
     subscription: Subscription,
     part: discovery.Part,
-    writes: dict[Path, _Target],
+    writes: dict[Spot, _Target],
 ) -> Entry:
-    """Where one found part goes, added to the writes and reported as a line.
-
-    A target two subscriptions want with different bytes is a collision the
-    manifest could not refuse, because a `"*"` cannot know what it will match.
-    It is reported rather than resolved, and the first writer keeps the file:
-    picking a winner silently is what `as:` exists to avoid.
-    """
-    name = subscription.rename or part.name
-    explanation = str(Explanation(kind=subscription.kind, source=subscription.source, name=name))
-    placements: list[Placement] = []
-    clash: str | None = None
-    for adapter in walk.chosen[subscription.scope]:
-        directory = adapter.target(
-            subscription.kind, subscription.scope, name, walk.anchor(adapter, subscription.scope)
-        )
-        if directory is None:
-            continue
-        for file in _files_of(part.path):
-            target = (directory / file.relative_to(part.path)).resolve()
-            digest = record.digest(file.read_bytes())
-            standing = writes.get(target)
-            if standing is None:
-                writes[target] = _Target(
-                    source=file,
-                    digest=digest,
-                    explained_by={explanation},
-                    harnesses={adapter.name},
-                    scopes={subscription.scope},
-                )
-            elif standing.digest != digest:
-                clash = (
-                    f"another subscription already wants different bytes at {target}; "
-                    f"this copy was not written. Give one of them a different name with `as:`"
-                )
-                continue
-            else:
-                standing.explained_by.add(explanation)
-                standing.harnesses.add(adapter.name)
-                standing.scopes.add(subscription.scope)
-        placements.append(Placement(path=directory, harnesses=(adapter.name,), written=0, unchanged=0))
+    """Where one found part goes, added to the writes and reported as a line."""
+    wanted = _Wanted(subscription=subscription, part=part, name=subscription.rename or part.name)
+    plan = _plan_skill if subscription.kind is Kind.SKILL else _plan_rule
+    try:
+        placements, clash = plan(walk, wanted, writes)
+    except AkitError as error:
+        return _unrendered(subscription, problem=str(error))
     return Entry(
         subscription=subscription,
-        name=name,
+        name=wanted.name,
         found_as=part.name,
         relative=part.relative,
         placements=_shared(placements),
@@ -351,17 +466,21 @@ def _plan_part(
 
 
 def _shared(placements: Iterable[Placement]) -> tuple[Placement, ...]:
-    """One line per directory, naming every harness that reads it.
+    """One line per place, naming every harness that reads it.
 
     Both adapters shipped today write skills to the same directory, so the
     honest report is one copy wanted by two harnesses rather than the same path
-    printed twice (DESIGN.md section 7).
+    printed twice (DESIGN.md section 7). Rules group by the block as well as by
+    the file, since two of them in one `AGENTS.md` are two places and not one.
     """
-    grouped: dict[Path, list[str]] = {}
+    grouped: dict[Spot, tuple[list[str], list[Spot]]] = {}
     for place in placements:
-        grouped.setdefault(place.path, []).extend(place.harnesses)
+        names, spots = grouped.setdefault((place.path, place.region), ([], []))
+        names.extend(place.harnesses)
+        spots.extend(spot for spot in place.spots if spot not in spots)
     return tuple(
-        Placement(path=path, harnesses=tuple(names), written=0, unchanged=0) for path, names in grouped.items()
+        Placement(path=path, harnesses=tuple(names), written=0, unchanged=0, region=region, spots=tuple(spots))
+        for (path, region), (names, spots) in grouped.items()
     )
 
 
@@ -377,9 +496,14 @@ def _unrendered(subscription: Subscription, *, problem: str | None = None, waiti
     )
 
 
-def _plan(walk: _Pass, merged: Merged) -> tuple[list[Entry], dict[Path, _Target]]:
-    """Every subscription as the files it wants on disk, with nothing written yet."""
-    writes: dict[Path, _Target] = {}
+def _plan(walk: _Pass, merged: Merged) -> tuple[list[Entry], dict[Spot, _Target]]:
+    """Every subscription as the spots it wants filled, with nothing written yet.
+
+    The order is the manifest's, and for rules that is the whole of the promise
+    DESIGN.md section 7 makes: the blocks in one shared file come out in the
+    order this loop met them.
+    """
+    writes: dict[Spot, _Target] = {}
     entries: list[Entry] = []
     for subscription in merged.subscriptions:
         if subscription.kind not in RENDERED:
@@ -405,32 +529,39 @@ def _plan(walk: _Pass, merged: Merged) -> tuple[list[Entry], dict[Path, _Target]
     return entries, writes
 
 
-def _perform(entries: list[Entry], writes: dict[Path, _Target]) -> tuple[list[Entry], dict[Path, bool]]:
-    """Write every planned file whose bytes are not already there, and count both.
+def _perform(
+    entries: list[Entry], writes: dict[Spot, _Target], removals: Iterable[Region]
+) -> tuple[list[Entry], dict[Spot, bool]]:
+    """Fill every planned spot whose bytes are not already there, and count both.
 
     The comparison is the hash rather than the modification time. A render that
     rewrote an identical file would still be idempotent on disk and would churn
     every `mtime` a harness, a watcher or a build system might be reading.
+
+    Withdrawal has already decided which blocks go, and they arrive here rather
+    than being deleted where that decision was made, because a shared file is
+    written once: the blocks that stay, the blocks that arrive and the blocks
+    that go are one rewrite of one file, not three.
     """
-    done: dict[Path, bool] = {}
-    for target, planned in writes.items():
-        data = planned.source.read_bytes()
-        if record.digest_of(target) == planned.digest:
-            done[target] = False
+    done: dict[Spot, bool] = {}
+    for (target, region), planned in writes.items():
+        if region is not None:
             continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
-        done[target] = True
+        done[(target, region)] = record.digest_of(target) != planned.digest
+        if done[(target, region)]:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(planned.data)
+    done.update(_weave(writes, removals))
     counted: list[Entry] = []
     for entry in entries:
         placements = tuple(
             Placement(
                 path=place.path,
                 harnesses=place.harnesses,
-                written=sum(1 for target, changed in done.items() if changed and target.is_relative_to(place.path)),
-                unchanged=sum(
-                    1 for target, changed in done.items() if not changed and target.is_relative_to(place.path)
-                ),
+                region=place.region,
+                spots=place.spots,
+                written=sum(1 for spot in place.spots if done.get(spot)),
+                unchanged=sum(1 for spot in place.spots if done.get(spot) is False),
             )
             for place in entry.placements
         )
@@ -446,6 +577,43 @@ def _perform(entries: list[Entry], writes: dict[Path, _Target]) -> tuple[list[En
             )
         )
     return counted, done
+
+
+def _weave(writes: dict[Spot, _Target], removals: Iterable[Region]) -> dict[Spot, bool]:
+    """Rewrite every file we share, once each, and say which blocks changed.
+
+    A host file is somebody's prose and may not exist yet. It is created when a
+    rule wants to be in it and never deleted when the last one leaves, because
+    an entry for a block may take its own text out and nothing else
+    (DESIGN.md section 6).
+
+    A block counts as written when its text changed *or* when it moved. Order is
+    the thing rules have that skills do not, so swapping two rules in a manifest
+    rewrites this file while every block in it keeps its bytes, and counting
+    bytes alone would report that render as having changed nothing.
+    """
+    hosts: dict[Path, list[rules.Block]] = {}
+    for (path, region), planned in writes.items():
+        if region is None:
+            continue
+        hosts.setdefault(path, []).append(rules.Block(id=region, body=planned.data.decode("utf-8")))
+    taken: dict[Path, set[str]] = {}
+    for path, region in removals:
+        taken.setdefault(path, set()).add(region)
+        hosts.setdefault(path, [])
+    done: dict[Spot, bool] = {}
+    for path, blocks in hosts.items():
+        before = path.read_text(encoding="utf-8").replace("\r\n", "\n") if path.is_file() else ""
+        standing = rules.blocks_in(before)
+        was = [found for found in standing if found in {block.id for block in blocks}]
+        for index, block in enumerate(blocks):
+            moved = index >= len(was) or was[index] != block.id
+            done[(path, block.id)] = moved or standing.get(block.id) != block.body
+        after = rules.weave(before, blocks, remove=taken.get(path, set()))
+        if after != before:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(after, encoding="utf-8", newline="\n")
+    return done
 
 
 def _tidy(path: Path, boundaries: Iterable[Path]) -> None:
@@ -467,10 +635,10 @@ def _tidy(path: Path, boundaries: Iterable[Path]) -> None:
 
 def _withdraw(
     before: Mapping[Scope, Record],
-    writes: dict[Path, _Target],
+    writes: dict[Spot, _Target],
     scopes: Sequence[Scope],
-    region: Mapping[Path, set[str]],
-) -> tuple[list[Withdrawal], dict[Scope, list[Written]]]:
+    boundaries: Mapping[Path, set[str]],
+) -> tuple[list[Withdrawal], dict[Scope, list[Written]], list[Region]]:
     """The three outcomes of DESIGN.md section 10's withdrawal table, per record.
 
     One record per root does most of the narrowing by itself: the entries a
@@ -480,15 +648,20 @@ def _withdraw(
 
     What is left is the one case where two roots genuinely overlap. A home
     directory that is also a git repository makes the project anchor and the
-    user root the same place, so both records can claim one path. A record this
-    run is not rendering still speaks for its files, which is why the sibling is
+    user root the same place, so both records can claim one spot. A record this
+    run is not rendering still speaks for its own, which is why the sibling is
     read before anything is deleted and why `--global` in a dotfiles repository
     cannot take a file the repository still wants.
+
+    A block is decided here and removed later. Its host holds other blocks and
+    somebody's prose, so taking it out is part of the one rewrite that file
+    gets rather than a deletion of its own.
     """
     rendered = set(scopes)
     silent = [record for scope, record in before.items() if scope not in rendered]
-    handled: set[Path] = set()
+    handled: set[Spot] = set()
     done: list[Withdrawal] = []
+    removals: list[Region] = []
     kept: dict[Scope, list[Written]] = {}
     for scope, found in before.items():
         staying: list[Written] = []
@@ -497,24 +670,27 @@ def _withdraw(
             staying.extend(found.written)
             continue
         for entry in found.written:
-            if entry.path in writes:
+            if entry.spot in writes:
                 continue
-            if any(entry.path in other.paths for other in silent):
+            if any(entry.spot in other.spots for other in silent):
                 staying.append(entry)
                 continue
-            if entry.path in handled:
+            if entry.spot in handled:
                 continue
-            handled.add(entry.path)
-            if not entry.path.exists():
-                done.append(Withdrawal(path=entry.path, action=GONE))
-            elif entry.still_a_copy():
-                entry.path.unlink()
-                _tidy(entry.path, region)
-                done.append(Withdrawal(path=entry.path, action=DELETED))
+            handled.add(entry.spot)
+            if entry.current() is None:
+                done.append(Withdrawal(path=entry.path, action=GONE, region=entry.region))
+            elif not entry.still_a_copy():
+                staying.append(entry)
+                done.append(Withdrawal(path=entry.path, action=KEPT, region=entry.region))
+            elif entry.region is not None:
+                removals.append((entry.path, entry.region))
+                done.append(Withdrawal(path=entry.path, action=DELETED, region=entry.region))
             else:
-                staying.append(entry)
-                done.append(Withdrawal(path=entry.path, action=KEPT))
-    return done, kept
+                entry.path.unlink()
+                _tidy(entry.path, boundaries)
+                done.append(Withdrawal(path=entry.path, action=DELETED))
+    return done, kept, removals
 
 
 def _directories(picked: Iterable[Adapter], walk: _Pass, scopes: Sequence[Scope]) -> dict[Path, set[str]]:
@@ -524,13 +700,17 @@ def _directories(picked: Iterable[Adapter], walk: _Pass, scopes: Sequence[Scope]
     callers need the directories a kit *could* be in: one is looking for a kit
     nothing explains, and the other for the kits a withdrawal is allowed to
     consider at all.
+
+    A file we share is not one of them. `AGENTS.md` is somebody's prose with our
+    paragraphs in it, so it is neither a directory to tidy, nor a directory to
+    prune, nor a line to put in a `.gitignore`.
     """
     found: dict[Path, set[str]] = {}
     for scope in scopes:
         for adapter in picked:
             for kind in RENDERED:
                 destination = adapter.destination(kind, scope)
-                if destination is None or destination.write is None:
+                if destination is None or destination.write is None or adapter.shares_the_file(kind):
                     continue
                 found.setdefault(walk.anchor(adapter, scope), set()).add(destination.write)
     return found
@@ -630,20 +810,20 @@ def render(start: Path, places: Directories, choices: Choices = EVERYTHING) -> O
         project=merged.project,
     )
     planned, writes = _plan(walk, wanted)
-    entries, done = _perform(planned, writes)
-
-    suspended = _suspension(entries, choices)
+    suspended = _suspension(planned, choices)
     owned = {
         base: written
         for scope in choices.scopes
         for base, written in _directories(chosen[scope], walk, (scope,)).items()
     }
     withdrawals: list[Withdrawal] = []
+    removals: list[Region] = []
     kept: dict[Scope, list[Written]] = {scope: list(found.written) for scope, found in before.items()}
     if suspended is None:
-        withdrawals, kept = _withdraw(
+        withdrawals, kept, removals = _withdraw(
             before, writes, choices.scopes, _directories(adapters.ADAPTERS, walk, choices.scopes)
         )
+    entries, done = _perform(planned, writes, removals)
     standing: set[Path] = set()
     for scope, path in files.items():
         after = _record_after(before[scope], writes, scope, kept.get(scope, ()))
@@ -657,8 +837,10 @@ def render(start: Path, places: Directories, choices: Choices = EVERYTHING) -> O
         },
         harnesses={scope: tuple(adapter.name for adapter in chosen.get(scope, ())) for scope in choices.scopes},
         entries=tuple(entries),
-        written=sum(1 for changed in done.values() if changed),
-        unchanged=sum(1 for changed in done.values() if not changed),
+        written=sum(1 for spot, changed in done.items() if changed and spot[1] is None),
+        unchanged=sum(1 for spot, changed in done.items() if not changed and spot[1] is None),
+        blocks_written=sum(1 for spot, changed in done.items() if changed and spot[1] is not None),
+        blocks_unchanged=sum(1 for spot, changed in done.items() if not changed and spot[1] is not None),
         withdrawals=tuple(withdrawals),
         pruned=tuple(pruned),
         ignored=_ignore_block(walk, owned, standing, choices.scopes, files.get(Scope.PROJECT)),
@@ -680,24 +862,25 @@ def _suspension(entries: Sequence[Entry], choices: Choices) -> str | None:
     return None
 
 
-def _record_after(before: Record, writes: dict[Path, _Target], scope: Scope, kept: Iterable[Written]) -> Record:
+def _record_after(before: Record, writes: dict[Spot, _Target], scope: Scope, kept: Iterable[Written]) -> Record:
     """One root's record after this render: what it wrote there, plus what it did not touch.
 
-    Filtered by scope rather than written whole, because a file can be wanted by
+    Filtered by scope rather than written whole, because a spot can be wanted by
     both roots and each record speaks only for its own.
     """
     entries = {
-        target: Written(
-            path=target,
+        spot: Written(
+            path=spot[0],
             digest=planned.digest,
             explained_by=frozenset(planned.explained_by),
             harnesses=frozenset(planned.harnesses),
+            region=spot[1],
         )
-        for target, planned in writes.items()
+        for spot, planned in writes.items()
         if scope in planned.scopes
     }
     for entry in kept:
-        entries.setdefault(entry.path, entry)
+        entries.setdefault(entry.spot, entry)
     return Record(path=before.path, written=tuple(entries.values()))
 
 
@@ -716,12 +899,17 @@ def _print_entry(entry: Entry, out: TextIO) -> None:
     if not entry.placements and entry.problem is None:
         print(f"{INDENT * 2}no harness in this scope takes {PLURAL[subscription.kind]}", file=out)
     for place in entry.placements:
-        did = (
-            f"wrote {counted(place.written, 'file')}"
-            if place.written
-            else f"already up to date, {counted(place.unchanged, 'file')}"
-        )
-        print(f"{INDENT * 2}{did} in {place.path}, for {joined(place.harnesses)}", file=out)
+        if place.region is not None:
+            did = "wrote" if place.written else "already up to date:"
+            where = f'the "{place.region}" block in {place.path}'
+        else:
+            did = (
+                f"wrote {counted(place.written, 'file')}"
+                if place.written
+                else f"already up to date, {counted(place.unchanged, 'file')}"
+            )
+            where = f"in {place.path}"
+        print(f"{INDENT * 2}{did} {where}, for {joined(place.harnesses)}", file=out)
 
 
 def _print_withdrawals(outcome: Outcome, out: TextIO) -> None:
@@ -732,11 +920,11 @@ def _print_withdrawals(outcome: Outcome, out: TextIO) -> None:
         print(f"{INDENT}nothing: every rendered file is still explained", file=out)
     for entry in outcome.withdrawals:
         if entry.action == DELETED:
-            print(f"{INDENT}deleted {entry.path}, which nothing in scope explains any more", file=out)
+            print(f"{INDENT}deleted {entry.described}, which nothing in scope explains any more", file=out)
         elif entry.action == GONE:
-            print(f"{INDENT}{entry.path} was already gone, and is no longer recorded", file=out)
+            print(f"{INDENT}{entry.described} was already gone, and is no longer recorded", file=out)
         else:
-            print(f"{INDENT}left {entry.path} alone: it has been edited since it was rendered", file=out)
+            print(f"{INDENT}left {entry.described} alone: it has been edited since it was rendered", file=out)
             print(f"{INDENT * 2}fix: run `akit doctor`, which says what to do with it", file=out)
     for path in outcome.pruned:
         print(f"{INDENT}pruned {path}, which nothing explains and no record claims", file=out)
@@ -771,9 +959,15 @@ def text(outcome: Outcome, out: TextIO) -> None:
     if outcome.quiet:
         print("Nothing changed: the files on disk already match the manifests.", file=out)
     else:
+        blocks = (
+            f" Wrote {counted(outcome.blocks_written, 'rule')} into a file somebody else owns, and left "
+            f"{counted(outcome.blocks_unchanged, 'rule')} there alone."
+            if outcome.blocks_written or outcome.blocks_unchanged
+            else ""
+        )
         print(
             f"Wrote {counted(outcome.written, 'file')}, left {counted(outcome.unchanged, 'file')} alone as "
-            f"already correct, and deleted {counted(len(outcome.deleted), 'file')}.",
+            f"already correct, and deleted {counted(len(outcome.deleted), 'file')}.{blocks}",
             file=out,
         )
 
@@ -797,6 +991,7 @@ def payload(outcome: Outcome) -> dict[str, Any]:
                 "placements": [
                     {
                         "path": str(place.path),
+                        "region": place.region,
                         "harnesses": list(place.harnesses),
                         "written": place.written,
                         "unchanged": place.unchanged,
@@ -806,7 +1001,9 @@ def payload(outcome: Outcome) -> dict[str, Any]:
             }
             for entry in outcome.entries
         ],
-        "withdrawn": [{"path": str(entry.path), "action": entry.action} for entry in outcome.withdrawals],
+        "withdrawn": [
+            {"path": str(entry.path), "region": entry.region, "action": entry.action} for entry in outcome.withdrawals
+        ],
         "pruned": [str(path) for path in outcome.pruned],
         "ignored": [
             {"repository": str(root), "lists": list(listed), "changed": changed}
