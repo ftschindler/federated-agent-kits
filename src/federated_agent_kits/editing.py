@@ -138,11 +138,33 @@ def _kit(name: str, rename: str | None) -> str | CommentedMap:
 
 
 def _appended(value: object, kit: str | CommentedMap) -> CommentedSeq:
-    """An entry's value with one more kit in it, whatever shape it was written in."""
+    """An entry's value with one more kit in it, whatever shape it was written in.
+
+    A value that is already a list keeps its own comments, which is what makes
+    adding a second kit to an existing line boring.
+
+    **A `{name:, as:}` mapping is rebuilt before it is wrapped**, and that is not
+    tidiness. Such a value was written as a block directly under its key, so it
+    carries the comment that sat beside that key. Moved into a sequence it keeps
+    carrying it, and ruamel then emits the comment inside the new list item and
+    folds the mapping onto one line:
+
+        - https://example#abc:  # frozen: main
+          -               # frozen: main
+            name: writing as: felix
+
+    which is not YAML. The copy keeps the keys, their order and their values and
+    leaves the comment with the key it belongs to, which is where `_comment` is
+    about to write it anyway.
+    """
     listed = CommentedSeq()
     if isinstance(value, CommentedSeq):
         listed.extend(value)
         listed.ca.items.update(value.ca.items)
+    elif isinstance(value, CommentedMap):
+        rebuilt = CommentedMap()
+        rebuilt.update(value)
+        listed.append(rebuilt)
     else:
         listed.append(value)
     listed.append(kit)

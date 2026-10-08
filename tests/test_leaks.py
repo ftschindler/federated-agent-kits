@@ -407,3 +407,58 @@ class TestARemoteNobodyCanReach:
         classify(places, kits, Privacy.PUBLIC)
 
         assert render.render(project, places).exit_code is Exit.OK
+
+
+class TestTheNoteLeaksLikeWhatItExplains:
+    """DESIGN.md section 7: derived text leaks the same as copied text.
+
+    The rename note names a kit and is written from a private source's contents,
+    so a repository anybody can read must not commit one. It is not a separate
+    rule: the note is recorded as wanted by the subscription that explains it,
+    so the ordinary refusal reaches it. These two tests are what make that a
+    fact rather than a happy accident of how the note is attributed.
+    """
+
+    @pytest.fixture
+    def referring_kits(self, tmp_path: Path) -> str:
+        """The employer's source, whose rule names the skill beside it."""
+        return local_remote(
+            tmp_path / "employer-kits",
+            {
+                "skills/house-style/SKILL.md": "---\nname: house-style\n---\n\n# house style\n",
+                "rules/house-style.md": "---\ndescription: d\n---\n\nLoad the `house-style` skill.\n",
+            },
+        )
+
+    def subscribe_renamed(self, project: Path, places: render.Directories, kits: str, harnesses: str) -> None:
+        cache.resolve(sources.parse(kits), anchor=project, cache_root=places.cache)
+        (project / ".akit.yaml").write_text(
+            f"version: 1\nharnesses: [{harnesses}]\n\n"
+            f"skills:\n  {kits}:\n  - name: house-style\n    as: acme-house-style\n\n"
+            f"rules:\n- {kits}:\n    name: house-style\n    as: acme-house-style\n",
+            encoding="utf-8",
+        )
+
+    def test_the_note_for_a_private_kit_is_refused_into_a_public_repository(
+        self, project: Path, places: render.Directories, referring_kits: str, tmp_path: Path
+    ):
+        make_public(project, tmp_path)
+        self.subscribe_renamed(project, places, referring_kits, "detected, copilot-ci")
+        classify(places, referring_kits, Privacy.PRIVATE)
+
+        with pytest.raises(LeakError):
+            render.render(project, places)
+
+        assert not (project / ".github" / "instructions" / "akit-renames.instructions.md").exists()
+
+    def test_the_same_note_renders_into_the_employers_own_repository(
+        self, project: Path, places: render.Directories, referring_kits: str
+    ):
+        self.subscribe_renamed(project, places, referring_kits, "detected, copilot-ci")
+        classify(places, referring_kits, Privacy.PRIVATE)
+
+        outcome = render.render(project, places)
+
+        written = project / ".github" / "instructions" / "akit-renames.instructions.md"
+        assert outcome.exit_code is Exit.OK
+        assert "`house-style` is installed as `acme-house-style`" in written.read_text(encoding="utf-8")

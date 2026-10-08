@@ -109,6 +109,19 @@ instead of guessing between a deletion and a rename.
 that makes a model reach for it is the thing you wanted. `--kind skill` narrows it, and
 `akit remove writing` drops whatever that name brought in.
 
+**Two sources shipping a kit with the same name is what `as:` is for.** Subscribing with
+`as: upstream-kb` installs it under that name, and the name goes into the copied `SKILL.md`
+as well as onto its directory, because that header rather than the directory is what most
+harnesses treat as the skill's identity. Renaming one and not the other produces a skill
+Copilot declines to load and a collision opencode still has.
+
+A rename leaves one loose end, and it gets written down rather than papered over. A rule from
+the same source still names the kit the way its author wrote it, and that reference is prose:
+in `**Load theriting`sil** when writing a draft` one of those words is a reference and
+the other is a verb, so nothing may rewrite it. Instead, where a rule does name a renamed kit,
+a short `akit-renames` rule is rendered beside it saying which name the kit is installed
+under. No rename, or no rule mentioning one, and nothing is written at all.
+
 Every command explains itself, because the agent-facing skill is deliberately thin: it says
 run `akit list` and never describes the output. So `akit <command> --help` is the
 documentation, and `akit help manifest`, `akit help sources`, `akit help harnesses` and
