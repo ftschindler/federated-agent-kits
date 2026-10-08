@@ -1,0 +1,26 @@
+IMPLEMENTATION.md
+  s_ffbe06c5f91796::t_eb2104a97fa22b 495-505,508-512
+  s_ffbe06c5f91796::t_3bedec0dc72f28 520-525,824
+src/federated_agent_kits/adapters/copilot_vscode.py
+  s_ffbe06c5f91796::t_3bedec0dc72f28 26-33
+DESIGN.md
+  s_ffbe06c5f91796::t_587920d87d8cfd 1434-1440
+  s_ffbe06c5f91796::t_f809391156f08c 248-255
+  s_ffbe06c5f91796::t_7d6f32a1c0cc4f 846-857
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "c695a4beef47ae6ea49455ee68e5493a5c028917",
+  "prompts": {},
+  "sessions": {
+    "s_ffbe06c5f91796": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_ee7ea0994ffed31aeLtRIeR6dB",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Felix Schindler <107669806+ftschindler@users.noreply.github.com>"
+    }
+  }
+}
