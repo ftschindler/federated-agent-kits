@@ -30,7 +30,7 @@ repos:
     # passed explicitly or Biome silently falls back to defaults. The hook's
     # entry already supplies `check --write`, so only add the config path.
     args: ["--config-path=.biome.json"]
-    additional_dependencies: ["@biomejs/biome@2.5.12"]
+    additional_dependencies: ["@biomejs/biome@2.5.15"]
 
 # Markdown - two complementary linters.
 # ATTENTION: keep this rev's version in sync with the markdownlint-cli2 schema
