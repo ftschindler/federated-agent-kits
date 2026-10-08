@@ -43,6 +43,13 @@ SKILLS = ".agents/skills"
 #: The one file both versions read rules from. Shared with the user and with
 #: every other harness that walks up looking for one, which is what makes this
 #: the third shape rather than a directory of ours.
+#:
+#: v2 documents the order: the global file first, then every `AGENTS.md` from
+#: the working directory towards home, stopping at the project root for a
+#: workspace outside it. They are combined rather than overriding each other,
+#: and opencode states that it does not resolve conflicts between them. So the
+#: order our blocks appear in inside one file is the whole of the order we can
+#: promise, which is what DESIGN.md section 7 already says.
 PROJECT_RULES = "AGENTS.md"
 USER_RULES = ".config/opencode/AGENTS.md"
 
@@ -70,6 +77,7 @@ ADAPTER = Adapter(
         (Kind.RULE, Scope.PROJECT): Destination(write=PROJECT_RULES),
     },
     rule_shape=RuleShape.SHARED_FILE,
+    orders_rules=True,
     evidence=EVIDENCE,
 )
 

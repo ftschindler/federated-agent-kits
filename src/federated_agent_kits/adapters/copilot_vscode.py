@@ -50,6 +50,7 @@ from __future__ import annotations
 
 from federated_agent_kits.adapters.adapter import Adapter, Destination, RuleShape
 from federated_agent_kits.manifest import Kind, Scope
+from federated_agent_kits.rules import APPLY_TO, EVERYTHING
 
 #: The shared directory, written at both scopes, and the harness-specific ones
 #: it also accepts, which a source may equally have left a skill in.
@@ -62,6 +63,15 @@ USER_SKILL_DIRECTORIES: tuple[str, ...] = (SKILLS, ".copilot/skills", ".claude/s
 PROJECT_RULES = ".github/instructions"
 USER_RULES = ".copilot/instructions"
 SUFFIX = ".instructions.md"
+
+#: The frontmatter every rule rendered here carries, whatever its source said.
+#: `applyTo` decides whether the file is read: with neither it nor a
+#: `description`, VS Code's documentation says to "attach the file manually when
+#: you want to use it", and `**` is the documented way to match every file. The
+#: value is written over the source's, because a rule narrowed to `src/**` stops
+#: applying the moment somebody opens a different folder as the workspace, and
+#: that failure is silent.
+FRONTMATTER = {APPLY_TO: EVERYTHING}
 
 #: Question 7, across the places VS Code and the Copilot agent host leave
 #: something, on both operating systems. `~/.vscode` is an extensions directory
@@ -97,6 +107,7 @@ ADAPTER = Adapter(
     },
     rule_shape=RuleShape.DIRECTORY,
     rule_suffix=SUFFIX,
+    rule_frontmatter=FRONTMATTER,
     evidence=EVIDENCE,
 )
 

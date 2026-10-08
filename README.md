@@ -12,14 +12,21 @@ its own filename.
 This subscribes you to the kits you want, from wherever they live, and writes them where each
 harness looks.
 
-**Status: it reads, and it renders skills.** [DESIGN.md](DESIGN.md) is the source of truth
-for what gets built, [IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets built in.
-`akit list` and `akit render` work today, against both manifests, every source form and the
-opencode and GitHub Copilot in VS Code adapters. A render copies the skills you subscribed to
-into the directory both harnesses read, maintains the `.gitignore` block, and deletes a
-rendered copy only while its bytes are still the ones it wrote. Rules wait for T6 and agents
-for T13, so a subscription to either says which task it is waiting for, and so does every
-verb that has not landed.
+**Status: it reads, and it renders skills and rules.** [DESIGN.md](DESIGN.md) is the source
+of truth for what gets built, [IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets
+built in. `akit list` and `akit render` work today, against both manifests, every source form
+and the opencode and GitHub Copilot in VS Code adapters. A render copies the skills you
+subscribed to into the directory both harnesses read, writes each rule you subscribed to in
+whichever shape its harness wants, maintains the `.gitignore` block, and deletes a rendered
+copy only while its bytes are still the ones it wrote. Agents wait for T13, so a subscription
+to one says which task it is waiting for, and so does every verb that has not landed.
+
+**One rule reaches two differently shaped harnesses.** Copilot reads a directory, so it gets
+one file per rule, with the `applyTo` frontmatter without which it would never read them.
+opencode reads one `AGENTS.md` that you write in too, so each rule goes between markers
+inside it and everything you wrote around them survives every render. Unsubscribing takes the
+block out and leaves the file. `akit list` says which harnesses read rules in the order your
+manifest lists them and which promise no order at all.
 
 ## What it is for
 

@@ -157,6 +157,8 @@ class TestASubscriptionThatResolves:
         target = survey(repository, home, tmp_path).lines[0].found[0].targets[0]
 
         assert target.path == repository / "AGENTS.md"
+        assert target.region == "prose-style"
+        assert target.described.endswith('as the "prose-style" block')
 
     def test_the_two_scopes_render_to_two_places(self, repository: Path, home: Path, kits: Path, tmp_path: Path):
         manifest_at(repository / ".akit.yaml", f"version: 1\nskills:\n  {kits}: [writing]\n")
@@ -474,6 +476,7 @@ class TestTheReportForLinesNoPathSourceProduces:
             known=True,
             detected=False,
             has_a_machine=False,
+            orders_rules=False,
             kinds=(Kind.SKILL,),
             scopes=(Scope.PROJECT,),
         )
@@ -487,6 +490,7 @@ class TestTheReportForLinesNoPathSourceProduces:
             known=True,
             detected=True,
             has_a_machine=True,
+            orders_rules=False,
             kinds=(),
             scopes=(),
         )

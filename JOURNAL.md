@@ -834,3 +834,116 @@ worked. What it could not do was explain why the check was needed, and a check y
 derive from the shape of the data is usually a shape that is wrong. Three unrelated-looking
 symptoms with one cause is the signal, and all three were visible before the redesign: two of
 them had simply never been written down as problems.
+
+## 2026-10-08 - A rendered block looked edited on the render after the one that wrote it
+
+[T6](IMPLEMENTATION.md#t6---rules) hashes the bytes between a rule's markers rather than the
+whole host file, so that somebody rewriting the prose around a block does not make the block
+un-withdrawable. The first version wrote the block from one function and read it back with
+another, and the two disagreed about a trailing newline:
+
+```text
+>       assert rendered.read_text(encoding="utf-8") == "Theirs.\n"
+E       AssertionError: assert 'Theirs.\n\n<...e-style -->\n' == 'Theirs.\n'
+```
+
+`as_block` returned `b"# prose\n"` and the record stored that hash. `blocks_in` read the
+lines between the markers and returned `"# prose"`, because the closing marker is the next
+line and the newline before it belongs to the marker. So `still_a_copy()` was false for every
+block, on every render after the first, and withdrawal took the third row of the table every
+time: left alone, named, pointed at `doctor`. Nothing failed. Unsubscribing from a rule
+simply did not remove it, and the reason given was that somebody had edited it.
+
+The fix is that `as_block` returns the body with no trailing newline, which is what is
+actually between the markers, and the docstring now says why rather than leaving it as a
+`rstrip` somebody will tidy away. The test that caught it asserts the file contents after
+unsubscribing, not the withdrawal report, which is why it caught it: the report was perfectly
+happy.
+
+The general shape is worth keeping. Any pair of "write it" and "read it back" functions is a
+hash that can drift, and a drifted hash in this system is silent by construction, because
+every withdrawal rule is written to prefer leaving a file alone.
+
+## 2026-10-08 - The pointed rule shape shipped as an interface with nothing behind it
+
+[T6](IMPLEMENTATION.md#t6---rules) asked whether to build the second of
+[§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them)'s three shapes against a
+fixture adapter or to defer it. Deferred.
+
+What decided it was what the two halves cost. The rendering half is the first shape's code
+copied, since both write one file per rule into a directory we own. The other half is a
+second in-place editor of a file somebody owns, touching one key and leaving the rest
+byte-identical, and the only config available to write it against is one we invented for the
+test. The manifest writer, which is the first such editor, took the whole of
+[T2](IMPLEMENTATION.md#t2---manifests) and a round-tripping YAML dependency to get right
+against a real format.
+
+So `RuleShape.POINTED` and `Pointer` stay in `adapters/adapter.py` with no renderer,
+[§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them) says so in the section that
+describes the shape, and [§12](DESIGN.md#12-still-open) carries the cost: the first person to
+add a pointed harness writes the config editor as well as the adapter, which is more than
+"a harness is one file" promises. [T10](IMPLEMENTATION.md#t10---adding-an-adapter-documented)'s guide has to
+say that rather than describing three shapes as though all three were built.
+
+One test named in T6 went with it. "The opencode config keeps its comments, its key order and
+its unrelated keys" was written when opencode was expected to be the pointed case. The file
+opencode actually reads is `AGENTS.md`, which is prose rather than config, so the replacement
+asserts the same property one level out: a render gives back every line of that file that is
+not ours, three renders running.
+
+## 2026-10-08 - Four harness paths checked, four unmoved, and one sentence gained
+
+The standing requirement in [IMPLEMENTATION.md](IMPLEMENTATION.md) is that a task writing a
+harness path reads that harness's current documentation first. Three times in three days that
+had found something. This time it found nothing moved, which is worth recording for the same
+reason the finds are.
+
+Confirmed: opencode reads project `AGENTS.md` files and `~/.config/opencode/AGENTS.md`, and
+its v2 documentation still says the `instructions` array is accepted and not resolved.
+Copilot reads `.github/instructions/*.instructions.md` and `~/.copilot/instructions/`, and
+`applyTo: "**"` is the documented way to match every file, in that quoting, in GitHub's own
+all-files example. A file with neither `applyTo` nor `description` is still one you have to
+attach by hand. VS Code still declines to promise an order between instruction files.
+
+The one thing gained was a sentence rather than a path. opencode v2 documents its own load
+order: the global file, then every `AGENTS.md` from the working directory towards home,
+stopping at the project root, combined rather than overriding, with conflicts explicitly not
+resolved. That is now a comment beside `PROJECT_RULES`, because it is the fact that makes
+[§7](DESIGN.md#rules-and-the-three-ways-a-harness-can-take-them)'s order promise exactly as
+large as it is: the sequence of blocks inside one file is ours, and nothing above that is.
+
+A cross-check on the repository disagreed with the docs. `packages/opencode/src/session/
+instruction.ts` says the first project-level match wins, "so we don't stack AGENTS.md/
+CLAUDE.md from every ancestor", where the v2 documentation says every file up to the root is
+combined. Nothing in this project depends on which is true: we write into the nearest
+`AGENTS.md`, which both readings load. Recorded because the next task that does depend on it
+should know the two sources disagree, rather than discovering it as a bug.
+
+## 2026-10-08 - Swapping two rules rewrote the file and reported that nothing changed
+
+Found by using the built wheel rather than by a test. Two rules in a repository's manifest,
+rendered, then swapped in the manifest and rendered again:
+
+```text
+$ uvx --from dist/federated_agent_kits-0.4.0-py3-none-any.whl akit render
+Nothing changed: the files on disk already match the manifests.
+```
+
+`AGENTS.md` had in fact been rewritten, and correctly: the blocks came back in the new order
+with the hand-written paragraph between them still between them. Only the report was wrong.
+
+The cause is that a block was counted as written by comparing its bytes to the bytes already
+under that marker, and a reorder changes no block's bytes. Order is the one thing rules have
+that skills do not, so this is the one kind whose file can change while every piece of it
+stays the same. `_weave` now counts a block as written when it moved as well as when its text
+changed.
+
+The failure was the harmless end of a bad class. A render that says it changed nothing is
+what a git hook, a shell startup and the end of every other command rely on, and
+[§10](DESIGN.md#render) makes "running it twice changes nothing" a property rather than an
+observation. A wrong answer there is a wrong answer about the property.
+
+Worth noting what did not catch it. The idempotence test compares the whole tree by hash
+after two renders, which passes, because the second render of a swapped manifest genuinely is
+a no-op. The report is a separate claim about the first one, and the test that exists now
+asserts `not outcome.quiet` for exactly that render.

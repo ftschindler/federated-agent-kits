@@ -29,12 +29,12 @@ it, whatever directory it is sitting in and whatever it is called.
 has none, and that is the state every fresh clone is in. A record that empties is
 removed rather than left as an empty file.
 
-**Every entry is a whole file, until T6.** A rule written into a file somebody
-else owns is recorded as a region: the marker id beside the path, the hash over
-the bytes between the markers, and no permission to delete the host
-(DESIGN.md section 6). No adapter shipping for 1.0 takes rules that way, so the
-field lands with the renderer that first writes one. An absent field already
-means "leave alone", so adding it then costs no version bump.
+**An entry is a whole file, or a region inside somebody else's.** A rule
+rendered into a directory we own is a file like any other. A rule rendered into
+a file we share carries the marker id beside the path, hashes only the bytes
+between those markers, and may never delete its host (DESIGN.md section 6). The
+field is additive and an absent one already means "a whole file", so T6 added it
+without a version bump.
 
 **Deleting a record costs one `akit render`**, which is why each is written whole
 rather than edited. One thing does not come back: a file rendered before its
@@ -53,11 +53,24 @@ from typing import Any
 
 from platformdirs import user_state_path
 
+from federated_agent_kits import rules
 from federated_agent_kits.exits import AkitError
 from federated_agent_kits.manifest import Kind, Scope, worktree_root
 
 APPLICATION = "akit"
 RECORD = "render.json"
+
+#: What one entry occupies: a path, and a marker id when the entry is a rule
+#: inside a file somebody else owns. Two entries may not share one, which is
+#: what lets several rules live in one `AGENTS.md` and still be withdrawn one at
+#: a time.
+Spot = tuple[Path, str | None]
+
+#: The narrower half of that: a spot that is definitely a block inside a file we
+#: do not own. Named because withdrawal hands these to the renderer as the
+#: blocks to take out, and a `Spot` there would let a whole file through to code
+#: that can only remove text from one.
+Region = tuple[Path, str]
 
 #: The directory a repository's own state goes in, beside its `.akit.yaml`. A
 #: directory rather than a dotted file because the ignore block then needs one
@@ -146,12 +159,19 @@ def digest_of(path: Path) -> str | None:
 
 @dataclass(frozen=True)
 class Written:
-    """One file a render put on disk, and everything that explains it.
+    """One thing a render put on disk, and everything that explains it.
 
     `explained_by` is a set rather than one subscription because two
     subscriptions and two harnesses can want the same bytes in the same place,
     and a withdrawal that deleted on the first explanation going away would take
     a file somebody still wants (DESIGN.md section 6).
+
+    `region` is what makes an entry a rule inside somebody else's file rather
+    than a file of ours. Set, it names the marker id, the hash covers the bytes
+    between those markers rather than the whole file, and withdrawal removes the
+    block and never the host. Absent, which is every skill and every rule
+    rendered into a directory we own, this is a whole file and the old rules
+    apply unchanged.
     """
 
     path: Path
@@ -160,12 +180,36 @@ class Written:
 
     explained_by: frozenset[str] = field(default_factory=frozenset)
     harnesses: frozenset[str] = field(default_factory=frozenset)
+    region: str | None = None
+    """The marker id, for a rule written into a file we do not own."""
+
+    @property
+    def spot(self) -> Spot:
+        """What this entry occupies, which two entries may not share."""
+        return (self.path, self.region)
 
     @property
     def explanations(self) -> tuple[Explanation, ...]:
         """The readable explanations, which is every one this build understands."""
         found = (Explanation.parse(entry) for entry in sorted(self.explained_by))
         return tuple(entry for entry in found if entry is not None)
+
+    def current(self) -> str | None:
+        """The hash of what is on disk where this entry says it put something.
+
+        For a region that is the bytes between its markers, so an entry stays
+        matched while the prose around it is rewritten. Hashing the host file
+        would stop matching the week after it was written, and every rule in it
+        would be un-withdrawable from then on (DESIGN.md section 6).
+        """
+        if self.region is None:
+            return digest_of(self.path)
+        try:
+            text = self.path.read_text(encoding="utf-8").replace("\r\n", "\n")
+        except OSError:
+            return None
+        body = rules.blocks_in(text).get(self.region)
+        return None if body is None else digest(body.encode("utf-8"))
 
     def still_a_copy(self) -> bool:
         """Whether the bytes on disk are the ones we put there.
@@ -174,7 +218,7 @@ class Written:
         drifted is the only file in a rendered directory that contains something
         somebody wrote, and it is never ours to delete.
         """
-        return digest_of(self.path) == self.digest
+        return self.current() == self.digest
 
 
 @dataclass(frozen=True)
@@ -186,18 +230,29 @@ class Record:
 
     @property
     def paths(self) -> frozenset[Path]:
-        """Every file in the record, resolved, for discovery to subtract."""
+        """Every file in the record, resolved, for discovery to subtract.
+
+        A host file is in here too. It is not ours, but our text is in it, and a
+        repository that is its own source would otherwise find its own
+        `AGENTS.md` and offer it back as a rule.
+        """
         return frozenset(entry.path for entry in self.written)
 
-    def holds(self, path: Path) -> bool:
-        """Whether a render explains this path, or anything inside it.
+    @property
+    def spots(self) -> frozenset[Spot]:
+        return frozenset(entry.spot for entry in self.written)
 
-        A skill is a directory and the record names files, so a directory counts
-        as rendered when a recorded file is inside it. Asking only about equality
-        would answer "no" for every skill, which is the kind this question is
-        mostly asked about.
+    def holds(self, path: Path, region: str | None = None) -> bool:
+        """Whether a render explains this path, or this block inside it.
+
+        Asked two ways. With a region, the question is whether one named rule is
+        in a file we share, which several rules and somebody's prose also sit
+        in. Without one, a directory counts as rendered when a recorded file is
+        inside it, because a skill is a directory and the record names files.
         """
         here = path.resolve()
+        if region is not None:
+            return any(entry.path == here and entry.region == region for entry in self.written)
         return any(entry.path == here or entry.path.is_relative_to(here) for entry in self.written)
 
 
@@ -219,8 +274,8 @@ class Records:
     def paths(self) -> frozenset[Path]:
         return frozenset(path for record in self.by_scope.values() for path in record.paths)
 
-    def holds(self, path: Path) -> bool:
-        return any(record.holds(path) for record in self.by_scope.values())
+    def holds(self, path: Path, region: str | None = None) -> bool:
+        return any(record.holds(path, region) for record in self.by_scope.values())
 
 
 def root(state_root: Path | None = None) -> Path:
@@ -260,11 +315,13 @@ def locations(start: Path, *, state_root: Path | None = None) -> dict[Scope, Pat
 def _entry(raw: object, path: Path) -> Written:
     if not isinstance(raw, dict) or not isinstance(raw.get("path"), str) or not isinstance(raw.get("digest"), str):
         raise RecordError(path, "has an entry that is not a written file")
+    region = raw.get("region")
     return Written(
         path=Path(raw["path"]).resolve(),
         digest=raw["digest"],
         explained_by=frozenset(raw.get("explained_by", ())),
         harnesses=frozenset(raw.get("harnesses", ())),
+        region=region if isinstance(region, str) else None,
     )
 
 
@@ -307,8 +364,9 @@ def payload(record: Record) -> dict[str, Any]:
                 "digest": entry.digest,
                 "explained_by": sorted(entry.explained_by),
                 "harnesses": sorted(entry.harnesses),
+                **({} if entry.region is None else {"region": entry.region}),
             }
-            for entry in sorted(record.written, key=lambda entry: str(entry.path))
+            for entry in sorted(record.written, key=lambda entry: (str(entry.path), entry.region or ""))
         ],
     }
 
@@ -344,6 +402,8 @@ __all__ = [
     "Record",
     "RecordError",
     "Records",
+    "Region",
+    "Spot",
     "Written",
     "digest",
     "digest_of",

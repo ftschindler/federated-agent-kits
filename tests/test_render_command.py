@@ -65,6 +65,7 @@ def tree(root: Path) -> dict[str, str]:
 LAYOUT = {
     "skills/writing/SKILL.md": "# writing\n",
     "skills/writing/references/style.md": "# style\n",
+    "rules/prose-style.md": "Write in the present tense.\n",
 }
 
 
@@ -83,11 +84,28 @@ def machine(fake_home: FakeHome, remote: str) -> Machine:
     return Machine(home=fake_home, manifest=Path(places["manifest"]), record=Path(places["record"]))
 
 
-def repository(machine: Machine, name: str, source: str) -> Path:
+def repository(machine: Machine, name: str, source: str, body: str | None = None) -> Path:
     root = machine.home.root / name
     (root / ".git").mkdir(parents=True)
-    (root / ".akit.yaml").write_text(f"version: 1\n\nskills:\n  {source}: [writing]\n", encoding="utf-8")
+    (root / ".akit.yaml").write_text(
+        body if body is not None else f"version: 1\n\nskills:\n  {source}: [writing]\n", encoding="utf-8"
+    )
     return root
+
+
+def subscribed_to_the_rule(machine: Machine, name: str, source: str) -> Path:
+    """A repository that names both shapes, so one rule has to reach both.
+
+    `copilot-vscode` is named rather than detected because this fake home has
+    only opencode installed, and naming a harness is how you render for one
+    this machine does not have (DESIGN.md section 6).
+    """
+    return repository(
+        machine,
+        name,
+        source,
+        f"version: 1\nharnesses: [detected, copilot-vscode]\n\nrules:\n- {source}: prose-style\n",
+    )
 
 
 class TestRenderingFromASourceThatWasCloned:
@@ -116,6 +134,40 @@ class TestRenderingFromASourceThatWasCloned:
 
         assert tree(project / SKILLS) == before
         assert "Nothing changed" in done.stdout
+
+    def test_a_rule_reaches_both_shapes_from_one_source_file(self, machine: Machine, remote: str):
+        """The claim T6 is for, through the entry point and a real clone."""
+        project = subscribed_to_the_rule(machine, "project", remote)
+
+        done = machine.home.run("render", cwd=project)
+
+        assert done.returncode == Exit.OK, done.stderr
+        copilot = project / ".github" / "instructions" / "prose-style.instructions.md"
+        assert copilot.read_text(encoding="utf-8") == '---\napplyTo: "**"\n---\n\nWrite in the present tense.\n'
+        assert (project / "AGENTS.md").read_text(encoding="utf-8") == (
+            "<!-- BEGIN akit prose-style -->\nWrite in the present tense.\n<!-- END akit prose-style -->\n"
+        )
+
+    def test_a_rule_renders_the_same_on_a_second_run_and_keeps_your_own_prose(self, machine: Machine, remote: str):
+        project = subscribed_to_the_rule(machine, "project", remote)
+        machine.home.run("render", cwd=project)
+        host = project / "AGENTS.md"
+        host.write_text(f"# My own notes\n\n{host.read_text(encoding='utf-8')}", encoding="utf-8")
+        before = host.read_text(encoding="utf-8")
+
+        done = machine.home.run("render", cwd=project)
+
+        assert "Nothing changed" in done.stdout
+        assert host.read_text(encoding="utf-8") == before
+
+    def test_the_file_we_share_is_never_ignored_and_the_directory_we_own_is(self, machine: Machine, remote: str):
+        project = subscribed_to_the_rule(machine, "project", remote)
+
+        machine.home.run("render", cwd=project)
+
+        listed = (project / ".gitignore").read_text(encoding="utf-8")
+        assert ".github/instructions/" in listed
+        assert "AGENTS.md" not in listed
 
     def test_the_record_lands_inside_the_repository_it_describes(self, machine: Machine, remote: str):
         project = repository(machine, "project", remote)
