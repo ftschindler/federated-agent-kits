@@ -774,6 +774,11 @@ in the record was not written by us, so no command touches it, whatever director
 sitting in and whatever it is called. Somebody's hand-written skill in `.agents/skills/` is
 not our business, and the record is what makes that a fact rather than a promise.
 
+`render --prune` is the one exception and it is deliberate, which is why it is a flag nobody
+gets by accident. A kit rendered before its record was lost and a kit somebody typed by hand
+are the same bytes in the same directory, so the command that recovers the first takes the
+second with it ([§10](#render)).
+
 That exhaustiveness has a second reader. Discovery subtracts the records before looking for
 parts ([§5](#5-sources)), so a repository that is its own source never finds its own rendered
 output and calls it an input. Reading asks about the disk and takes both; writing asks about
@@ -1270,6 +1275,13 @@ The third row is what protects anything hand-made. We never ask whether a file l
 of ours, because a skill you wrote by hand and a skill we copied look identical. We ask
 whether we wrote it, and the record answers.
 
+**Two things stop withdrawal running at all**, and both are the same caution: the record is
+only a trustworthy candidate list when this render saw everything that could explain a file.
+A narrowing flag is one, because narrowing skips work rather than undoing it. A subscription
+that would not resolve is the other, because the list is then short by whatever that source
+explained, and an offline render would otherwise take away the kits a cached source would
+have kept. Both say so in the output and leave the files for `doctor`.
+
 `--prune` is the opt-in that handles what withdrawal cannot: files rendered before the record
 was lost, which are now unknown rather than unexplained. It deletes what `doctor` reports as
 a plausible orphan, and it exists as a flag rather than a default because it is the one
@@ -1485,6 +1497,21 @@ have to be attached by hand, so every rule rendered for Copilot already carries
 rule ever wants a narrower one. opencode and pi have nothing like it, so such a rule would
 simply be always-on there, and a field that one harness out of four honours may be worse than
 no field. Write ten real rules and see whether any of them wants it.
+
+**Does a render need to rewrite a record that has not changed?** Each record is written whole
+on every render, even when the bytes are identical, which costs one write per root per run and
+churns a modification time somebody may be watching. Skipping it is a comparison. Whether that
+is worth having is a question for somebody who notices the churn rather than for now.
+
+**Should reading a harness's documentation be a test rather than a habit?**
+[IMPLEMENTATION.md](IMPLEMENTATION.md) makes it a standing requirement of every task, and
+three times in three days that requirement has found something that would have failed
+silently: opencode's `instructions` key, Copilot's directory, and Copilot's frontmatter. Each
+time the trigger was somebody asking an unrelated question rather than a scheduled check,
+which is the part that does not scale. What a test could assert is narrow - that a documented
+path still appears in that harness's current documentation - and it would need the network, a
+marker of its own, and a plan for the day a vendor rewrites a page. The evidence says decide
+this; it does not yet say which way.
 
 **How do tool names map between harnesses?** A table maintained by hand that fails on
 anything unknown. Whether that table is per harness or per agent is open. Not worth deciding

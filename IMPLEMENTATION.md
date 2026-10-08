@@ -620,6 +620,13 @@ refusal, and the hooks other repositories pin.
   a public target's committed manifest.
 - `render --check`: the same walk, writing nothing, non-zero when a committed render is stale,
   judging only committed renders, and refusing the narrowing flags.
+- **Expect to split the engine before `--check` works.**
+  [T5](#t5---the-render-engine-and-skills) shipped `render` as one pass that plans and writes
+  together, so "the same walk, writing nothing" means threading a dry run through four places
+  that currently act: the copy, the withdrawal, the ignore block and the two record saves.
+  Cheap if this task expects it, a surprise refactor if it does not. `--check` also runs where
+  no record exists, because a CI runner has never rendered, so it has to judge a committed
+  render by recomputing it rather than by reading what we wrote last time.
 - `.pre-commit-hooks.yaml`, so other repositories pin this package by revision and get
   `render --check`, the leak refusal and the escaping-path check without installing anything.
 
@@ -863,6 +870,16 @@ construction: no completion date, and its first output is evidence rather than c
   [T10](#t10---adding-an-adapter-documented)'s guide rather than from the existing adapters.
   Each addition tests both the claim and the guide, and the first one needing a change outside
   its own file, or a step the guide did not mention, is worth writing down.
+- **Make withdrawal suspension finer, if the coarse rule ever costs anything.**
+  [T5](#t5---the-render-engine-and-skills) suspends every deletion when a narrowing flag is
+  given or any source fails to resolve. The precise rule is per entry: a file may be withdrawn
+  when every explanation it carries was evaluated this run. That is strictly better and more
+  machinery, and the evidence that would buy it is somebody finding orphans left behind by a
+  render that failed on an unrelated source.
+- Settle the two questions [§12](DESIGN.md#12-still-open) gained from T5: whether a record that
+  has not changed needs rewriting, and whether reading a harness's documentation should be a
+  test rather than a habit. The second has three incidents behind it already and wants
+  deciding rather than more evidence.
 - Revisit MCP servers only on evidence ([§13](DESIGN.md#13-not-doing)). The entry that would
   move them is an agent that is useless without one, more than once.
 
