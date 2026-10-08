@@ -527,9 +527,15 @@ One manifest holds what is true of you, and lives in the per-platform user confi
 It is not shared.
 
 The other holds what is true of one repository, is committed, and sits at `.akit.yaml` in its
-root. One file, so no directory: `.akit/` would hold a single thing forever, and a top-level
-dotfile is visible to anyone looking at the repository rather than hidden one level down.
-Someone clones the repository, runs one command, and has what it expects.
+root. A top-level dotfile rather than something hidden a level down, so that it is visible to
+anyone looking at the repository: someone clones it, runs one command, and has what it
+expects.
+
+**The manifest is the committed half and `.akit/` is the ignored one.** The directory beside
+it holds this machine's render record ([§6](#what-a-render-leaves-behind)), which is state
+about one person's disk and is never committed. Keeping the two apart means the file a
+colleague has to read is one file, and everything generated sits in a directory they never
+open.
 
 **Which file a subscription is in is what decides its scope.** Yours renders everywhere.
 A repository's renders inside that repository. There is no `scope:` key, because there is no
@@ -538,11 +544,16 @@ third answer.
 The project file adds to yours rather than replacing it. Your subscriptions do not stop being
 true because you changed directory.
 
-**Neither file overrules the other, because they never write to the same place.** Yours
-renders into the machine-level harness directories and a repository's renders inside that
-repository ([§10](#render)), so a name used in both produces two copies in two directories
-and neither can overwrite the other. There is no precedence rule here, and an earlier draft
-of this section claimed one.
+**Neither file overrules the other, because they almost never write to the same place.**
+Yours renders into the machine-level harness directories and a repository's renders inside
+that repository ([§10](#render)), so a name used in both produces two copies in two
+directories and neither can overwrite the other. There is no precedence rule here, and an
+earlier draft of this section claimed one.
+
+The exception is a home directory that is itself a git repository, which dotfiles make
+ordinary. There the project anchor and your home directory are one directory, so the two
+scopes do land on one path, and [§6](#what-a-render-leaves-behind) says how the two records
+stay correct about it.
 
 What a shared name does produce is a harness holding two kits under one name, which opencode
 refuses and pi resolves by keeping whichever it found first. So the collision is reported
@@ -615,9 +626,15 @@ output gets committed.** Every render writes a marker block at the end of the re
 ```gitignore
 # BEGIN akit
 .agents/skills/
+.akit/
 .opencode/agent/
 # END akit
 ```
+
+`.akit/` is the repository's own render record ([§6](#what-a-render-leaves-behind)). It is
+the one entry that is not a rendered kit: it is state about one machine, sitting inside a
+repository several people share, so it is ignored for the same reason everything else in the
+block is.
 
 It is a file the user owns, so it gets the same treatment as the third shape in
 [§7](#7-rendering): everything outside the markers survives untouched, and the block is
@@ -729,9 +746,24 @@ The manifest already says which commit every subscription is on, so nothing has 
 recorded to make a setup reproducible. What does need recording is what this particular
 machine wrote, and that is nobody else's business.
 
-**The render record** lives in the state directory and is never committed. It names every
-file a render produced, every subscription and harness that explains it, and a hash of the
-copy.
+**There is one render record per scope root, and never one per machine.** Yours lives in the
+state directory and covers what lands in your home directory. A repository's lives inside
+that repository, in `.akit/`, and covers what lands there. Each names every file a render
+produced under its own root, every subscription and harness that explains it, and a hash of
+the copy. Neither is ever committed.
+
+The two mirror the two manifests, which is the shape everything else here already has.
+Getting that wrong was expensive enough to be worth writing down: one file for the whole
+machine has three faults and they are one fault. Two repositories rendering at once overwrite
+each other, because each render rewrites the file whole. A repository that is deleted leaves
+entries nothing can ever collect, because withdrawal only runs in the root they belong to. And
+a render in one repository can withdraw another's files, because scope says which manifest
+and not which checkout. Splitting removes all three rather than checking for them: **the
+record you can open is the record you are responsible for.**
+
+A repository's record is inside it so that its lifetime is the repository's. Delete the
+checkout and the record goes with it; move the checkout and the record moves too. Neither is
+true of a file somewhere else that names this path.
 
 **Explained by a set, not by one subscription.** A shared file has several harnesses wanting
 identical bytes ([§7](#7-rendering)), so the record holds all of them and withdrawal deletes
@@ -742,11 +774,12 @@ in the record was not written by us, so no command touches it, whatever director
 sitting in and whatever it is called. Somebody's hand-written skill in `.agents/skills/` is
 not our business, and the record is what makes that a fact rather than a promise.
 
-That exhaustiveness has a second reader. Discovery subtracts the record before looking for
+That exhaustiveness has a second reader. Discovery subtracts the records before looking for
 parts ([§5](#5-sources)), so a repository that is its own source never finds its own rendered
-output and calls it an input.
+output and calls it an input. Reading asks about the disk and takes both; writing asks about
+one root and takes one.
 
-Within the record the hash decides. One that still matches is a copy, and deleting a copy
+Within a record the hash decides. One that still matches is a copy, and deleting a copy
 destroys nothing. One that no longer matches is a rendered file somebody edited, which is the
 only file in a rendered directory that contains anything, so it is reported and left where it
 is ([§10](#10-commands)).
@@ -763,16 +796,29 @@ Hashing the whole file instead would fail in the ordinary case rather than a rar
 host file is prose somebody edits, so the hash would stop matching the week after it was
 written, and every rule in it would become un-withdrawable from then on.
 
-It also records how each remote source was classified when it was fetched
-([§8](#8-keeping-the-employers-kits-in)), because needing credentials to clone is only
-observable while cloning. A path is not fetched and does not need the record: it takes the
-repository's own classification, which costs nothing to work out again.
+**Where a home directory is itself a git repository, the two records overlap.** Dotfiles make
+that ordinary, and it is the one case where the two scopes write to the same place: the
+project anchor and your home directory are one directory, so both land in
+`~/.agents/skills/`. Each record then claims the path, and withdrawal reads the other before
+deleting anything, so `akit render --global` cannot take a file the repository still wants.
+The file goes when the last of the two stops asking for it, which is the same rule as for two
+harnesses.
 
-It is a cache of facts about this disk, so deleting it costs one `akit render` and nothing
-else. One thing does not come back: a file rendered before the record was deleted is now
-unknown rather than unexplained, so nothing will clean it up on its own. `akit doctor`
+**How private each source was is not in either record.** It is a fact about the cache and
+about a source key, learned while cloning ([§8](#8-keeping-the-employers-kits-in)) and true
+however many repositories subscribe to it, so it lives beside the records in the state
+directory with a file of its own. Copying it into every repository's record would store one
+fact once per project, and putting it in yours alone would make one record the odd one that
+also carries machine state.
+
+A record is a cache of facts about this disk, so deleting one costs one `akit render` and
+nothing else. One thing does not come back: a file rendered before its record was deleted is
+now unknown rather than unexplained, so nothing will clean it up on its own. `akit doctor`
 reports what looks like an orphan and `akit render --prune` acts on it, which is the only
 place this tool deletes a file it cannot prove it wrote.
+
+**A record that empties is removed**, along with the `.akit/` we made for it, so a repository
+that stops being rendered into stops carrying a file about it.
 
 **`render` never moves a pin.** Only `add` and `update` touch the pins, which is what makes
 rendering safe to run from a hook: it can change files on disk, never what a kit contains.
@@ -1099,8 +1145,9 @@ not, saying which it was.
 
 Three kinds of file are involved throughout, all described in [§6](#6-the-manifest). The
 **manifests** say what you want, each subscription naming the commit it is pinned to. The
-**cache** holds a clone of each remote source. The **render record**, in the state directory,
-says what this machine wrote where, with a hash per copy.
+**cache** holds a clone of each remote source. The **render records**, one in the state
+directory and one inside each repository rendered into, say what was written under that root,
+with a hash per copy.
 
 ### `list`
 

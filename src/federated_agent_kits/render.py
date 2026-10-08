@@ -47,11 +47,10 @@ from typing import Any, TextIO
 from federated_agent_kits import adapters, cache, discovery, ignore, manifest, record, sources
 from federated_agent_kits.adapters import Adapter
 from federated_agent_kits.adapters.adapter import SEPARATOR
-from federated_agent_kits.cache import Privacy
 from federated_agent_kits.exits import AkitError, Exit, UsageError
 from federated_agent_kits.listing import PLURAL, SCOPE_TITLE, joined
 from federated_agent_kits.manifest import Kind, Merged, Scope, Subscription
-from federated_agent_kits.record import Explanation, Record, Written
+from federated_agent_kits.record import Explanation, Record, Records, Written
 
 INDENT = "  "
 
@@ -139,13 +138,15 @@ class Outcome:
     def problems(self) -> tuple[Entry, ...]:
         return tuple(entry for entry in self.entries if entry.problem is not None)
 
-    @property
-    def written(self) -> int:
-        return sum(place.written for entry in self.entries for place in entry.placements)
+    written: int = 0
+    """Files that appeared or changed, counted once each.
 
-    @property
-    def unchanged(self) -> int:
-        return sum(place.unchanged for entry in self.entries for place in entry.placements)
+    Not the sum of the placements. A file both scopes explain has a placement
+    per scope, which is the honest per-line report and would double the total:
+    a dotfiles render of one two-file skill would say it wrote four.
+    """
+
+    unchanged: int = 0
 
     @property
     def deleted(self) -> tuple[Withdrawal, ...]:
@@ -217,6 +218,13 @@ class _Target:
     digest: str
     explained_by: set[str] = field(default_factory=set)
     harnesses: set[str] = field(default_factory=set)
+    scopes: set[Scope] = field(default_factory=set)
+    """Which records get an entry for this file.
+
+    Usually one. Both when your home directory is itself a git repository, where
+    the project anchor and the user root are the same directory and the two
+    scopes land on one path (DESIGN.md section 6).
+    """
 
 
 def counted(number: int, noun: str) -> str:
@@ -271,7 +279,7 @@ class _Pass:
     start: Path
     home: Path
     cache_root: Path | None
-    before: Record
+    before: Records
     chosen: dict[Scope, tuple[Adapter, ...]]
 
     def anchor(self, adapter: Adapter, scope: Scope) -> Path:
@@ -300,9 +308,7 @@ def _plan_part(
     picking a winner silently is what `as:` exists to avoid.
     """
     name = subscription.rename or part.name
-    explanation = str(
-        Explanation(scope=subscription.scope, kind=subscription.kind, source=subscription.source, name=name)
-    )
+    explanation = str(Explanation(kind=subscription.kind, source=subscription.source, name=name))
     placements: list[Placement] = []
     clash: str | None = None
     for adapter in walk.chosen[subscription.scope]:
@@ -317,7 +323,11 @@ def _plan_part(
             standing = writes.get(target)
             if standing is None:
                 writes[target] = _Target(
-                    source=file, digest=digest, explained_by={explanation}, harnesses={adapter.name}
+                    source=file,
+                    digest=digest,
+                    explained_by={explanation},
+                    harnesses={adapter.name},
+                    scopes={subscription.scope},
                 )
             elif standing.digest != digest:
                 clash = (
@@ -328,6 +338,7 @@ def _plan_part(
             else:
                 standing.explained_by.add(explanation)
                 standing.harnesses.add(adapter.name)
+                standing.scopes.add(subscription.scope)
         placements.append(Placement(path=directory, harnesses=(adapter.name,), written=0, unchanged=0))
     return Entry(
         subscription=subscription,
@@ -394,7 +405,7 @@ def _plan(walk: _Pass, merged: Merged) -> tuple[list[Entry], dict[Path, _Target]
     return entries, writes
 
 
-def _perform(entries: list[Entry], writes: dict[Path, _Target]) -> list[Entry]:
+def _perform(entries: list[Entry], writes: dict[Path, _Target]) -> tuple[list[Entry], dict[Path, bool]]:
     """Write every planned file whose bytes are not already there, and count both.
 
     The comparison is the hash rather than the modification time. A render that
@@ -434,7 +445,7 @@ def _perform(entries: list[Entry], writes: dict[Path, _Target]) -> list[Entry]:
                 waiting=entry.waiting,
             )
         )
-    return counted
+    return counted, done
 
 
 def _tidy(path: Path, boundaries: Iterable[Path]) -> None:
@@ -455,37 +466,54 @@ def _tidy(path: Path, boundaries: Iterable[Path]) -> None:
 
 
 def _withdraw(
-    before: Record, writes: dict[Path, _Target], scopes: Sequence[Scope], region: Mapping[Path, set[str]]
-) -> tuple[list[Withdrawal], list[Written]]:
-    """The three outcomes of DESIGN.md section 10's withdrawal table, and what stays recorded.
+    before: Mapping[Scope, Record],
+    writes: dict[Path, _Target],
+    scopes: Sequence[Scope],
+    region: Mapping[Path, set[str]],
+) -> tuple[list[Withdrawal], dict[Scope, list[Written]]]:
+    """The three outcomes of DESIGN.md section 10's withdrawal table, per record.
 
-    An entry whose explanations this build cannot read belongs to no scope, and
-    a file no scope claims is left alone: that is the same conservative answer
-    the third row of the table gives, reached from a stale record rather than
-    from a hand-edited file.
+    One record per root does most of the narrowing by itself: the entries a
+    render may consider are the ones in the records it opened, so a render in
+    one repository cannot reach another's files however the adapters have moved
+    their directories since.
+
+    What is left is the one case where two roots genuinely overlap. A home
+    directory that is also a git repository makes the project anchor and the
+    user root the same place, so both records can claim one path. A record this
+    run is not rendering still speaks for its files, which is why the sibling is
+    read before anything is deleted and why `--global` in a dotfiles repository
+    cannot take a file the repository still wants.
     """
-    chosen = set(scopes)
-    territory = _territory(region)
+    rendered = set(scopes)
+    silent = [record for scope, record in before.items() if scope not in rendered]
+    handled: set[Path] = set()
     done: list[Withdrawal] = []
-    kept: list[Written] = []
-    for entry in before.written:
-        if entry.path in writes:
+    kept: dict[Scope, list[Written]] = {}
+    for scope, found in before.items():
+        staying: list[Written] = []
+        kept[scope] = staying
+        if scope not in rendered:
+            staying.extend(found.written)
             continue
-        if not entry.scopes or not entry.scopes <= chosen:
-            kept.append(entry)
-            continue
-        if not any(entry.path.is_relative_to(directory) for directory in territory):
-            kept.append(entry)
-            continue
-        if not entry.path.exists():
-            done.append(Withdrawal(path=entry.path, action=GONE))
-        elif entry.still_a_copy():
-            entry.path.unlink()
-            _tidy(entry.path, region)
-            done.append(Withdrawal(path=entry.path, action=DELETED))
-        else:
-            kept.append(entry)
-            done.append(Withdrawal(path=entry.path, action=KEPT))
+        for entry in found.written:
+            if entry.path in writes:
+                continue
+            if any(entry.path in other.paths for other in silent):
+                staying.append(entry)
+                continue
+            if entry.path in handled:
+                continue
+            handled.add(entry.path)
+            if not entry.path.exists():
+                done.append(Withdrawal(path=entry.path, action=GONE))
+            elif entry.still_a_copy():
+                entry.path.unlink()
+                _tidy(entry.path, region)
+                done.append(Withdrawal(path=entry.path, action=DELETED))
+            else:
+                staying.append(entry)
+                done.append(Withdrawal(path=entry.path, action=KEPT))
     return done, kept
 
 
@@ -506,30 +534,6 @@ def _directories(picked: Iterable[Adapter], walk: _Pass, scopes: Sequence[Scope]
                     continue
                 found.setdefault(walk.anchor(adapter, scope), set()).add(destination.write)
     return found
-
-
-def paths_of(owned: Mapping[Path, set[str]]) -> tuple[Path, ...]:
-    """The owned directories as paths, which is what a containment test needs."""
-    return tuple(
-        base.joinpath(*relative.split(SEPARATOR)) for base, written in owned.items() for relative in sorted(written)
-    )
-
-
-def _territory(region: Mapping[Path, set[str]]) -> tuple[Path, ...]:
-    """Everywhere a withdrawal may look, which is narrower than the record.
-
-    The record is machine-wide and a render happens in one place, so scope alone
-    is not enough to decide what this run is responsible for: your home holds
-    one set of directories and every repository on this disk holds its own.
-    Rendering in one repository that withdrew another's files would be a command
-    that breaks a project you are not in, from a record that was right.
-
-    Every registered adapter rather than the chosen ones, because withdrawal has
-    to reach the files of a harness that has just left the list - which is what
-    `akit harness remove` is, and the point at which the chosen list no longer
-    names it.
-    """
-    return paths_of(region)
 
 
 def _prune(owned: dict[Path, set[str]], explained: set[Path]) -> list[Path]:
@@ -565,7 +569,11 @@ def _remove(path: Path) -> None:
 
 
 def _ignore_block(
-    walk: _Pass, owned: dict[Path, set[str]], explained: Iterable[Path], scopes: Sequence[Scope]
+    walk: _Pass,
+    owned: dict[Path, set[str]],
+    explained: Iterable[Path],
+    scopes: Sequence[Scope],
+    kept: Path | None,
 ) -> tuple[tuple[Path, tuple[str, ...], bool], ...]:
     """Maintain the repository's ignore block, from the directories it wrote into.
 
@@ -574,6 +582,11 @@ def _ignore_block(
     render (DESIGN.md section 6). An adapter-shaped list would keep ignoring a
     directory for as long as the harness was installed, whether or not anything
     of ours was ever in it.
+
+    The repository's own record is in that list too, and it is the one entry
+    that is not a rendered kit. It is state about this machine sitting inside a
+    shared repository, so it is ignored for the same reason everything else here
+    is, and it leaves the block on the render that removes it.
 
     Only inside a repository, and only for the project scope: your home
     directory is not a working tree, so nothing rendered there can be committed
@@ -592,6 +605,8 @@ def _ignore_block(
         for directory in (base.joinpath(*relative.split(SEPARATOR)),)
         if directory.is_relative_to(root) and any(path.is_relative_to(directory) for path in inside)
     }
+    if kept is not None and kept.is_file():
+        listed.add(f"{record.DIRECTORY}/")
     return ((root, tuple(sorted(listed)), ignore.maintain(root, listed)),)
 
 
@@ -600,21 +615,22 @@ def render(start: Path, places: Directories, choices: Choices = EVERYTHING) -> O
     _check_names(choices.only, "--harness")
     _check_names(choices.without, "--no-harness")
     merged = manifest.load(start, user_path=places.user_manifest)
-    before = record.load(places.state)
+    files = record.locations(start, state_root=places.state)
+    before = {scope: record.load(path) for scope, path in files.items()}
     chosen: dict[Scope, tuple[Adapter, ...]] = {}
     unknown: list[str] = []
     for scope in choices.scopes:
         picked, missing = adapters.expand(merged.harnesses(scope), places.home)
         chosen[scope] = _narrow(picked, choices.only, choices.without)
         unknown.extend(name for name in missing if name not in unknown)
-    walk = _Pass(start=start, home=places.home, cache_root=places.cache, before=before, chosen=chosen)
+    walk = _Pass(start=start, home=places.home, cache_root=places.cache, before=Records(by_scope=before), chosen=chosen)
     wanted = Merged(
         subscriptions=tuple(entry for entry in merged.subscriptions if entry.scope in set(choices.scopes)),
         user=merged.user,
         project=merged.project,
     )
     planned, writes = _plan(walk, wanted)
-    entries = _perform(planned, writes)
+    entries, done = _perform(planned, writes)
 
     suspended = _suspension(entries, choices)
     owned = {
@@ -623,14 +639,17 @@ def render(start: Path, places: Directories, choices: Choices = EVERYTHING) -> O
         for base, written in _directories(chosen[scope], walk, (scope,)).items()
     }
     withdrawals: list[Withdrawal] = []
-    kept: list[Written] = list(before.written)
+    kept: dict[Scope, list[Written]] = {scope: list(found.written) for scope, found in before.items()}
     if suspended is None:
         withdrawals, kept = _withdraw(
             before, writes, choices.scopes, _directories(adapters.ADAPTERS, walk, choices.scopes)
         )
-    after = _record_after(before, writes, kept)
-    record.save(after, places.state)
-    pruned = _prune(owned, set(after.paths)) if choices.prune and suspended is None else []
+    standing: set[Path] = set()
+    for scope, path in files.items():
+        after = _record_after(before[scope], writes, scope, kept.get(scope, ()))
+        record.save(after, path)
+        standing |= set(after.paths)
+    pruned = _prune(owned, standing) if choices.prune and suspended is None else []
     return Outcome(
         manifests={
             Scope.USER: merged.user.path if merged.user else None,
@@ -638,9 +657,11 @@ def render(start: Path, places: Directories, choices: Choices = EVERYTHING) -> O
         },
         harnesses={scope: tuple(adapter.name for adapter in chosen.get(scope, ())) for scope in choices.scopes},
         entries=tuple(entries),
+        written=sum(1 for changed in done.values() if changed),
+        unchanged=sum(1 for changed in done.values() if not changed),
         withdrawals=tuple(withdrawals),
         pruned=tuple(pruned),
-        ignored=_ignore_block(walk, owned, after.paths, choices.scopes),
+        ignored=_ignore_block(walk, owned, standing, choices.scopes, files.get(Scope.PROJECT)),
         unknown=tuple(unknown),
         suspended=suspended,
     )
@@ -659,12 +680,11 @@ def _suspension(entries: Sequence[Entry], choices: Choices) -> str | None:
     return None
 
 
-def _record_after(before: Record, writes: dict[Path, _Target], kept: Iterable[Written]) -> Record:
-    """The record this render leaves: what it wrote, plus what it did not touch.
+def _record_after(before: Record, writes: dict[Path, _Target], scope: Scope, kept: Iterable[Written]) -> Record:
+    """One root's record after this render: what it wrote there, plus what it did not touch.
 
-    The source classifications are carried forward whole. `render` never
-    fetches, so it never learns one, and dropping what `add` and `update` wrote
-    would quietly disarm the refusal in DESIGN.md section 8.
+    Filtered by scope rather than written whole, because a file can be wanted by
+    both roots and each record speaks only for its own.
     """
     entries = {
         target: Written(
@@ -674,25 +694,11 @@ def _record_after(before: Record, writes: dict[Path, _Target], kept: Iterable[Wr
             harnesses=frozenset(planned.harnesses),
         )
         for target, planned in writes.items()
+        if scope in planned.scopes
     }
     for entry in kept:
         entries.setdefault(entry.path, entry)
-    return Record(path=before.path, written=tuple(entries.values()), sources=dict(before.sources))
-
-
-def classified(before: Record, resolutions: Iterable[tuple[str, cache.Resolved]]) -> dict[str, Privacy]:
-    """The classifications after a command that fetched, which is never this one.
-
-    Here because the record's writer is here and the schema is settled once:
-    `add` and `update` learn a source's privacy while cloning it (T7), `render`
-    carries it forward, and T8's refusal reads it. A resolution that did not go
-    near the network reports nothing and leaves what was already known.
-    """
-    found = dict(before.sources)
-    for key, resolved in resolutions:
-        if resolved.privacy is not None:
-            found[key] = resolved.privacy
-    return found
+    return Record(path=before.path, written=tuple(entries.values()))
 
 
 def _print_entry(entry: Entry, out: TextIO) -> None:
@@ -850,7 +856,6 @@ __all__ = [
     "Outcome",
     "Placement",
     "Withdrawal",
-    "classified",
     "counted",
     "payload",
     "render",

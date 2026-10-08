@@ -778,3 +778,59 @@ a path, it has found something that would have failed silently. opencode's `inst
 Copilot's directory, and now Copilot's frontmatter. The pattern in all three is identical: the
 files land where the adapter promised, the command exits 0, and the agent behaves as if
 nothing was rendered.
+
+## 2026-10-08 - One record for the machine was three bugs wearing a coat
+
+The render record started as one file in the state directory covering everything `akit` had
+written anywhere on this disk. Fixing a bug in it produced a check, then the check needed a
+schema field to survive adapters moving their directories, and the second layer of repair is
+what prompted the question that killed the design: is one record right at all?
+
+It was not, and the evidence was already written down. Three separate problems, one cause.
+
+**Two repositories rendering at once overwrote each other.** `record.save` writes the file
+whole with no lock. Two pre-commit hooks in two checkouts is not an exotic case, it is the
+headline use for `render`, and the loser's entries vanish while its files stay on disk. They
+become orphans only `--prune` can reach, and `--prune` is the one deletion this tool cannot
+prove is safe.
+
+**A deleted repository left entries nothing could collect.** Withdrawal only runs in the root
+an entry belongs to, so once that root is gone the entry is unreachable forever. The file
+grew monotonically with every repository anybody had ever rendered in.
+
+**A render in one repository could withdraw another's files.** That one shipped, and
+[the entry above](#2026-10-08---rendering-in-one-repository-deleted-another-repositorys-files)
+has it. Scope says which manifest, not which checkout, so from inside repository A every file
+B rendered looked unexplained.
+
+All three are the same sentence: a record entry belongs to a root, and the file had been
+deliberately separated from the root it belonged to.
+
+So there is one record per scope root now. Yours stays in the state directory. A repository's
+moves inside the repository, at `.akit/render.json`, which gives it the lifetime of its
+subject: delete the checkout and it goes, move the checkout and it moves. The containment
+check and the anchor field that was going to shore it up both disappeared, because the record
+you can open is the record you are responsible for.
+
+**Two things fell out that are worth more than the fix.**
+
+The source classifications had to leave. They record how private each remote source was when
+it was fetched, which is a fact about the cache and about a source key, true however many
+repositories subscribe to it. One record made that easy to overlook. N records make it either
+the same fact stored once per project or one record being the odd one that also carries
+machine state, so it now has its own file beside them, `sources.json`, with one job.
+
+And the split broke a case the single record had been handling correctly without anybody
+noticing. [DESIGN.md](DESIGN.md#two-files-one-format) said the two scopes never write to the
+same place. For a home directory that is also a git repository, which is what dotfiles are,
+that is false: the project anchor and your home directory are one directory, so both scopes
+land in `~/.agents/skills/`. One entry with two explanations handled it. Two records each
+claim the path and neither can see the other, so `akit render --global` would have deleted a
+file the repository still wanted. Withdrawal now reads the sibling record before deleting
+anything.
+
+**The lesson is about which bugs are worth a redesign.** The first fix was a check, and it
+worked. What it could not do was explain why the check was needed, and a check you cannot
+derive from the shape of the data is usually a shape that is wrong. Three unrelated-looking
+symptoms with one cause is the signal, and all three were visible before the redesign: two of
+them had simply never been written down as problems.

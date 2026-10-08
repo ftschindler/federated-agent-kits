@@ -411,6 +411,13 @@ disk without inventing a second, quieter definition of the word. This task adds 
 owns every decision about when the record changes. Changing the schema is allowed and means
 changing T4's tests in the same diff.
 
+**It owns where the record lives, and that moved.** T4 wrote one record for the machine. One
+file for every root has three faults that are one fault, all of them written up in
+[§6](DESIGN.md#what-a-render-leaves-behind): two repositories rendering at once overwrite
+each other, a deleted repository leaves entries nothing can collect, and a render in one
+repository can withdraw another's files. So there is one record per scope root, yours in the
+state directory and a repository's in `.akit/` inside it.
+
 **Specified by DESIGN.md.** Rendering always copies, the render record and its exhaustiveness
 ([§6](DESIGN.md#what-a-render-leaves-behind)); one copy where the bytes agree
 ([§7](DESIGN.md#7-rendering)); the whole of [§10](DESIGN.md#render); the ignore block
@@ -423,8 +430,19 @@ changing T4's tests in the same diff.
   never link. Both adapters [T4](#t4---adapters-detection-and-akit-list) ships write there,
   so one copy really is one copy; the per-harness directories each of them also *reads* are a
   separate list and discovery's business.
-- The render record in the state directory: every file written, every subscription and harness
-  that explains it, and a hash of the copy. Explained by a set, not by one subscription.
+- One record per scope root: yours in the state directory, a repository's in `.akit/` beside
+  its `.akit.yaml`. Each holds every file written under its own root, every subscription and
+  harness that explains it, and a hash of the copy. Explained by a set, not by one
+  subscription. A record that empties is removed rather than written empty.
+- Reading takes both and writing takes one. `akit list` and discovery ask about the disk;
+  withdrawal asks about one root and may only reach what that root's record names.
+- The one overlap is a home directory that is itself a git repository, where both scopes land
+  on one path. Withdrawal reads the sibling record before deleting, so `--global` in a
+  dotfiles repository cannot take a file the repository still wants.
+- **The source classifications are not in the record.** They are a fact about the cache,
+  learned by fetching and true however many repositories subscribe, so they live beside the
+  records in the state directory with a file of their own. `render` never fetches and never
+  touches them.
 - Withdrawal, exactly three outcomes: in the record and unexplained and matching, deleted and
   reported; in the record and the hash differs, left alone, named, pointed at `doctor`; not in
   the record, never touched.
@@ -445,7 +463,11 @@ directory that stops being rendered leaves the block. A shared skill survives on
 harnesses going out of scope and goes when the second does. Deleting the rendered tree and
 re-rendering restores it byte for byte. Deleting the record leaves orphans that `--prune`
 removes and nothing else does. `--no-harness` deletes nothing. A `file://` source and a path
-source render identically.
+source render identically. Two repositories in one fake home render without either reaching
+the other's record, and unsubscribing in one withdraws only its own copy, which is the `cli`
+layer's job because nothing in the `unit` layer renders twice in two unrelated places. A
+dotfiles-shaped home renders both scopes onto one path, and narrowing to either one deletes
+nothing the other still wants.
 
 **Done when.** A skill subscribed from a public source renders on both operating systems, a
 second render is a proven no-op, and no test can get the engine to delete a file it did not
@@ -634,9 +656,22 @@ server has nothing to report until agents render, so it lands with
 `render` does, and exits non-zero when it found something. `--json` carries the findings as
 data, because the skill reads this more often than a person does.
 
+**It reports on the setup it is standing in, which is two records and not every record on the
+disk.** Yours, and the one in the repository you ran it from
+([§6](DESIGN.md#what-a-render-leaves-behind)). Run outside a repository it sees your home
+directory and says so. A check that went looking for every repository ever rendered into
+would have to guess where they are, and would report each one's files as orphans from
+wherever it happened to be run.
+
+**Two findings the split adds.** A repository holding a `.akit/` that no manifest explains
+any more, which is what a deleted `.akit.yaml` leaves behind. And a pointer written into a
+harness config aimed at a directory that is not there, which is what
+[T6](#t6---rules) leaves rather than editing somebody's config on the way out.
+
 **Tests.** One test per bullet, each constructing the broken state deliberately: two kits on
 one name, an unexplained render, a hand-edited render caught by its hash, an orphan from a
-lost record, a missing cache entry, a pin the cache does not hold, a committed manifest naming
+lost record, a repository record no manifest explains, a dangling pointer, a missing cache
+entry, a pin the cache does not hold, a committed manifest naming
 an escaping path, a stale committed render, files in
 place for a harness that is not reading them, a detected harness the list leaves out, a named
 harness no adapter knows, and both `.gitignore` failures. A healthy setup reports nothing and

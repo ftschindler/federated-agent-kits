@@ -39,7 +39,7 @@ PREFETCH = textwrap.dedent(
     print(json.dumps({
         "manifest": str(manifest.user_manifest_path()),
         "cache": str(cache.root()),
-        "record": str(record.location()),
+        "record": str(record.user_location()),
     }))
     """
 )
@@ -117,13 +117,21 @@ class TestRenderingFromASourceThatWasCloned:
         assert tree(project / SKILLS) == before
         assert "Nothing changed" in done.stdout
 
-    def test_the_record_lands_in_this_machines_state_directory(self, machine: Machine, remote: str):
+    def test_the_record_lands_inside_the_repository_it_describes(self, machine: Machine, remote: str):
         project = repository(machine, "project", remote)
 
         machine.home.run("render", cwd=project)
 
-        written = json.loads(machine.record.read_text(encoding="utf-8"))
+        written = json.loads((project / ".akit" / "render.json").read_text(encoding="utf-8"))
         assert [Path(entry["path"]).name for entry in written["written"]] == ["SKILL.md", "style.md"]
+        assert not machine.record.exists()
+
+    def test_the_repositorys_own_record_is_ignored_like_everything_else_we_write(self, machine: Machine, remote: str):
+        project = repository(machine, "project", remote)
+
+        machine.home.run("render", cwd=project)
+
+        assert ".akit/" in (project / ".gitignore").read_text(encoding="utf-8")
 
     def test_json_is_the_same_run_as_data(self, machine: Machine, remote: str):
         project = repository(machine, "project", remote)
@@ -131,6 +139,42 @@ class TestRenderingFromASourceThatWasCloned:
         done = machine.home.run("render", "--json", cwd=project)
 
         assert json.loads(done.stdout)["subscriptions"][0]["name"] == "writing"
+
+
+class TestTwoRepositoriesInOneHome:
+    """The case the split exists for, in the layer that caught it.
+
+    Nothing in the unit layer renders twice in two unrelated places, because a
+    unit test builds the setup it is about. One fake home with two checkouts in
+    it is also what a laptop is, which is why the machine-wide record's fault
+    showed up here first.
+    """
+
+    def test_neither_repository_can_reach_the_others_record(self, machine: Machine, remote: str):
+        first = repository(machine, "first", remote)
+        second = repository(machine, "second", remote)
+
+        machine.home.run("render", cwd=first)
+        done = machine.home.run("render", cwd=second)
+
+        assert done.returncode == Exit.OK, done.stderr
+        assert (first / SKILLS / "writing" / "SKILL.md").is_file()
+        assert (second / SKILLS / "writing" / "SKILL.md").is_file()
+        assert (first / ".akit" / "render.json").is_file()
+        assert (second / ".akit" / "render.json").is_file()
+
+    def test_unsubscribing_in_one_withdraws_only_its_own_copy(self, machine: Machine, remote: str):
+        first = repository(machine, "first", remote)
+        second = repository(machine, "second", remote)
+        machine.home.run("render", cwd=first)
+        machine.home.run("render", cwd=second)
+
+        (second / ".akit.yaml").write_text("version: 1\n", encoding="utf-8")
+        done = machine.home.run("render", cwd=second)
+
+        assert done.returncode == Exit.OK, done.stderr
+        assert not (second / SKILLS / "writing").exists()
+        assert (first / SKILLS / "writing" / "SKILL.md").is_file()
 
 
 class TestASourceThatIsAlreadyHere:

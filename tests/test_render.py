@@ -20,13 +20,12 @@ from pathlib import Path
 
 import pytest
 
-from federated_agent_kits import adapters, ignore, record, render
+from federated_agent_kits import adapters, ignore, privacy, record, render
 from federated_agent_kits.adapters.adapter import Adapter, Destination, RuleShape
-from federated_agent_kits.cache import Privacy, Resolved
+from federated_agent_kits.cache import Privacy
 from federated_agent_kits.cli import build_parser, dispatch
 from federated_agent_kits.exits import Exit, NotImplementedYetError, UsageError
 from federated_agent_kits.manifest import Kind, Scope
-from federated_agent_kits.sources import parse as parse_source
 
 pytestmark = pytest.mark.unit
 
@@ -39,6 +38,16 @@ def build(root: Path, layout: dict[str, str]) -> Path:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text, encoding="utf-8")
     return root
+
+
+def project_record(project: Path) -> record.Record:
+    """What the repository's own record says, which is where a project render lands."""
+    return record.load(record.project_location(project))
+
+
+def user_record(places: render.Directories) -> record.Record:
+    """What your machine's record says, which is the other half and never the same file."""
+    return record.load(record.user_location(places.state))
 
 
 def tree(root: Path) -> dict[str, str]:
@@ -175,7 +184,7 @@ class TestWhatARenderPutsOnDisk:
         assert not (project / SKILLS / "writing").exists()
         entry = outcome.entries[0]
         assert (entry.name, entry.found_as) == ("house-style", "writing")
-        written = record.load(places.state).written[0]
+        written = project_record(project).written[0]
         assert any(found.name == "house-style" for found in written.explanations)
 
     def test_your_subscriptions_land_in_your_home_and_a_repositorys_inside_it(
@@ -304,7 +313,7 @@ class TestWithdrawal:
         outcome = render.render(project, places)
 
         assert sorted(entry.action for entry in outcome.withdrawals) == ["deleted", "gone"]
-        assert record.load(places.state).written == ()
+        assert project_record(project).written == ()
 
     def test_withdrawing_the_last_file_takes_the_empty_directory_with_it(
         self, project: Path, places: render.Directories, one_skill: Path
@@ -396,7 +405,7 @@ class TestPruning:
         self, project: Path, places: render.Directories, kits: Path, one_skill: Path
     ):
         render.render(project, places)
-        record.location(places.state).unlink()
+        record.project_location(project).unlink()
         subscribe(project / ".akit.yaml", "version: 1\n")
 
         render.render(project, places)
@@ -421,7 +430,7 @@ class TestPruning:
         self, project: Path, places: render.Directories, one_skill: Path
     ):
         render.render(project, places)
-        record.location(places.state).unlink()
+        record.project_location(project).unlink()
         subscribe(project / ".akit.yaml", "version: 1\n")
 
         outcome = render.render(project, places, render.Choices(prune=True, only=("opencode",)))
@@ -477,35 +486,142 @@ class TestTheRecordItWrites:
     ):
         render.render(project, places)
 
-        written = record.load(places.state)
+        written = project_record(project)
         assert len(written.written) == 2
         entry = next(found for found in written.written if found.path.name == "SKILL.md")
         assert entry.harnesses == frozenset({"opencode", "copilot-vscode"})
         assert entry.still_a_copy()
         explanation = entry.explanations[0]
-        assert (explanation.scope, explanation.name) == (Scope.PROJECT, "writing")
+        assert (explanation.kind, explanation.name) == (Kind.SKILL, "writing")
 
-    def test_a_source_classification_is_carried_forward_rather_than_rediscovered(
-        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    def test_a_project_render_writes_nothing_into_your_own_record(
+        self, project: Path, places: render.Directories, one_skill: Path
     ):
-        before = record.load(places.state)
-        record.save(
-            record.Record(path=None, written=before.written, sources={"acme/kits": Privacy.PRIVATE}), places.state
-        )
+        render.render(project, places)
+
+        assert user_record(places).written == ()
+        assert record.user_location(places.state).exists() is False
+
+    def test_a_render_leaves_the_source_classifications_alone(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        """They are machine state about the cache and no business of a render.
+
+        `render` never fetches, so it never learns a classification, and the
+        file lives beside the record rather than inside it precisely so that a
+        render has nothing to carry forward and nothing to drop.
+        """
+        privacy.save({"acme/kits": Privacy.PRIVATE}, places.state)
 
         render.render(project, places)
 
-        assert record.load(places.state).sources == {"acme/kits": Privacy.PRIVATE}
+        assert privacy.load(places.state) == {"acme/kits": Privacy.PRIVATE}
 
-    def test_a_fetch_is_what_classifies_a_source_and_render_never_fetches(self, kits: Path):
-        before = record.Record(path=None, sources={"acme/kits": Privacy.PUBLIC})
-        resolved = Resolved(
-            source=parse_source(str(kits)), root=kits, commit=None, privacy=Privacy.PRIVATE, fetched=True
-        )
-        unfetched = Resolved(source=parse_source(str(kits)), root=kits, commit=None, privacy=None, fetched=False)
 
-        assert render.classified(before, [("acme/kits", unfetched)]) == {"acme/kits": Privacy.PUBLIC}
-        assert render.classified(before, [("acme/kits", resolved)]) == {"acme/kits": Privacy.PRIVATE}
+class TestTwoRepositoriesOnOneMachine:
+    """The reason there are two records rather than one.
+
+    A single machine-wide record made each of these a bug: the second render
+    rewrote the first's entries, and a render in one repository could withdraw
+    the other's files because scope says which manifest and not which checkout.
+    """
+
+    @pytest.fixture
+    def second(self, tmp_path: Path, kits: Path) -> Path:
+        root = tmp_path / "other"
+        (root / ".git").mkdir(parents=True)
+        subscribe(root / ".akit.yaml", f"version: 1\n\nskills:\n  {kits}: [fkb]\n")
+        return root
+
+    def test_each_repository_keeps_its_own_record(
+        self, project: Path, places: render.Directories, second: Path, one_skill: Path
+    ):
+        render.render(project, places)
+        render.render(second, places)
+
+        assert [entry.path.name for entry in project_record(project).written] == ["SKILL.md", "style.md"]
+        assert [entry.path.name for entry in project_record(second).written] == ["SKILL.md"]
+
+    def test_rendering_in_one_does_not_withdraw_the_others_files(
+        self, project: Path, places: render.Directories, second: Path, one_skill: Path
+    ):
+        render.render(project, places)
+
+        outcome = render.render(second, places)
+
+        assert (project / SKILLS / "writing" / "SKILL.md").is_file()
+        assert outcome.withdrawals == ()
+
+    def test_a_repository_that_is_deleted_takes_its_record_with_it(
+        self, project: Path, places: render.Directories, second: Path, one_skill: Path
+    ):
+        render.render(second, places)
+        assert record.project_location(second).is_file()
+
+        for path in sorted(second.rglob("*"), key=lambda entry: -len(entry.parts)):
+            path.rmdir() if path.is_dir() else path.unlink()
+        second.rmdir()
+
+        render.render(project, places)
+        assert project_record(project).written
+
+
+class TestAHomeDirectoryThatIsAlsoARepository:
+    """Dotfiles, where the project anchor and the user root are one directory.
+
+    DESIGN.md section 6 says the two scopes never write to the same place, and
+    for this one repository that is not true: both land in `~/.agents/skills/`.
+    One record handled it without anybody noticing, because one entry carried
+    both explanations. Two records have to read each other.
+    """
+
+    @pytest.fixture
+    def dotfiles(self, places: render.Directories, kits: Path) -> Path:
+        (places.home / ".git").mkdir(parents=True)
+        subscribe(places.home / ".akit.yaml", f"version: 1\n\nskills:\n  {kits}: [writing]\n")
+        assert places.user_manifest is not None
+        subscribe(places.user_manifest, f"version: 1\n\nskills:\n  {kits}: [writing]\n")
+        return places.home
+
+    def test_both_scopes_land_on_one_path_and_both_records_claim_it(self, dotfiles: Path, places: render.Directories):
+        render.render(dotfiles, places)
+
+        copy = dotfiles / SKILLS / "writing" / "SKILL.md"
+        assert copy.is_file()
+        assert copy.resolve() in project_record(dotfiles).paths
+        assert copy.resolve() in user_record(places).paths
+
+    def test_narrowing_to_one_scope_cannot_delete_what_the_other_still_wants(
+        self, dotfiles: Path, places: render.Directories
+    ):
+        render.render(dotfiles, places)
+        assert places.user_manifest is not None
+        subscribe(places.user_manifest, "version: 1\n")
+
+        render.render(dotfiles, places, render.Choices(scopes=(Scope.USER,)))
+
+        assert (dotfiles / SKILLS / "writing" / "SKILL.md").is_file()
+
+    def test_a_file_both_scopes_explain_is_counted_once(self, dotfiles: Path, places: render.Directories):
+        """The per-line report has a placement per scope and the summary must not.
+
+        Found by hand rather than by a test: the first dotfiles render said it
+        wrote four files and there were two on disk.
+        """
+        outcome = render.render(dotfiles, places)
+
+        assert outcome.written == len(tree(dotfiles / SKILLS))
+        assert outcome.written == 2
+
+    def test_the_file_goes_when_the_last_of_the_two_stops_wanting_it(self, dotfiles: Path, places: render.Directories):
+        render.render(dotfiles, places)
+        assert places.user_manifest is not None
+        subscribe(places.user_manifest, "version: 1\n")
+        subscribe(dotfiles / ".akit.yaml", "version: 1\n")
+
+        render.render(dotfiles, places)
+
+        assert not (dotfiles / SKILLS / "writing").exists()
 
 
 class TestWhatTheFlagsMayNotDo:
