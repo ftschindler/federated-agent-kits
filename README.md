@@ -12,10 +12,12 @@ its own filename.
 This subscribes you to the kits you want, from wherever they live, and writes them where each
 harness looks.
 
-**Status: it reads, and it renders skills and rules.** [DESIGN.md](DESIGN.md) is the source
-of truth for what gets built, [IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets
-built in. `akit list` and `akit render` work today, against both manifests, every source form
-and the opencode and GitHub Copilot in VS Code adapters. A render copies the skills you
+**Status: it subscribes, it renders skills and rules, and it reads.**
+[DESIGN.md](DESIGN.md) is the source of truth for what gets built,
+[IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets built in. `akit add`,
+`akit remove`, `akit update`, `akit harness`, `akit list` and `akit render` work today,
+against both manifests, every source form and the opencode and GitHub Copilot in VS Code
+adapters. A render copies the skills you
 subscribed to into the directory both harnesses read, writes each rule you subscribed to in
 whichever shape its harness wants, maintains the `.gitignore` block, and deletes a rendered
 copy only while its bytes are still the ones it wrote. Agents wait for T13, so a subscription
@@ -46,14 +48,27 @@ harness you use, in whichever shape each of them wants it.
 Use something else if you want a registry, a marketplace, or a runtime. This writes files and
 gets out of the way.
 
-## How it will work
+## How it works
 
 ```text
 akit add owner/repo writing      # this repository's manifest; --global for yours
 akit list            # what you subscribed to, where it is, and where it would land
+akit update          # fetch, move the pins, and show what moved
 akit render          # safe to run from a git hook
 akit doctor          # name collisions, stale renders, refusals
 ```
+
+**You never type a commit hash.** `akit add owner/repo#v2 writing` resolves the tag or branch
+you named, writes the commit it resolved to, and leaves the name you asked for in the comment
+beside it. `akit update` moves both and prints the diff of every part you subscribe to, so a
+change to a rule your agents read arrives as something you saw rather than something that
+happened. A part that disappeared upstream stops that key and names the three ways out
+instead of guessing between a deletion and a rename.
+
+**A name is a kit, not a file.** `akit add owner/repo writing` takes the skill called
+`writing` and the rule called `writing` if the source has both, because a skill with the rule
+that makes a model reach for it is the thing you wanted. `--kind skill` narrows it, and
+`akit remove writing` drops whatever that name brought in.
 
 Every command explains itself, because the agent-facing skill is deliberately thin: it says
 run `akit list` and never describes the output. So `akit <command> --help` is the

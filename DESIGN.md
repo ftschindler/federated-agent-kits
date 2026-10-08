@@ -1390,11 +1390,22 @@ would happen inside a pre-commit hook, which is the one place a false pass costs
 **Fetches new commits for sources already here, moves the pins, and shows what moved.** The
 only command that changes what a kit contains.
 
-For each source, or just the named one, it fetches, works out the newest commit of whatever
-the comment says the pin follows, and looks for every part subscribed under that key at the
-new commit, by the same walk `add` used ([§5](#5-sources)). If they are all there it
-rewrites the key and the comment, prints the diff of every part you subscribe to, then
-renders.
+For each source, or just the named one, it fetches, works out the newest commit of the
+branch the key follows, and looks for every part subscribed under that key at the new
+commit, by the same walk `add` used ([§5](#5-sources)). If they are all there it rewrites
+the key and the comment, prints the diff of every part you subscribe to, then renders.
+
+**The branch it follows is in the key or it is the source's default, and it is never read
+out of the comment.** An earlier draft of this paragraph said the comment named it, which
+cannot be true beside [§6](#6-the-manifest): a comment is for a reader and nothing parses
+one. So a key written as a plain source follows that repository's default branch, and a key
+whose URL names a ref follows that ref.
+
+The cost is a tag. `akit add owner/repo#v2 writing` pins to the commit `v2` was, and
+`akit update` then moves that key onto the default branch rather than onto `v3`, because the
+only record that `v2` was ever involved is a comment. Staying on a tag today means not
+running `update` for that key, which is a flag that does not exist yet rather than a
+workflow. [§12](#12-still-open) carries it.
 
 **Finding them again is a step, not an assumption.** A subscription names a kit rather than a
 path, so an upstream tidy-up that moves `skills/writing/` to `skills/prose/writing/` resolves
@@ -1543,6 +1554,15 @@ and the guide in `docs/adding-an-adapter.md` has to say so. What building it ear
 is a second in-place editor of somebody's config, tested against a fixture rather than
 against a harness, which is the half most likely to be wrong in a way only a real config
 reveals. Decide it when somebody arrives with the harness.
+
+**How does a subscription stay on a tag?** `akit update` follows the branch in the key or
+the source's default, because the tag a pin came from survives only in a comment and nothing
+parses one ([§10](#update)). So a key pinned at `v2` is moved onto the default branch by the
+first `update` that touches it, and keeping it where it is means not running `update` for
+it. Three ways out exist and none has earned itself yet: a ref in the key, so that
+`owner/repo@v2#<commit>` is followed as a tag; a flag that excludes a key; or nothing, on the
+grounds that a kit pinned to a tag is pinned to a commit already and the person who wants
+`v3` can say so. Decide it when somebody subscribes to a tag and is surprised.
 
 **Does a render need to rewrite a record that has not changed?** Each record is written whole
 on every render, even when the bytes are identical, which costs one write per root per run and

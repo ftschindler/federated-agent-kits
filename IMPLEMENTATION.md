@@ -42,7 +42,7 @@ builds a part of it or keeps it releasable.
 - [x] **[T4](#t4---adapters-detection-and-akit-list)** - Adapters, detection, and `akit list`
 - [x] **[T5](#t5---the-render-engine-and-skills)** - The render engine, and skills
 - [x] **[T6](#t6---rules)** - Rules
-- [ ] **[T7](#t7---add-remove-update-harness)** - `add`, `remove`, `update`, `harness`
+- [x] **[T7](#t7---add-remove-update-harness)** - `add`, `remove`, `update`, `harness`
 - [ ] **[T8](#t8---the-machineless-harness-and-the-leak-refusal)** - The machineless harness, and the leak refusal
 - [ ] **[T9](#t9---doctor)** - `doctor`
 - [ ] **[T10](#t10---adding-an-adapter-documented)** - Adding an adapter, documented
@@ -599,6 +599,18 @@ Offline: `add` of a cached source succeeds, of an uncached one fails saying whic
 
 **Done when.** A kit can be added from a path, renamed with `as:`, updated across a real
 commit and removed, with the manifest readable by hand at every step.
+
+**Settles.** That a name is a kit rather than a part: `add` takes the skill and the rule a
+source gives that name, because a skill with the rule that makes a model reach for it is what
+made them one kit, and `--kind` narrows it. `remove` drops whatever the name brought in, so
+the two stay each other's opposite, and the only question either of them asks is
+[§10](DESIGN.md#remove)'s, which is two manifests rather than two kinds.
+
+And that `update` follows the branch in the key or the source's default, never the comment.
+[§10](DESIGN.md#update) said the comment named it, which
+[§6](DESIGN.md#6-the-manifest) forbids; the design is corrected in the same diff and
+[§12](DESIGN.md#12-still-open) now carries what it costs, which is that a subscription cannot
+stay on a tag. [JOURNAL.md](JOURNAL.md) has the three ways out.
 
 **Leave alone.** The leak refusal, which is the next task and which `add` and `harness add`
 will both grow a call into.
