@@ -20,9 +20,13 @@ Run it with no install:
 uvx --from federated-agent-kits akit list
 ```
 
-The `--from` is not decoration. The distribution is `federated-agent-kits` and
-the command inside it is `akit`, and `uvx` reads its first argument as a
-distribution name.
+The `--from` is not decoration:
+
+- the distribution is the PyPI package `federated-agent-kits`, built from the
+  repository at <https://github.com/ftschindler/federated-agent-kits/>,
+- the command inside it is `akit`, and
+- `uvx` reads its first argument as a distribution name, so naming only the
+  command asks the index for a different project.
 
 `uvx` comes with `uv`, which is the one thing here that has to be on the machine
 already. Where `uv --version` fails,

@@ -1,7 +1,8 @@
 # Nothing is set up
 
-A machine or a repository with no kits at all. The first step is the same every
-time and needs nobody's input; everything after it is a conversation.
+A machine or a repository with no federated agent kits at all. The first step
+is the same every time and needs nobody's input; everything after it is a
+conversation.
 
 If `uv --version` fails, start at
 [install-requirements.md](install-requirements.md) and come back.

@@ -199,8 +199,9 @@ class TestTheOneThingItMayNotInstall:
 
     def test_it_waits_to_be_told_rather_than_installing(self) -> None:
         prose, _ = prose_and_code(REQUIREMENTS)
-        assert "offer rather than install" in prose.lower()
-        assert "until they have picked one" in prose
+        assert "not a kit subscription" in prose
+        assert "unless you are asked to" in prose
+        assert "If the user declines" in prose, "nothing says what to do when the answer is no"
 
     def test_the_skill_itself_stays_out_of_it(self) -> None:
         """One line and a link. The detail is a reference for a reason."""
