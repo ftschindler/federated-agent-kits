@@ -1551,3 +1551,23 @@ A skill may not install software nobody asked for, so `uv` is named, checked wit
 `uv --version`, and offered two ways out - the platform's package manager, or Astral's
 install script - with neither run until somebody says so. Subscribing to a kit and putting a
 tool on a machine are different acts, and the skill now treats them differently.
+
+## 2026-10-09 - The rehearsal asked a cache eleven times
+
+The rehearsal upload was accepted, `200 OK`, and `verify-published.py` then failed ten
+attempts in a row inside one minute:
+
+```text
+error: No solution found when resolving tool dependencies
+  cause: Because there is no version of federated-agent-kits==0.11.0.dev37926476582 ...
+```
+
+Ten identical failures in 54 seconds, with no sign of progress, is not what a slow index
+looks like. uv caches an index's answer, and "this version is not here" is an answer. The
+first attempt fetched the simple page before TestPyPI had published the file, and the nine
+after it read that page back out of the cache.
+
+So every attempt now passes `--refresh-package federated-agent-kits`, which is the only part
+of the cache that has to be ignored, and the budget goes from ten six-second waits to twelve
+ten-second ones. The first change is the fix; the second is the admission that an index
+occasionally takes longer than a minute.
