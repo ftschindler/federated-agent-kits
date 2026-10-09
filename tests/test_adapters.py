@@ -4,7 +4,9 @@ The point of this file is that adding a harness means adding a file and a
 registration line and nothing else (DESIGN.md section 3, rule 7). The way it
 earns that is by being written against `ADAPTERS` rather than against
 `opencode` and `copilot-vscode` by name: a fourth adapter is tested by existing, and
-T10 grows this into the specification a stranger writes one from.
+the specification a stranger writes one from: `docs/adding-an-adapter.md` says how
+to answer the seven questions, and every assertion here holds for the pi adapter
+somebody wrote from that page without touching this file.
 
 The fixture adapter at the bottom is the half the registry cannot supply. Every
 adapter shipped for 1.0 is a `POINTED` or `DIRECTORY` harness with a machine,
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pi_adapter
 import pytest
 
 from federated_agent_kits import adapters
@@ -25,10 +28,18 @@ from federated_agent_kits.manifest import Kind, Scope
 
 pytestmark = pytest.mark.unit
 
-EVERY = pytest.mark.parametrize("adapter", adapters.ADAPTERS, ids=lambda adapter: adapter.name)
+#: Every adapter the contract holds for: the registered ones, plus the pi
+#: adapter written from `docs/adding-an-adapter.md` and registered nowhere. The
+#: guide's claim is that a stranger can write one from it, and this is where
+#: that claim is checked: the fixture meets the same assertions, unmodified,
+#: that the shipped three do.
+UNDER_CONTRACT: tuple[Adapter, ...] = (*adapters.ADAPTERS, pi_adapter.ADAPTER)
+
+EVERY = pytest.mark.parametrize("adapter", UNDER_CONTRACT, ids=lambda adapter: adapter.name)
+SHIPPED = pytest.mark.parametrize("adapter", adapters.ADAPTERS, ids=lambda adapter: adapter.name)
 ON_A_MACHINE = pytest.mark.parametrize(
     "adapter",
-    [adapter for adapter in adapters.ADAPTERS if adapter.has_a_machine],
+    [adapter for adapter in UNDER_CONTRACT if adapter.has_a_machine],
     ids=lambda adapter: adapter.name,
 )
 
@@ -40,8 +51,8 @@ class TestTheContractEveryAdapterKeeps:
         assert adapter.summary
         assert adapter.rule_shape in set(RuleShape)
 
-    @EVERY
-    def test_it_is_registered_under_its_own_name(self, adapter: Adapter):
+    @SHIPPED
+    def test_a_shipped_adapter_is_registered_under_its_own_name(self, adapter: Adapter):
         assert adapters.BY_NAME[adapter.name] is adapter
 
     @EVERY
@@ -65,16 +76,26 @@ class TestTheContractEveryAdapterKeeps:
         assert bool(adapter.evidence) is adapter.has_a_machine
 
     @EVERY
-    def test_a_project_anchor_is_computed_rather_than_assumed(self, adapter: Adapter, tmp_path: Path):
+    def test_a_project_anchor_answers_nothing_where_there_is_no_project(self, adapter: Adapter, tmp_path: Path):
+        """The half of question 6 that holds whatever the harness anchors on.
+
+        An anchor that fell back to the directory it was asked about would make
+        every directory on the disk a project, and a render outside a repository
+        would write wherever it happened to be run. What the anchor then *finds*
+        differs per harness - the git root for the shipped three, a `.pi`
+        directory for pi - so that half is each adapter's own test.
+        """
         assert adapter.anchor(tmp_path) is None
 
+    @SHIPPED
+    def test_a_shipped_adapter_anchors_on_the_worktree_root(self, adapter: Adapter, tmp_path: Path):
         (tmp_path / ".git").mkdir()
 
         assert adapter.anchor(tmp_path) == tmp_path
 
 
 class TestDecliningAKindIsAnAnswer:
-    @EVERY
+    @SHIPPED
     def test_every_adapter_shipped_for_now_declines_agents(self, adapter: Adapter):
         assert not adapter.takes(Kind.AGENT)
         assert Kind.AGENT not in adapter.kinds

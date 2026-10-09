@@ -171,8 +171,10 @@ go stale, and no install step for anyone who just wants to work on a repository.
 **A new harness is one file.** opencode, GitHub Copilot in VS Code and GitHub Copilot in CI
 ship today. An adapter answers seven questions about where that harness keeps things and how
 to tell it is installed, and nothing else in the system changes. A test enforces that rather
-than this paragraph asserting it.
-[DESIGN.md](DESIGN.md#4-adding-a-harness) works pi through as an example.
+than this paragraph asserting it: nothing outside an adapter may import one or branch on a
+harness name. [docs/adding-an-adapter.md](docs/adding-an-adapter.md) says how to answer the
+seven questions, with pi as the worked example, and
+[DESIGN.md](DESIGN.md#4-adding-a-harness) says why those are the seven.
 
 **The file you edit is the only copy.** Everything rendered is generated and disposable,
 except what a harness with no machine reads, which has to be committed to exist at all.

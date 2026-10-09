@@ -1424,3 +1424,47 @@ T7 validates the name before reading the manifest, which is right for `add` and 
 out again. `subscribing.harness` now accepts a name that is actually in the list it is
 editing. Removing a name nobody knows *and* nobody named is still a usage error, because then
 there is nothing to take out and the message is the useful one.
+
+## 2026-10-09 - the one-file claim was true, and the test that checks it had to allow two imports
+
+T10's deliverable is `docs/adding-an-adapter.md` plus the test that stops it being a claim.
+The claim is rule 7: a harness is a new module in `src/federated_agent_kits/adapters/` and a
+line in `ADAPTERS`, and nothing else in the system changes.
+
+Writing the guide exposed no refactor, which was the outcome worth checking and not the one
+expected. `grep` for a harness name across `src/` finds six hits and every one is prose: a
+docstring naming opencode's `AGENTS.md`, help text whose worked example is
+`akit harness add copilot-ci`. No renderer, no command and no check branches on which harness
+it is holding.
+
+So the diff budget is written over the AST rather than over the text. A module outside
+`adapters/` may not import a concrete adapter module, and may not put a harness name in a
+comparison, a subscript or a dict key. Those are the two shapes a special case takes; a
+harness name in a string handed to a help formatter is documentation and stays legal.
+
+**The first version of the budget failed on three files that were doing nothing wrong.**
+`doctor.py`, `listing.py` and `render.py` all import `federated_agent_kits.adapters.adapter`,
+for the `Adapter` type and the `SEPARATOR` constant. Importing the *interface* is the whole
+point of there being one; importing `adapters.opencode` is the breach. The check now lists
+the three concrete modules by name, computed from `ADAPTERS`, so a fourth adapter joins the
+list without the test being edited.
+
+**The guide's worked example is a real adapter and not a code block.** `tests/pi_adapter.py`
+is pi, written from the guide and registered only in the suite, and `test_adapters.py`
+parametrises the contract over it alongside the shipped three. That is what makes "a stranger
+can write one from this page" checkable: the fixture meets the same assertions, unmodified.
+
+It also moved one of those assertions. `test_a_project_anchor_is_computed_rather_than_assumed`
+asserted the git root, which is three adapters' answer rather than the contract's. pi anchors
+on the nearest ancestor holding a `.pi` directory, so what every adapter owes is the half that
+holds for both: an anchor answers `None` where there is no project, because one that fell back
+to the directory it was asked about would make every directory a project. The git-root
+assertion stayed, over the shipped three.
+
+**And the fourth adapter was registered by hand before the guide claimed it could be.** pi
+was copied into `src/federated_agent_kits/adapters/pi.py`, added to `ADAPTERS`, and driven in
+a throwaway repository: `akit list` named it and said it reads rules in manifest order,
+`akit render` wrote the skill and took `.agents/skills/` into the ignore block, and
+`akit doctor` reported "kits are rendered for pi, and this machine shows no sign of it being
+installed" with the command that fixes it. Two edited lines and one new file, with nothing
+else touched, which is the claim. The copy was then deleted: the shipped set is still three.
