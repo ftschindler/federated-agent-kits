@@ -31,6 +31,11 @@ and `akit help privacy` cover the four things that are not commands. `--json` on
 any command gives you the same information as data, which is usually what you
 want to read.
 
+**Run the command rather than printing it for somebody to paste.** Everything
+here writes a manifest line and renders files, both of which are reversible and
+both of which somebody asked for. The one thing to say out loud first is a
+change to what a repository commits, which is the harness with no machine below.
+
 Three situations come up, and nothing here covers a fourth.
 
 ## Nothing is set up

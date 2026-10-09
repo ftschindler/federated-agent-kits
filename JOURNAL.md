@@ -1506,3 +1506,18 @@ personal manifest. The personal manifest is `manifest.yaml` in the config direct
 what `akit help manifest` says and what the agent had correctly written. The transcript was
 right, the files were right, and the assertion was looking for a filename this project does
 not use at that scope.
+
+**And the Windows runner printed the command instead of running it.** The same
+session passed on ubuntu and failed on windows-latest with a transcript that is
+not wrong, just inert:
+
+```text
+Run:
+uvx --from federated-agent-kits akit add --global "C:\...\source\kits" house-style
+```
+
+The skill said which command to use and never said to use it, which left the
+choice to the model and the model chose differently on two runners.
+`skills/akit/SKILL.md` now says to run the command rather than print it, with
+the one exception that has to be said out loud first: a change to what a
+repository commits.

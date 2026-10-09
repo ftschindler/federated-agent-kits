@@ -120,7 +120,7 @@ def test_adding_a_kit_edits_the_right_file_and_nothing_else(agent_factory: Agent
     work = workspace(agent)
 
     result = agent.run(
-        f"Add the {KIT} kit from the repository at {source} for me personally, on this machine, "
+        f"Set up the {KIT} kit from the repository at {source} for me personally, on this machine, "
         "rather than for this repository.",
         cwd=work,
     )
