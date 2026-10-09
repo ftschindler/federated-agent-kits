@@ -72,7 +72,7 @@ diff they read rather than as something that changed under them.
 Then subscribe, which also renders:
 
 ```sh
-uvx --from federated-agent-kits akit add ftschindler/agent-kits writing
+uvx --from federated-agent-kits akit add <source> <name>
 ```
 
 `akit add` resolves the source, checks the kit is really there, writes one line
