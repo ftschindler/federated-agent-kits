@@ -24,6 +24,27 @@ The `--from` is not decoration. The distribution is `federated-agent-kits` and
 the command inside it is `akit`, and `uvx` reads its first argument as a
 distribution name.
 
+## It needs uv, and uv is the one thing it will not install for you
+
+`uvx` comes with `uv`, which is a tool on the person's machine rather than
+something this skill may put there. Installing software somebody did not ask for
+is not a kit subscription, and on a managed or shared machine it is somebody
+else's decision.
+
+So when `uv --version` fails, stop and say so, with the two ways out and which
+one this machine suits:
+
+- **The platform's package manager**, which is the answer on a machine whose
+  software is managed by one. The person usually knows which it is; ask rather
+  than guessing from the operating system, because more than one is often
+  installed.
+- **Astral's install script**, documented at `https://docs.astral.sh/uv/`, which
+  is the answer everywhere else and installs into the person's own home rather
+  than system-wide.
+
+Offer to run whichever they pick, and run it only once they have said so.
+Nothing below works until `uv --version` answers.
+
 **Every command explains itself, so read its help rather than guessing.** `akit
 <command> --help` says what the command writes and what it never writes, with a
 worked example. `akit help manifest`, `akit help sources`, `akit help harnesses`
@@ -33,8 +54,9 @@ want to read.
 
 **Run the command rather than printing it for somebody to paste.** Everything
 here writes a manifest line and renders files, both of which are reversible and
-both of which somebody asked for. The one thing to say out loud first is a
-change to what a repository commits, which is the harness with no machine below.
+both of which somebody asked for. Two things are asked about first: a change to
+what a repository commits, which is the harness with no machine below, and
+installing `uv`, which is above.
 
 Three situations come up, and nothing here covers a fourth.
 
@@ -42,10 +64,7 @@ Three situations come up, and nothing here covers a fourth.
 
 Walk through [references/getting-started.md](references/getting-started.md). It
 covers the one question you have to ask the person, which manifest their answer
-means, and the first render.
-
-Place the activation rule as well, once per machine:
-[references/activation-rule.md](references/activation-rule.md).
+means, the first render, and the subscription this kit takes out on itself.
 
 ## Something needs doing
 
@@ -87,14 +106,10 @@ release notes.
 
 The copy of this skill on disk carries a `VERSION` file beside it, which is the
 only way it can tell how old it is. If it disagrees with `akit --version` by more
-than a patch, subscribe to it rather than leaving the hand-placed copy:
-
-```sh
-uvx --from federated-agent-kits akit add --global ftschindler/federated-agent-kits akit
-```
-
-That replaces the copy somebody placed by hand with a managed one, and `akit
-update` keeps it current from then on.
+than a patch, and `akit list` does not show this kit as subscribed, take the
+subscription out now: it is the last step of
+[references/getting-started.md](references/getting-started.md), and from then on
+`akit update` keeps both the skill and its rule current.
 
 Next: `akit list`, which is the first command in every one of the three
 situations above.

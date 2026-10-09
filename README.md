@@ -156,9 +156,15 @@ description of what `akit list` prints rather than two that can disagree. A copy
 skill copied into a skills directory cannot tell how old it is any other way.
 
 The first copy is placed by hand, or by whatever skill installer you already use, and the
-command above turns it into a managed one. A test drives a real agent through all three
+skill runs the command above itself the first time it is asked to set anything up: the rule
+is subscribed to rather than pasted in, because a pasted copy is one no render record knows
+about and no later subscription can replace. A test drives a real agent through all three
 situations on both operating systems, which is how an instruction that only parses in one
 shell gets caught.
+
+It will not install `uv` for you. Where `uv --version` fails the skill says so and offers
+the platform's package manager or Astral's install script, and runs neither until you pick
+one. Subscribing to a kit and putting a tool on somebody's machine are different acts.
 
 ```sh
 uvx --from federated-agent-kits akit --help

@@ -1521,3 +1521,33 @@ choice to the model and the model chose differently on two runners.
 `skills/akit/SKILL.md` now says to run the command rather than print it, with
 the one exception that has to be said out loud first: a change to what a
 repository commits.
+
+## 2026-10-09 - The skill was about to install a rule nothing could remove
+
+[T11](IMPLEMENTATION.md#t11---the-skill-and-the-rule) asked for the five-line activation rule
+as "text the skill offers to place", with the agent asking its own harness where user-level
+instructions live. Written that way and reviewed before merging, it is the failure this
+project exists to prevent, performed by the project's own skill.
+
+A placed copy is a file `akit` did not write, so it is in no render record. The subscription
+somebody takes out a week later renders the managed rule beside it, under the same name, and
+nothing can see the first one to withdraw it. Two copies of one rule, one of them permanent.
+
+So getting started ends with the subscription instead, taken out every time and without
+asking:
+
+```sh
+uvx --from federated-agent-kits akit add --global ftschindler/federated-agent-kits akit
+```
+
+Reading the skill is the consent. Somebody whose agent opened it wanted it, the skill and the
+rule carry one name and are therefore one kit, and the managed copy lands over the
+hand-placed one where that is the same path. `skills/akit/references/activation-rule.md` is
+gone, and the test that kept its quoted text in step with `rules/akit.md` is replaced by one
+asserting the skill carries no such text at all.
+
+**The uv question that arrived in the same review belongs on the other side of the line.**
+A skill may not install software nobody asked for, so `uv` is named, checked with
+`uv --version`, and offered two ways out - the platform's package manager, or Astral's
+install script - with neither run until somebody says so. Subscribing to a kit and putting a
+tool on a machine are different acts, and the skill now treats them differently.

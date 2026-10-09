@@ -177,8 +177,37 @@ class TestEveryCommandItNamesExists:
 
 
 @pytest.mark.unit
-class TestTheRuleAndTheSkillAgree:
-    """The rule is offered by the skill and shipped beside it, in one wording."""
+class TestTheOneThingItMayNotInstall:
+    """`uv` is a tool on somebody's machine, not something a subscription puts there.
+
+    A skill that installs software nobody asked for is the failure this guards,
+    and on a managed machine it is somebody else's decision to make. So the
+    dependency is named, the check is named, and both ways out are offered.
+    """
+
+    def test_it_says_how_to_find_out_whether_uv_is_there(self) -> None:
+        assert "uv --version" in SKILL_TEXT
+
+    def test_it_offers_both_ways_out_rather_than_picking_one(self) -> None:
+        assert "package manager" in SKILL_TEXT
+        assert "https://docs.astral.sh/uv/" in SKILL_TEXT
+
+    def test_it_waits_to_be_told_rather_than_installing(self) -> None:
+        prose, _ = prose_and_code(SKILL_TEXT)
+        assert "will not install" in prose
+        assert re.search(r"only once they have said so", prose)
+
+
+@pytest.mark.unit
+class TestTheRuleArrivesAsASubscription:
+    """The rule is subscribed to, never pasted in.
+
+    An earlier draft had the skill offer the rule's text and ask the agent where
+    its harness keeps user-level instructions. That leaves a copy `akit` did not
+    write, so the subscription a person takes out later renders a second one
+    beside it and nothing can see the first. A kit is the thing that fixes this,
+    and this kit is no exception to its own rule.
+    """
 
     def test_the_rule_declares_what_it_is_for(self) -> None:
         document = frontmatter.parse(RULE.read_bytes())
@@ -186,18 +215,17 @@ class TestTheRuleAndTheSkillAgree:
         assert document.front.get("description")
         assert document.body.strip()
 
-    def test_the_text_the_skill_offers_is_the_rule_it_ships(self) -> None:
-        """Two copies of five lines drift, and the drift is invisible to a reader.
+    def test_the_skill_offers_no_text_to_place_by_hand(self) -> None:
+        body = frontmatter.parse(RULE.read_bytes()).body.strip().splitlines()[-1]
+        for path, text in EVERYTHING.items():
+            assert body not in text, f"{path.name} carries the rule's own text, which invites a hand-placed copy"
 
-        The reference offers the text to paste into a harness that has no
-        subscription yet; `rules/akit.md` is the same text, subscribed to. They
-        have to say the same thing, or placing it by hand and subscribing to it
-        install two different rules under one name.
-        """
-        reference = read(REFERENCES / "activation-rule.md")
-        offered = re.search(r"```markdown\n(?P<text>.*?)```", reference, re.S)
-        assert offered is not None, "the activation reference offers no text to place"
-        assert offered.group("text").strip() == frontmatter.parse(RULE.read_bytes()).body.strip()
+    def test_getting_started_subscribes_to_this_kit(self) -> None:
+        """Unconditionally, because reading the skill is the person having asked."""
+        started = EVERYTHING[REFERENCES / "getting-started.md"]
+        _, code = prose_and_code(started)
+        subscribing = [line for line in code if "akit add" in line and "federated-agent-kits akit" in line]
+        assert subscribing, "nothing in getting started takes the subscription out on this kit"
 
 
 @pytest.mark.unit

@@ -1679,6 +1679,15 @@ The first copy of the skill is installed by hand, or by whatever skill installer
 use. After that `akit` can subscribe you to its own skill from this repository, and the copy
 you placed by hand becomes a managed one.
 
+**The skill takes that subscription out itself, on the first run, without asking.** An
+earlier draft had it offer the five-line rule as text and ask the agent where its harness
+keeps user-level instructions. That is a copy `akit` did not write, so the subscription
+somebody takes out a week later renders a second rule beside the first, under one name, and
+nothing can see the hand-placed one to remove it. The thing this project exists to prevent is
+not one its own skill gets an exemption from. Somebody reading the skill asked for it, which
+is the consent the subscription needs, so getting started ends with the skill and the rule
+arriving the way every other kit does.
+
 The CLI needs no such step, since it is a published package
 ([§9](#9-windows-linux-python)). So the two halves bootstrap independently: the skill is a
 subscription like any other, and the tool it talks about is one `uvx` away whether or not the

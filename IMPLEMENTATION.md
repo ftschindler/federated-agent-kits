@@ -902,8 +902,12 @@ keep the layers apart ([§11](DESIGN.md#11-the-skill)).
   gets spent: if the skill needs to explain a command, the command's help is wrong and the fix
   goes there.
 - A skill never tells the model to open another skill.
-- The activation rule is text the skill offers to place, asking the agent where its own
-  harness keeps user-level instructions rather than carrying a list of paths.
+- The activation rule arrives as a subscription rather than as text to place. This bullet
+  asked for the second, and the second is a copy `akit` did not write: the subscription
+  somebody takes out later renders a rule beside it, under one name, and nothing can see the
+  hand-placed one. So getting started ends by subscribing to this repository's own `akit`
+  kit, which is the skill and the rule together, unconditionally - reading the skill is the
+  consent. [DESIGN.md](DESIGN.md#it-bootstraps-itself-once) is corrected in the same diff.
 - `VERSION` is written by the release job from the same number as the package, since a skill
   copied into a directory cannot tell how old it is any other way.
 - The skill is subscribable from this repository, so the hand-placed first copy becomes a
