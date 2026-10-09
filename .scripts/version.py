@@ -49,6 +49,12 @@ VERSION_LINE = re.compile(r'^version = "(?P<version>[^"]+)"$', re.MULTILINE)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = REPO_ROOT / "pyproject.toml"
+#: The one place other than `pyproject.toml` that carries the number, and not a
+#: second source of truth: a skill copied into somebody's skills directory keeps
+#: no link to the package it describes, so a file beside it is the only way it
+#: can say how old it is. It is written here, from the same number, in the same
+#: commit, which is what keeps the two from disagreeing.
+SKILL_VERSION = REPO_ROOT / "skills" / "akit" / "VERSION"
 
 
 def read_version(text: str) -> str:
@@ -92,6 +98,17 @@ def next_version(current: str, level: str) -> str:
     if level == "minor":
         return f"{major}.{minor + 1}.0"
     return f"{major}.{minor}.{patch + 1}"
+
+
+def write_skill_version(new: str) -> None:
+    """Put `new` in the skill's VERSION file, which ships inside the skill itself.
+
+    Written whole rather than edited, because the file holds one line and
+    nothing else. A rehearsal version is written here too: a dev build whose
+    skill claims the release it rehearses would be a copy on disk that cannot be
+    told from the real one.
+    """
+    SKILL_VERSION.write_text(f"{new}\n", encoding="utf-8")
 
 
 def version_changed(base: str, head: str = "HEAD") -> bool:
@@ -146,7 +163,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if arguments.action == "write":
         PYPROJECT.write_text(replace_version(text, arguments.version), encoding="utf-8")
-        print(f"pyproject.toml now says {arguments.version}.")
+        write_skill_version(arguments.version)
+        print(f"pyproject.toml now says {arguments.version}, and so does the skill's VERSION.")
         return 0
     if version_changed(arguments.base):
         print(

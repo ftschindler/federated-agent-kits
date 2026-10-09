@@ -31,9 +31,10 @@ jobs:
     # hostname, a `HOME` redirect that leaves `Path.home()` pointing at the real
     # one, a file written in the console's code page rather than UTF-8.
     #
-    # `federation` and `agent` have no tests yet; they arrive in T3 and T11. The
-    # jobs exist now so that the matrix, and therefore the aggregate below, does
-    # not change shape on the day they do.
+    # The `agent` layer builds a pinned opencode in a redirected home, installs
+    # this repository's skills into it and talks to it, which is why it is the
+    # only one that needs node. It is also the only layer that can catch an
+    # instruction in the skill that is wrong rather than merely untidy.
     name: 🛠 (Tests, ${{ matrix.marker }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:

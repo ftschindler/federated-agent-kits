@@ -13,7 +13,7 @@ This subscribes you to the kits you want, from wherever they live, and writes th
 harness looks.
 
 **Status: it subscribes, it renders skills and rules into three harnesses, it refuses to
-leak, and it tells you what is wrong.** [DESIGN.md](DESIGN.md) is the source of truth for what
+leak, it tells you what is wrong, and it ships the skill that drives it.** [DESIGN.md](DESIGN.md) is the source of truth for what
 gets built, [IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets built in. Every verb
 works today: `akit add`, `akit remove`, `akit update`, `akit harness`, `akit list`,
 `akit render` and `akit doctor`,
@@ -134,6 +134,27 @@ Every command explains itself, because the agent-facing skill is deliberately th
 run `akit list` and never describes the output. So `akit <command> --help` is the
 documentation, and `akit help manifest`, `akit help sources`, `akit help harnesses` and
 `akit help privacy` cover the four things that are not commands.
+
+## The skill it ships
+
+An agent asked to "set up my kits" has nowhere to look, so this repository is a source like
+any other and the kit it holds is called `akit`: the skill under `skills/akit/`, and the
+five-line rule beside it in `rules/` that tells a model when to open it.
+
+```sh
+uvx --from federated-agent-kits akit add --global ftschindler/federated-agent-kits akit
+```
+
+The skill covers three situations and no more: nothing is set up, something needs doing, a
+new release is out. It names commands and never describes their output, so there is one
+description of what `akit list` prints rather than two that can disagree. A copy carries a
+`VERSION` file, written by the release job from the same number as the package, because a
+skill copied into a skills directory cannot tell how old it is any other way.
+
+The first copy is placed by hand, or by whatever skill installer you already use, and the
+command above turns it into a managed one. A test drives a real agent through all three
+situations on both operating systems, which is how an instruction that only parses in one
+shell gets caught.
 
 ```sh
 uvx --from federated-agent-kits akit --help

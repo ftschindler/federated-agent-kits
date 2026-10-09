@@ -1468,3 +1468,41 @@ a throwaway repository: `akit list` named it and said it reads rules in manifest
 `akit doctor` reported "kits are rendered for pi, and this machine shows no sign of it being
 installed" with the command that fixes it. Two edited lines and one new file, with nothing
 else touched, which is the claim. The copy was then deleted: the shipped set is still three.
+
+## 2026-10-09 - The agent layer tested whatever shipped last, until the wheel outranked it
+
+[T11](IMPLEMENTATION.md#t11---the-skill-and-the-rule) ships a skill whose first instruction
+is `uvx --from federated-agent-kits akit list`. That sentence is the thing under test, so a
+cold session has to type it literally, and typed literally it resolves against PyPI: the
+three cold sessions would have been driving the last release while the branch beside them
+changed nothing they could see.
+
+Three ways out were available and two of them are worse. Rewriting the skill to say `akit`
+tests a sentence the skill does not contain. `UV_NO_INDEX` with a directory of local wheels
+blocks the dependencies as well, so nothing installs at all. What works is pointing the
+agent's `uv` at a directory of wheels and giving the local build a version nothing will ever
+publish:
+
+```text
+akit 99.0.0
+```
+
+`tests/disposable_agent.py` copies `pyproject.toml`, `src/`, `README.md` and `LICENSE` into a
+staging directory, rewrites the version line to `99.0.0`, builds a wheel from the copy, and
+sets `UV_FIND_LINKS` in the agent's environment. The copy is not tidiness: building in place
+would rewrite a version line in a file the developer is probably looking at, and a failing
+test would leave it rewritten.
+
+**The environment needed three more variables than the port carried.** uv keeps its cache and
+its installed tools outside `XDG_*` on some platforms, so an agent told to install `akit`
+wrote into the developer's real uv cache from inside a home that was supposed to be
+disposable. `UV_CACHE_DIR`, `UV_TOOL_DIR` and `UV_TOOL_BIN_DIR` now point inside the agent,
+and the whole `UV_` namespace is dropped from the inherited environment for the same reason
+the `OPENCODE_` one already was.
+
+**The second cold session failed on the test's assumption, not on the skill.** It globbed for
+`.akit.yaml` under the agent's home to check that a personal subscription went into the
+personal manifest. The personal manifest is `manifest.yaml` in the config directory, which is
+what `akit help manifest` says and what the agent had correctly written. The transcript was
+right, the files were right, and the assertion was looking for a filename this project does
+not use at that scope.
