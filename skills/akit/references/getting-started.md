@@ -16,15 +16,13 @@ uvx --from federated-agent-kits akit add --global ftschindler/federated-agent-ki
 uvx --from federated-agent-kits akit list
 ```
 
-The first takes the skill and the five-line rule beside it, because they carry
-one name and are one kit. The rule is the half that matters: a skill nobody
-opens does nothing, and what makes a model open this one is a sentence in the
-prompt saying when to. The second says where both landed.
+The first takes the skill and the rule beside it, because they carry one name
+and are one kit. The rule is the half that gets this skill reached for at the
+right moment. The second says where both landed.
 
 This is done rather than offered because reading this page means the person
-already wanted the skill, and because a copy placed by hand is one nothing
-updates and nothing can remove. It leaves a working global setup, with the skill
-and the rule managed like any other kit.
+already wanted the skill. It leaves a working global setup, with the skill and
+the rule managed like any other kit.
 
 **Then report it, in three parts:** that `akit` is now subscribed to itself for
 this person on this machine, which files `akit list` says it wrote, and how to
@@ -36,26 +34,26 @@ uvx --from federated-agent-kits akit remove --global akit
 
 That drops the subscription and deletes the copies it wrote, leaving anything
 the person wrote themselves alone. Say that line out loud rather than waiting to
-be asked for it: a setup step somebody cannot reverse is one they did not really
-consent to.
+be asked for it.
 
 A copy of this skill placed by hand somewhere else is now a second one. Say so,
-and delete it once they agree.
+and offer to delete it.
 
 ## 2. Say where kits can live, and ask what they have in mind
 
-There are two scopes, and the difference is not technical:
+There are two scopes, both can be in use on a machine at the same time,
+and the difference is important:
 
 - **User-wide**, which `--global` names: true of this person, on every
-  repository they open. A style guide they always want, a debugging workflow
-  they wrote. Step 1 used this one.
-- **Per-repository**, which is the default: true of the repository, for
-  everybody who clones it. The kits a contributor needs to work on this code,
-  committed in `.akit.yaml` at its root.
+  repository they open on this machine. A style guide they always want,
+  a debugging workflow they wrote. Step 1 used this one.
+- **Per-repository**, which is the default: true of the repository the `akit`
+  command is run in, for everybody who clones it. The kits a contributor needs
+  to work on this code, committed in `.akit.yaml` at its root.
 
 Say both, then ask which they have in mind and which kits, if any, they already
-know they want. Where the answer names neither, stop here: the setup works, and
-subscribing to nothing is a manifest with no lines in it.
+know they want. Where the answer names neither, stop here: the setup works and
+they can pick it up any time later.
 
 ## 3. Where kits come from
 
@@ -65,10 +63,11 @@ subscribed. `akit help sources` lists every form a key can take, including a
 local path for a repository the person is writing themselves.
 
 **The skills.sh marketplace is one of those repositories.** Anything installable
-with `npx skills add <repo>` is installable here, and this is a drop-in
-replacement for that command with two differences worth saying: the subscription
-is written down in a file the person owns, and `akit update` brings changes as a
-diff they read rather than as something that changed under them.
+with `npx skills add <repo>` is installable here, so this is a drop-in
+replacement for that command. Three things it adds: `akit` takes rules as well
+as skills, the subscription is written down in a file the person owns, and
+`akit update` brings changes as a diff they read rather than as something that
+changed under them.
 
 Then subscribe, which also renders:
 
@@ -91,9 +90,9 @@ reports: which kits, from where, rendered to which files.
 kinds each one takes. A harness that is installed but not listed, or listed but
 not installed, is what `akit doctor` reports with the command that fixes it.
 
-One harness is never detected, because it has no machine to detect: GitHub
-Copilot running in CI reads what the repository commits. It arrives only by
-being named.
+A harness with no machine is never detected and has to be named explicitly.
+Today that is GitHub Copilot running in CI, which reads what the repository
+commits and nothing else.
 
 ```sh
 uvx --from federated-agent-kits akit harness add copilot-ci
