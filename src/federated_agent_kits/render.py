@@ -322,6 +322,13 @@ RENDERING = Mode()
 #: `--check`: fetches what it must, writes nothing, answers yes or no.
 CHECKING = Mode(offline=False, writing=False, checking=True)
 
+#: What `akit doctor` walks with: the ordinary render, offline, with every act
+#: suspended. Not `CHECKING`, which judges one repository's committed half and
+#: fetches to do it; what `doctor` wants is the whole plan a plain `akit render`
+#: would carry out, so that "nothing explains this file any more" is the same
+#: sentence in both commands.
+INSPECTING = Mode(writing=False)
+
 #: The half of the world `--check` looks at. Your own subscriptions render to
 #: machine-level directories that no repository commits, so they cannot go
 #: stale and are not its business.
@@ -1108,7 +1115,7 @@ def _committed(picked: Iterable[Adapter], scope: Scope) -> set[str]:
     return found
 
 
-def _ignore_block(
+def ignore_block(
     walk: _Pass,
     owned: dict[Path, set[str]],
     explained: Iterable[Path],
@@ -1161,8 +1168,8 @@ def _ignore_block(
     return ((root, tuple(sorted(listed)), ignore.maintain(root, listed, writing=walk.writing)),)
 
 
-def _escaping(merged: Merged, root: Path | None) -> None:
-    """Refuse a committed manifest that names a path outside its own repository.
+def escaping(merged: Merged, root: Path | None) -> tuple[str, ...]:
+    """Every path a committed manifest names that leaves its own repository.
 
     `.` and `./kits` mean the same thing in every clone. `../my-kits` means
     something only on the machine it was written on, and committing one breaks
@@ -1170,29 +1177,44 @@ def _escaping(merged: Merged, root: Path | None) -> None:
     is never asked, because it is not committed and its paths are supposed to
     mean something only here.
 
-    A refusal rather than a warning, so the one hook this project ships carries
-    one command. `akit doctor` reports the same thing without a second check.
-
     **Only a manifest git actually tracks is asked.** The rule is about what a
     colleague gets when they clone, so a `.akit.yaml` nobody else has cannot
     break anybody's clone. That is also what makes writing a kit work: you
     subscribe to `~/kits/the-new-thing` in a scratch repository, render, and
     nothing objects until you try to commit the file saying so.
+
+    The answer rather than the refusal, because two commands want it and only
+    one of them may raise: `render` refuses, and `doctor` reports.
     """
     if root is None or merged.project is None or merged.project.path is None:
-        return
+        return ()
     if not targets.tracked(merged.project.path, root=root):
+        return ()
+    return tuple(
+        sorted(
+            {
+                subscription.source
+                for subscription in merged.subscriptions
+                if subscription.scope is Scope.PROJECT
+                and sources.escapes(sources.parse(subscription.source), anchor=root)
+            }
+        )
+    )
+
+
+def _escaping(merged: Merged, root: Path | None) -> None:
+    """Refuse a committed manifest that names a path outside its own repository.
+
+    A refusal rather than a warning, so the one hook this project ships carries
+    one command. `akit doctor` reports the same thing without a second check.
+    """
+    found = escaping(merged, root)
+    if not found:
         return
-    escaping = [
-        subscription.source
-        for subscription in merged.subscriptions
-        if subscription.scope is Scope.PROJECT and sources.escapes(sources.parse(subscription.source), anchor=root)
-    ]
-    if not escaping:
-        return
-    listed = "\n".join(f"{INDENT * 2}{source}" for source in sorted(set(escaping)))
+    committed = merged.project.path if merged.project is not None else None
+    listed = "\n".join(f"{INDENT * 2}{source}" for source in found)
     raise RefusalError(
-        f"{merged.project.path} is committed, and names a path outside {root}:\n"
+        f"{committed} is committed, and names a path outside {root}:\n"
         f"{listed}\n"
         f"{INDENT}Nothing was written. Those paths exist on this machine and on no other, so a colleague "
         f"cloning this repository gets a render that fails.\n"
@@ -1294,26 +1316,55 @@ def _refuse_leaks(walk: _Pass, merged: Merged, writes: dict[Spot, _Target], know
     raise leaks.of_manifest(root, target.remotes, manifested)
 
 
-def render(start: Path, places: Directories, choices: Choices = EVERYTHING, mode: Mode = RENDERING) -> Outcome:
-    """Make the files on disk match the manifests, and say everything that happened.
+@dataclass(frozen=True)
+class Plan:
+    """One render worked out, with nothing done about it.
 
-    `mode` is `RENDERING` for every caller but one. `CHECKING` is the same walk
-    that fetches what the cache lacks, writes nothing, and judges only what this
-    repository commits.
+    `render` is the caller that goes on to act. `akit doctor` is the one that
+    does not: almost everything it reports is a disagreement between the record,
+    the disk and what a render would do next, and working that out a second way
+    would be a second definition of "explained" to keep in step with this one
+    (DESIGN.md section 10).
     """
-    offline, writing, checking = mode.offline, mode.writing, mode.checking
+
+    merged: Merged
+    walk: _Pass
+    files: Mapping[Scope, Path]
+    """Where each record lives, which is also which scopes are in play."""
+
+    before: Mapping[Scope, Record]
+    chosen: Mapping[Scope, tuple[Adapter, ...]]
+    unknown: tuple[str, ...]
+    entries: tuple[Entry, ...]
+    writes: dict[Spot, _Target]
+    owned: dict[Path, set[str]]
+    """The directories these harnesses own, per scope root, which is where an orphan can be."""
+
+    @property
+    def spots(self) -> frozenset[Spot]:
+        """Everything this render would fill, which is what still explains a file."""
+        return frozenset(self.writes)
+
+    @property
+    def problems(self) -> tuple[Entry, ...]:
+        return tuple(entry for entry in self.entries if entry.problem is not None)
+
+
+def plan(start: Path, places: Directories, choices: Choices = EVERYTHING, mode: Mode = RENDERING) -> Plan:
+    """Work out what a render would do, without doing any of it."""
     _check_names(choices.only, "--harness")
     _check_names(choices.without, "--no-harness")
     merged = manifest.load(start, user_path=places.user_manifest)
-    _escaping(merged, manifest.worktree_root(start))
     files = record.locations(start, state_root=places.state)
     before = {scope: record.load(path) for scope, path in files.items()}
     chosen: dict[Scope, tuple[Adapter, ...]] = {}
     unknown: list[str] = []
     for scope in choices.scopes:
-        expand = adapters.named if checking else adapters.expand
+        expand = adapters.named if mode.checking else adapters.expand
         picked, missing = expand(merged.harnesses(scope), places.home)
-        chosen[scope] = _narrow(adapters.machineless(picked) if checking else picked, choices.only, choices.without)
+        chosen[scope] = _narrow(
+            adapters.machineless(picked) if mode.checking else picked, choices.only, choices.without
+        )
         unknown.extend(name for name in missing if name not in unknown)
     walk = _Pass(
         start=start,
@@ -1321,25 +1372,50 @@ def render(start: Path, places: Directories, choices: Choices = EVERYTHING, mode
         cache_root=places.cache,
         before=Records(by_scope=before),
         chosen=chosen,
-        offline=offline,
-        writing=writing,
+        offline=mode.offline,
+        writing=mode.writing,
     )
     wanted = Merged(
         subscriptions=tuple(entry for entry in merged.subscriptions if entry.scope in set(choices.scopes)),
         user=merged.user,
         project=merged.project,
     )
-    planned, writes = _plan(walk, wanted)
+    entries, writes = _plan(walk, wanted)
+    return Plan(
+        merged=merged,
+        walk=walk,
+        files=files,
+        before=before,
+        chosen=chosen,
+        unknown=tuple(unknown),
+        entries=tuple(entries),
+        writes=writes,
+        owned={
+            base: written
+            for scope in choices.scopes
+            for base, written in _directories(chosen[scope], walk, (scope,)).items()
+        },
+    )
+
+
+def render(start: Path, places: Directories, choices: Choices = EVERYTHING, mode: Mode = RENDERING) -> Outcome:
+    """Make the files on disk match the manifests, and say everything that happened.
+
+    `mode` is `RENDERING` for every caller but one. `CHECKING` is the same walk
+    that fetches what the cache lacks, writes nothing, and judges only what this
+    repository commits.
+    """
+    writing, checking = mode.writing, mode.checking
+    prepared = plan(start, places, choices, mode)
+    merged, walk, writes = prepared.merged, prepared.walk, prepared.writes
+    before, files, chosen = dict(prepared.before), prepared.files, prepared.chosen
+    _escaping(merged, manifest.worktree_root(start))
     known = privacy.learned(privacy.load(places.state), walk.resolutions)
     if writing:
         privacy.save(known, places.state)
     _refuse_leaks(walk, merged, writes, known)
-    suspended = _suspension(planned, choices, checking=checking)
-    owned = {
-        base: written
-        for scope in choices.scopes
-        for base, written in _directories(chosen[scope], walk, (scope,)).items()
-    }
+    suspended = _suspension(prepared.entries, choices, checking=checking)
+    owned = prepared.owned
     withdrawals: list[Withdrawal] = []
     removals: list[Region] = []
     kept: dict[Scope, list[Written]] = {scope: list(found.written) for scope, found in before.items()}
@@ -1348,7 +1424,7 @@ def render(start: Path, places: Directories, choices: Choices = EVERYTHING, mode
             before, writes, choices.scopes, _directories(adapters.ADAPTERS, walk, choices.scopes)
         )
     replaced = _replaced(before, writes)
-    entries, done = _perform(planned, writes, removals, writing=writing)
+    entries, done = _perform(list(prepared.entries), writes, removals, writing=writing)
     standing: set[Path] = set()
     keeps_a_record = False
     for scope, path in files.items():
@@ -1374,9 +1450,9 @@ def render(start: Path, places: Directories, choices: Choices = EVERYTHING, mode
         withdrawals=tuple(withdrawals),
         replaced=replaced,
         pruned=tuple(pruned),
-        ignored=_ignore_block(walk, owned, standing, choices.scopes, keeps_a_record=keeps_a_record),
+        ignored=ignore_block(walk, owned, standing, choices.scopes, keeps_a_record=keeps_a_record),
         unexplained=_unexplained(walk, writes, manifest.worktree_root(start)) if checking else (),
-        unknown=tuple(unknown),
+        unknown=prepared.unknown,
         suspended=suspended,
     )
 
@@ -1675,6 +1751,7 @@ def check(
 __all__ = [
     "CHECKING",
     "COMMITTED",
+    "INSPECTING",
     "RENDERING",
     "Choices",
     "Directories",
@@ -1682,10 +1759,14 @@ __all__ = [
     "Mode",
     "Outcome",
     "Placement",
+    "Plan",
     "Withdrawal",
     "check",
     "counted",
+    "escaping",
+    "ignore_block",
     "payload",
+    "plan",
     "render",
     "run",
     "scopes_from",

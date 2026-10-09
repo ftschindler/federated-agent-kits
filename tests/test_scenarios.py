@@ -271,3 +271,68 @@ class TestEditingARenderedFileAndRenderingAgain:
 
         assert copied.read_text(encoding="utf-8") == "mine\n"
         assert "has been edited since it was rendered" in done.stdout
+
+
+class TestDoctorAcrossASequence:
+    """clean -> broken -> fixed, asserted at every step rather than at the end.
+
+    What `doctor` says is a function of three things that change independently:
+    the manifests, the record and the disk. Every finding it has is a
+    disagreement between two of them, so the state worth testing is the one
+    after somebody did something, and the sentence worth pinning is that the
+    command which fixed it leaves nothing behind.
+    """
+
+    def test_a_fresh_subscription_is_healthy_and_stays_healthy_through_a_render(
+        self, machine: Machine, project: Path, remote: str
+    ):
+        assert machine.home.run("add", remote, "writing", "--project", cwd=project).returncode == Exit.OK
+
+        first = machine.home.run("doctor", cwd=project)
+        machine.home.run("render", cwd=project)
+        second = machine.home.run("doctor", cwd=project)
+
+        assert first.returncode == Exit.OK, first.stdout
+        assert second.returncode == Exit.OK, second.stdout
+        assert "Nothing to report" in second.stdout
+
+    def test_an_edit_is_found_and_the_command_it_names_is_the_one_that_clears_it(
+        self, machine: Machine, project: Path, remote: str
+    ):
+        machine.home.run("add", remote, "writing", "--project", cwd=project)
+        copied = project / SKILLS / "writing" / "SKILL.md"
+        copied.write_text("mine\n", encoding="utf-8")
+
+        broken = machine.home.run("doctor", cwd=project)
+        machine.home.run("render", cwd=project)
+        after = machine.home.run("doctor", cwd=project)
+
+        assert broken.returncode == Exit.ERROR
+        assert "has been edited since it was rendered" in broken.stdout
+        assert "akit render" in broken.stdout
+        assert after.returncode == Exit.OK, after.stdout
+
+    def test_unsubscribing_without_rendering_is_reported_until_the_render_happens(
+        self, machine: Machine, project: Path, remote: str
+    ):
+        machine.home.run("add", remote, "writing", "--project", cwd=project)
+        (project / ".akit.yaml").write_text("version: 1\n", encoding="utf-8")
+
+        broken = machine.home.run("doctor", cwd=project)
+        machine.home.run("render", cwd=project)
+        after = machine.home.run("doctor", cwd=project)
+
+        assert broken.returncode == Exit.ERROR
+        assert "no subscription and harness in scope explains it any more" in broken.stdout
+        assert after.returncode == Exit.OK, after.stdout
+        assert not (project / SKILLS / "writing").exists()
+
+    def test_it_changes_nothing_however_often_it_is_run(self, machine: Machine, project: Path, remote: str):
+        machine.home.run("add", remote, "writing", "--project", cwd=project)
+        (project / ".akit.yaml").write_text("version: 1\n", encoding="utf-8")
+        before = tree(project)
+
+        assert machine.home.run("doctor", cwd=project).returncode == Exit.ERROR
+        assert machine.home.run("doctor", "--json", cwd=project).returncode == Exit.ERROR
+
+        assert tree(project) == before

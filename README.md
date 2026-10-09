@@ -12,16 +12,24 @@ its own filename.
 This subscribes you to the kits you want, from wherever they live, and writes them where each
 harness looks.
 
-**Status: it subscribes, it renders skills and rules into three harnesses, and it refuses to
-leak.** [DESIGN.md](DESIGN.md) is the source of truth for what gets built,
-[IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets built in. `akit add`,
-`akit remove`, `akit update`, `akit harness`, `akit list` and `akit render` work today,
+**Status: it subscribes, it renders skills and rules into three harnesses, it refuses to
+leak, and it tells you what is wrong.** [DESIGN.md](DESIGN.md) is the source of truth for what
+gets built, [IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets built in. Every verb
+works today: `akit add`, `akit remove`, `akit update`, `akit harness`, `akit list`,
+`akit render` and `akit doctor`,
 against both manifests, every source form and the opencode, GitHub Copilot in VS Code and
 GitHub Copilot in CI adapters. A render copies the skills you
 subscribed to into the directory every harness reads, writes each rule you subscribed to in
 whichever shape its harness wants, maintains the `.gitignore` block, and deletes a rendered
-copy only while its bytes are still the ones it wrote. Agents wait for T13, so a subscription
-to one says which task it is waiting for, and so does every verb that has not landed.
+copy only while its bytes are still the ones it wrote. Agents are the one kind still waiting,
+in T13, so a subscription to one says which task it is waiting for.
+
+**`akit doctor` is what you run when something is already wrong.** It reads the manifests,
+the records and the files on disk, changes nothing, and names a command for every finding: two
+kits rendering to one name, a copy you edited by hand, a render nothing subscribes to any
+more, a source missing from the cache, a harness installed here that your manifest leaves
+out, a `.gitignore` block that has drifted. It exits non-zero when it found something, and
+`--json` carries the findings as data.
 
 **One rule reaches three differently shaped harnesses.** Copilot reads a directory, so it gets
 one file per rule, with the `applyTo` frontmatter without which it would never read them.

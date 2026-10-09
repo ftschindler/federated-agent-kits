@@ -44,7 +44,7 @@ builds a part of it or keeps it releasable.
 - [x] **[T6](#t6---rules)** - Rules
 - [x] **[T7](#t7---add-remove-update-harness)** - `add`, `remove`, `update`, `harness`
 - [x] **[T8](#t8---the-machineless-harness-and-the-leak-refusal)** - The machineless harness, and the leak refusal
-- [ ] **[T9](#t9---doctor)** - `doctor`
+- [x] **[T9](#t9---doctor)** - `doctor`
 - [ ] **[T10](#t10---adding-an-adapter-documented)** - Adding an adapter, documented
 - [ ] **[T11](#t11---the-skill-and-the-rule)** - The skill, and the rule
 - [ ] **[T12](#t12---publish-10)** - Publish 1.0
@@ -782,6 +782,31 @@ exits 0. A test asserts that every finding type names a command, so a check cann
 complaint with no fix.
 
 **Done when.** Every bullet has a failing fixture and a passing fix.
+
+**It asks `render` what a render would do, rather than working it out again.** Almost every
+finding is a disagreement between the record, the disk and the next render, and "explained"
+is a word this repository already has one definition of. So T5's engine was split: the
+planning half is `render.plan`, which resolves, expands the harness list and works out every
+spot that would be filled, and the acting half is everything after it. `render` calls the
+first and then acts; `doctor` calls the first and then reports. The one behaviour that moved
+is the escaping-path refusal, which now runs after planning rather than before it, because a
+command that only reports may not raise where one that writes must.
+
+**Three answers this task had to settle, none of which [§10](DESIGN.md#doctor) spells out.**
+
+An **orphan** is a file nothing explains *and* no record claims. A lost record alone is not
+one: the subscription is still there, so the next render adopts the files back. It takes a
+lost record and a dropped subscription together, which is also exactly the state
+`--prune` exists for.
+
+The **ignore block** is only judged in a repository that has been rendered into. Everywhere
+else the block is absent and correct, and reporting it would make `doctor` say "you have not
+rendered yet" in a repository where `akit list` says it better.
+
+The **pointed shape** has no harness, so the check is written against the interface:
+`Adapter.pointer`, the config it names, the key inside it. It reports nothing today and
+starts reporting the day somebody adds such an adapter, which is the cheaper half of what
+[T6](#t6---rules) deferred.
 
 **Leave alone.** Fixing anything. Changing nothing is what makes it safe to run when you do
 not know what is going on.

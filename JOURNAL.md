@@ -1359,3 +1359,68 @@ It covered appending to a string entry and to a list entry. The mapping entry is
 shape a value can have and nobody wrote the third test, because at the time nothing produced
 one: `--as` and the code that appends to an entry landed in the same task and were never tried
 against each other.
+
+## 2026-10-09 - `doctor` needed the render engine split, and three definitions nobody had written down
+
+[T9](IMPLEMENTATION.md#t9---doctor) is thirteen checks, and eleven of them are the same
+question: does the record agree with the disk, and does either agree with what the next
+render would do? The first attempt answered it from `akit list`'s inventory, which knows
+where each part *would* land but not which files that becomes, and it reported the
+`akit-renames` note this tool writes itself as a file nothing explains.
+
+So the engine was split instead. `render.plan` resolves, expands the harness list and works
+out every spot that would be filled; `render.render` calls it and then acts. There is now one
+definition of "explained" and `doctor` reads it rather than carrying a second.
+
+One behaviour moved with the split, deliberately. The escaping-path refusal used to run
+before anything was resolved and now runs after planning, because `plan` is also what the
+reporting command calls and a report may not raise. Nothing is written in between, so what a
+`render` does is unchanged.
+
+**Three answers this task had to invent**, each found by a test that failed for the right
+reason.
+
+An orphan is not what a lost record leaves behind. Deleting `.akit/render.json` and running
+`doctor` reported nothing, which looked wrong until the plan said why: the subscription is
+still in the manifest, so the next render writes those files again and adopts them. It takes
+a lost record *and* a dropped subscription, which is the state `render --prune` was always
+described against.
+
+The ignore block is only worth judging in a repository that has been rendered into. Without
+that, a fresh clone with a manifest and no render reports "the akit block does not list what
+this repository renders", which is true, useless, and attached to the wrong command.
+
+And the dangling-pointer check has no harness to run against, because T6 deferred the pointed
+shape. It is written against the interface - `Adapter.pointer`, the config it names, the key
+inside it - and tested with a fixture adapter monkeypatched into the registry. It reports
+nothing today, which is the correct output and not a gap.
+
+**What the suite could not do by itself** is the one thing worth repeating from the entries
+above: `tests/test_scenarios.py` gained a `clean -> broken -> fixed` narrative per finding,
+because what `doctor` reports is a function of two states and not one, and every bug this
+project has actually had lived in the step between them.
+
+**And two things the built wheel found that the suite did not**, which is the fifth time
+driving it by hand has earned its place in "What every task delivers".
+
+`doctor` reported "kits are rendered for opencode, and this machine shows no sign of it" in a
+repository that had never rendered anything. The check asked the *plan* which harnesses had
+files, and a plan is what would be written rather than what is. It asks the records now, and
+the test that covers it renders first, which it already did - the fixture was right and the
+code was answering a different question.
+
+And the fix it names for a misspelt harness did not run:
+
+```text
+$ akit doctor
+  this repository names the harness "emacs", and no adapter answers to it
+    fix: run `akit harness remove emacs`, ...
+$ akit harness remove emacs
+akit: no adapter answers to the harness `emacs`.
+```
+
+T7 validates the name before reading the manifest, which is right for `add` and wrong for
+`remove`: adding a name nobody knows is a typo, and removing one is how that typo gets taken
+out again. `subscribing.harness` now accepts a name that is actually in the list it is
+editing. Removing a name nobody knows *and* nobody named is still a usage error, because then
+there is nothing to take out and the message is the useful one.

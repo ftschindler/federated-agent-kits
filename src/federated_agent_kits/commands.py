@@ -244,7 +244,6 @@ COMMANDS: tuple[Command, ...] = (
         examples=("akit doctor", "akit doctor --json"),
         arguments=(),
         following="whichever command the findings named",
-        task="T9",
     ),
     Command(
         name="help",

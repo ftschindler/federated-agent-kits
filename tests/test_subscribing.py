@@ -354,6 +354,24 @@ class TestHarness:
         with pytest.raises(UsageError, match="Known harnesses"):
             subscribing.harness(world.call(), action="add", name="emacs")
 
+    def test_but_a_misspelt_one_already_in_the_list_can_be_taken_out_again(self, world: World):
+        """The fix `akit doctor` names for a typo, which has to actually run.
+
+        Found by hand against the built wheel: `doctor` reports a harness no
+        adapter answers to and says to remove it, and the remove was refused by
+        the same check that stops you adding one.
+        """
+        world.manifest.write_text("version: 1\nharnesses: [detected, emacs]\n", encoding="utf-8")
+
+        outcome = subscribing.harness(world.call(), action="remove", name="emacs")
+
+        assert manifests.read(world.manifest, scope=Scope.PROJECT).harnesses == ("detected",)
+        assert outcome.changed
+
+    def test_removing_one_nobody_knows_and_nobody_named_is_still_a_usage_error(self, world: World):
+        with pytest.raises(UsageError, match="Known harnesses"):
+            subscribing.harness(world.call(), action="remove", name="emacs")
+
 
 class TestUpdate:
     def test_a_changed_part_moves_the_pin_and_shows_the_diff(self, world: World):
