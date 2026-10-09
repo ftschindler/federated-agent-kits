@@ -1168,3 +1168,194 @@ whenever. Those directories are ours and everything in them is committed, so the
 hand-written file to protect, which is the property that made the record necessary for
 `render` and makes it unnecessary here. Withdrawal is now suspended outright during a check,
 for the same reason a narrowing flag suspends it.
+
+## 2026-10-08 - `as:` renamed the directory and not the skill
+
+Found by reading a harness's documentation for a question nobody had asked, which
+is now five times out of five that doing so has turned something up.
+
+The trigger was a different question. A real source,
+[`ftschindler/agent-kits`](https://github.com/ftschindler/agent-kits), ships a `writing` skill
+and a `writing` rule, and the rule says *load the `writing` skill*. Subscribed with
+`as: felix-writing`, the rule points at a name that is not installed. That is the problem this
+pull request set out to answer, and checking how a harness resolves a skill name in order to
+answer it found a worse one underneath.
+
+```text
+$ akit add /tmp/agent-kits writing --as felix-writing --project
+    wrote 6 files in .agents/skills/felix-writing
+$ head -2 .agents/skills/felix-writing/SKILL.md
+---
+name: writing
+```
+
+**The directory is not the identity.** VS Code's documentation says the frontmatter `name` is
+the identifier, that it must match the parent directory, and that where the two disagree the
+skill is not loaded. opencode's current source keys its skill registry on `md.data.name` and
+never compares it with the directory. pi takes `frontmatter.name || parentDirName`. Only
+opencode v2 derives the id from the path.
+
+So renaming the directory and leaving the header alone did one of two things, depending on
+where you were standing. In Copilot the skill silently stopped existing. In opencode and pi
+the collision survived, which means `as:` produced the exact thing it was invoked to prevent
+and hid it behind a directory listing that looked right. Somebody renaming one of two `kb`
+skills would have seen a clean `akit list` and still had one `kb`, chosen by load order.
+
+The fix is the exception [§7](DESIGN.md#skills) now states: a rename writes the new name over
+the frontmatter's, exactly as a Copilot rule has its `applyTo` written over, and for the same
+reason. Everything else the author wrote survives. A skill nobody renamed is still copied byte
+for byte, so the ordinary render is as literal as it ever was.
+
+**What the tests were doing instead.** There were tests for `as:`, and they all passed. They
+asserted the directory was called `felix-writing`, which is what the code had been written to
+do. Nothing asserted the skill still had an identity afterwards, because nobody had thought to
+ask what a harness does with the file once it is there.
+
+## 2026-10-08 - Rendering over somebody's edit was correct, and silent
+
+The second thing the same session turned up, and this one was not a bug in the rule. It was a
+rule nothing said out loud.
+
+```text
+$ printf '\nMY EDIT\n' >> .agents/skills/writing/SKILL.md
+$ akit render
+Wrote 1 file, left 5 files alone as already correct, and deleted no files.
+$ grep -c 'MY EDIT' .agents/skills/writing/SKILL.md
+0
+```
+
+[§10](DESIGN.md#render)'s withdrawal table has three rows and the middle one keeps an edited
+copy, names it and points at `doctor`. That table is about **withdrawal**, and a file something
+still explains is never withdrawn. It is refreshed: the source says what it holds, so the
+source's bytes go over whatever is there. [§2](DESIGN.md#2-what-this-does) has always said so
+in four words - "nothing you wrote by hand lives in one" - and the two sentences had simply
+never been read next to each other.
+
+Which means the edited-copy row is reachable only by editing a file **and then unsubscribing
+from it**. That is a narrow door and it was written down nowhere.
+
+The behaviour stays. What changes is that a render now says which file it did that to, because
+the three hashes needed to tell the cases apart are all in hand at that moment: what we wrote
+last time, what is on disk, and what is about to be. Equal first two is an ordinary update from
+a changed source. A file that is simply gone is a restore, which is the good outcome. All three
+different is somebody's typing, and a command that may run from a git hook should not throw away
+the one file in the directory with anything of theirs in it without naming it.
+
+**What was considered and rejected**, because it is the obvious next thought: keeping the edit,
+by storing a patch in the record and reapplying it. Three objections and the third decides it.
+An interactive render cannot run from a git hook. A patch means owning a three-way merge on two
+operating systems. And the record is ignored while a `copilot-ci` render is committed, so CI,
+which has no record and has never rendered, would recompute the file without the patch and
+`render --check` would call the repository stale on every run forever. Wanting a rendered rule
+to read differently is answered by subscribing to a rule of your own, which is a kit and needs
+nothing this design does not already have.
+
+## 2026-10-08 - The note a rename leaves, and why the reference is not rewritten
+
+The original question. A rule naming a renamed skill is a sentence pointing at something that
+is not there, and the obvious fix is to rewrite the sentence. It cannot be done. One line of
+the real rule carries both readings:
+
+> **Load the `writing` skill** when writing anything longer than a reply
+
+Four bare occurrences of the token in that file, two of them backticked, and the backticked two
+are the references. No substitution separates a reference from a verb well enough to edit
+somebody's prose on the strength of it, and a wrong edit goes into every prompt on every turn.
+Having the source declare its references would work and is the ceremony
+[§5](DESIGN.md#5-sources) promises a source never has to perform.
+
+**So a rename writes a rule of ours instead**, under the reserved id `akit-renames`, saying
+which name each renamed kit is installed under. Two properties make it cheap. It is a mapping
+rather than a correction, so it reads correctly before or after the rule it explains - which
+matters, because Copilot's documentation declines to promise any order between instruction
+files, and a note that had to win an argument would need one. And it is written only when a
+rule from the same source actually names a renamed kit, so the search is not only how the note
+is aimed but what keeps it out of the ordinary render, which has no renames in it at all.
+
+The search matches a whole word, backticked or bare. Requiring backticks would be assuming an
+author who was careful at the one moment it mattered, and a rule written by somebody who was
+not is the rule the note exists for. The asymmetry is what makes a loose match affordable: a
+false positive costs one sentence that is true anyway, and a false negative leaves the stale
+reference.
+
+## 2026-10-08 - The suite tested states, and every real bug lived in a transition
+
+Worth writing down as a method rather than as an incident, because it is the common factor in
+the last six entries.
+
+Four findings came from driving a built wheel by hand and none from the suite: `update` could
+not follow a tag, a private source was never classified, a reorder reported no change, and
+`--check` called a fresh render stale. The tempting conclusion is that the wheel is the
+instrument and the suite needs a wheel layer. Checking what each one actually required says
+otherwise:
+
+| Finding | What it took |
+| --- | --- |
+| `update` could not follow a tag | add, *then* update |
+| a private source was never classified | add, *then* read the classification |
+| a reorder reported no change | render, swap, render |
+| `--check` called a fresh render stale | render, *then* check |
+| `as:` renamed the directory only | render, *then* ask a harness what it reads |
+
+Three of five are multi-step narratives and the `cli` layer was almost entirely single commands
+with one assertion. **The wheel was incidental; the sequence was the instrument**, and a
+sequence costs nothing to run from source.
+
+So `tests/test_scenarios.py` is new and is narratives: `none -> foo -> bar -> none` asserted at
+every step, the note arriving and leaving, an edit replaced and the render after it going quiet.
+Wheel testing stays narrow, because what a wheel uniquely tests is packaging, and
+`test_entry_point.py` plus T12's planned `uvx` smoke already cover that.
+
+What this does not replace is somebody using the thing with no test in mind, which is what found
+the first four. That cannot be automated; it can be scheduled, and "What every task delivers" is
+where the harness-documentation requirement already lives for the same reason.
+
+## 2026-10-08 - `akit add --as` wrote a manifest the next `add` could not read
+
+Found in the manual pass at the end of this work, against the real source, which is the fourth
+time driving the built wheel by hand has turned up something the suite did not think to ask.
+It is a T7 bug and it is in the released 0.8.0, checked against the published wheel rather than
+assumed:
+
+```text
+$ akit add https://github.com/ftschindler/agent-kits writing --as felix-writing --project
+$ akit add https://github.com/ftschindler/agent-kits agent-conduct --project
+akit: .akit.yaml:9: this is not valid YAML: mapping values are not allowed here
+```
+
+The file on disk was fine and still is. What failed is the document `subscribe` built in
+memory, on the re-parse that checks its own work, which is why nothing was written and why this
+survived long enough to be found by hand.
+
+`--as` writes a kit as a `{name:, as:}` mapping, in a block directly under its key. Adding a
+second kit to that key wraps the existing value in a list, and the mapping carries the comment
+that sat beside the key with it. ruamel then renders that comment inside the new list item and
+folds the mapping onto one line:
+
+```yaml
+- https://example#abc:  # frozen: main
+  -               # frozen: main
+    name: writing as: felix-writing
+```
+
+`_appended` now rebuilds such a mapping into a fresh `CommentedMap` before wrapping it. The
+keys, their order and their values survive; what is dropped is a comment that belongs to the
+key and that `_comment` writes back two lines later anyway.
+
+**Three things make this worth the entry rather than a line in a diff.**
+
+It is the shape `as:` leaves behind, so the bug was reachable only by renaming a kit and then
+adding a second one from the same source - which is to say, only by the sequence. The entry
+above about states and transitions was written before this was found and then immediately
+earned.
+
+It failed safe, and that is why it lasted. A writer that corrupted the file would have been
+found the same afternoon; one that refuses and rolls back looks like a mysterious parse error
+in a file you can read and that is plainly correct.
+
+And `tests/test_editing.py` had a class called `TestEditingInPlace` pinning down exactly this
+kind of behaviour, written when [the round-trip tests proved the wrong thing](#2026-10-08---the-round-trip-tests-proved-the-wrong-thing).
+It covered appending to a string entry and to a list entry. The mapping entry is the third
+shape a value can have and nobody wrote the third test, because at the time nothing produced
+one: `--as` and the code that appends to an entry landed in the same task and were never tried
+against each other.

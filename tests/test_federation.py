@@ -36,6 +36,18 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SIBLING = "ftschindler/federated-knowledge-skills"
 OURS = "ftschindler/federated-agent-kits"
 
+#: A third kind of source, and the one the other two could not be. The sibling
+#: is a layout nobody agreed on; this repository is one we control but can only
+#: read at the branch under test, which is why it needs the ref dance above.
+#: `agent-kits` is a real, stable, deliberately akit-shaped source that is not
+#: this repository, so it is readable at a fixed commit from any branch.
+KITS = "ftschindler/agent-kits"
+
+#: Pinned, because a federation test reading a moving branch asserts about a
+#: repository somebody may edit this afternoon. There are no tags on it yet, so
+#: the commit is the pin; a tag replaces this the day one exists.
+KITS_COMMIT = "e2c019f"
+
 #: Where this repository keeps the kit the federation layer subscribes to. It is
 #: not `skills/`, which belongs to the real skill T11 ships, so the subscription
 #: is a URL into a subdirectory - which is the form that otherwise only gets
@@ -142,3 +154,48 @@ class TestThisRepositoryAsASource:
 
     def test_a_public_repository_classifies_as_public(self, key: sources.SourceKey, tmp_path: Path, cache_root: Path):
         assert cache.resolve(key, anchor=tmp_path, cache_root=cache_root).privacy is Privacy.PUBLIC
+
+
+class TestARealKitShapedSource:
+    """`agent-kits`, which is what a source looks like when somebody meant it to be one.
+
+    Everything else in this layer reads a repository that either never heard of
+    `akit` or exists to be a fixture. This one is neither: it is a published kit
+    somebody uses, pinned to a commit so that editing it does not turn this
+    suite red on an unrelated afternoon.
+    """
+
+    @pytest.fixture
+    def resolved(self, tmp_path: Path, cache_root: Path) -> Path:
+        key = sources.parse(KITS)
+        return cache.resolve(key, pin=KITS_COMMIT, anchor=tmp_path, cache_root=cache_root).root
+
+    def test_one_name_gives_a_skill_and_a_rule(self, resolved: Path):
+        """What `akit add writing` takes, and why T7 settled that a name is a kit."""
+        assert [part.name for part in discovery.named(resolved, Kind.SKILL, "writing")] == ["writing"]
+        assert [part.name for part in discovery.named(resolved, Kind.RULE, "writing")] == ["writing"]
+
+    def test_the_skill_declares_the_name_its_directory_has(self, resolved: Path):
+        """The identity a rename has to rewrite, in a source that was authored properly."""
+        (part,) = discovery.named(resolved, Kind.SKILL, "writing")
+
+        assert "name: writing" in (part.path / "SKILL.md").read_text(encoding="utf-8")
+
+    def test_the_rule_names_the_skill_beside_it(self, resolved: Path):
+        """The real-world sentence the rename note exists for (DESIGN.md section 7).
+
+        Asserted against a published repository rather than a fixture, because
+        the claim is about what authors actually write, and a fixture that says
+        what the renderer wants to hear proves nothing about that.
+        """
+        (part,) = discovery.named(resolved, Kind.RULE, "writing")
+
+        assert "`writing` skill" in part.path.read_text(encoding="utf-8")
+
+    def test_it_holds_more_than_one_rule_so_order_means_something(self, resolved: Path):
+        assert len(discovery.parts(resolved, Kind.RULE)) > 1
+
+    def test_it_classifies_as_public(self, tmp_path: Path, cache_root: Path):
+        found = cache.resolve(sources.parse(KITS), pin=KITS_COMMIT, anchor=tmp_path, cache_root=cache_root)
+
+        assert found.privacy is Privacy.PUBLIC

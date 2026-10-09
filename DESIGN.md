@@ -245,6 +245,14 @@ preference for one copy is the ordinary case rather than the lucky one. The
 harness-specific directories stay in the table because a *source* may have left a skill in
 any of them, which is the half of question 1 that is about reading.
 
+**A skill's name has to match its directory, and here that is enforced.** VS Code's
+documentation says the frontmatter `name` is the skill's identifier, that it must match the
+parent directory, and that where the two disagree the skill is not loaded. opencode and pi
+are laxer in different directions - both take the frontmatter name as the identity, pi
+falling back to the directory when there is none - and opencode v2 derives the identity from
+the path instead. The useful summary is that the frontmatter name is what a skill *is*
+almost everywhere, which is why [§7](#skills) writes it over when a subscription renames one.
+
 **A rule with no frontmatter is discovered and never loaded.** `.github/instructions/` holds
 Copilot's *targeted* instructions: such a file is attached automatically when its `applyTo`
 glob matches a file being changed, or on demand when its `description` matches the task, and
@@ -866,6 +874,39 @@ halfway.
 Copied into `.agents/skills/` unchanged. Several locations across four harnesses already
 agree on `skills/<name>/SKILL.md`, so there is nothing to translate.
 
+**With one exception, and it is the key that decides which skill this is.** A skill's
+frontmatter carries a `name`, and that name rather than the directory is what most harnesses
+treat as the skill's identity. So a subscription renamed with `as:`
+([§6](#when-a-kit-needs-more-than-its-name)) renames the directory *and* writes the new name
+over the frontmatter's. Everything else the author wrote survives, in its own order, with its
+own comments.
+
+That is the same exception [§7](#rules-and-the-three-ways-a-harness-can-take-them) already
+makes for Copilot's `applyTo`, for the same reason: a key that decides whether the file loads
+at all, or which file it is, is not a preference. Renaming the directory alone was the first
+implementation and it did not work anywhere it mattered:
+
+| Harness | What identifies a skill | What a directory-only rename did |
+| --- | --- | --- |
+| Copilot in VS Code | frontmatter `name`, which must match the directory | the skill stopped loading |
+| opencode | frontmatter `name` | the clash survived; last loaded won |
+| pi | frontmatter `name`, directory only as a fallback | the clash survived; first found won, with a warning |
+| opencode v2 | the path | the rename worked |
+
+Every one of those failures is silent, and the worst of them is the second: a rename produces
+the collision it was invoked to prevent and hides it behind a directory listing that looks
+right. [JOURNAL.md](JOURNAL.md) has what finding it cost.
+
+A rename therefore changes the rendered bytes, which is why it is stated here rather than
+left to an adapter. The hash in the render record is of what we wrote, so nothing downstream
+has to know: a rename is an ordinary withdrawal of the old name followed by an ordinary write
+of the new one, and `as:` moving between no name, one name and another is three renders that
+each leave exactly one copy on disk.
+
+**A skill's bundled files are addressed relative to its own directory**, so references inside
+it survive a rename without anything being rewritten. What does not survive is another part
+naming this one in prose, which is [§7](#when-a-rename-breaks-a-reference)'s problem.
+
 ### Rules, and the three ways a harness can take them
 
 Harnesses differ here more than anywhere else, and they will keep changing. So the design
@@ -948,6 +989,53 @@ Nothing we could render would fix that. Copilot merges organisation, user and re
 instructions additively, so a file of ours is one contribution among several we never see and
 cannot sequence. So `akit list` says which harnesses honour order and which do not, and
 nobody has to learn it from behaviour.
+
+### When a rename breaks a reference
+
+A kit's parts name each other. The rule that makes a model reach for a skill is the reason
+[§1](#1-what-this-is) gives for a kit being a composition at all, and naming the skill is how
+it does it: *load the `writing` skill when revising a draft*. Inside one source that name is
+unique and nothing more is needed, which is exactly the ceremony a source is promised it will
+never have to perform ([§5](#5-sources)).
+
+`as:` breaks that sentence. The skill is installed as `felix-writing` and the rule still says
+`writing`, so the rule points at a name that is not there.
+
+**The reference is not rewritten, because it cannot be found.** It is prose, and the name is
+usually an ordinary word. One line of a real rule carries both readings:
+
+> **Load the `writing` skill** when writing anything longer than a reply
+
+The first is a reference and the second is a verb, and no rule separates them reliably enough
+to edit somebody's prose on the strength of it. Having the source declare its references
+instead would work and is refused for a different reason: it is a file a source has to add
+for our benefit, which is the thing [§5](#5-sources) spends its opening on.
+
+**So a rename writes an extra rule of our own instead.** One block, under the reserved id
+`akit-renames`, saying which name each renamed kit is installed under. It is a mapping rather
+than a correction, so it reads correctly before or after the rule it explains, which matters
+because a harness that reads a directory of rules declines to promise an order
+([§7](#rules-and-the-three-ways-a-harness-can-take-them)). Nothing of anybody's is edited, the
+block is a file we own end to end, and it withdraws like any other rule.
+
+**It is written only when a rule actually names a renamed kit**, in that same source. A rule
+costs tokens on every turn, so a note that always rendered would be permanent weight for a
+condition that is rare. Searching for the name is therefore not only how the note is aimed, it
+is what keeps it absent from the ordinary setup, which has no renames in it at all.
+
+The search matches the name as a whole word, backticked or bare. Backticks are the convention
+for an identifier in markdown and the better signal, and requiring them would assume an author
+who was careful at the moment it mattered. A false positive costs one sentence that is true
+anyway; a false negative leaves the stale reference this section exists for.
+
+**Same source only.** A rule naming `writing` in a different repository means that
+repository's `writing`, or the word. The assumption that a bare name resolves locally is the
+one the source was entitled to make, so it is the only one we read into it.
+
+**The note inherits the privacy of what it explains.** It names a kit and the source it came
+from, so a note about a private kit is as private as that kit, and
+[§8](#8-keeping-the-employers-kits-in) refuses it into a public target exactly as it refuses
+the kit. Derived text leaks the same as copied text.
 
 ### Agents are the hard one
 
@@ -1332,6 +1420,27 @@ irreplaceable thing in the directory, even when it is there by mistake.
 The third row is what protects anything hand-made. We never ask whether a file looks like one
 of ours, because a skill you wrote by hand and a skill we copied look identical. We ask
 whether we wrote it, and the record answers.
+
+**All three rows are about withdrawal, and a file something still explains is not withdrawn
+at all.** It is refreshed: the source says what it should contain, so a render writes the
+source's bytes over whatever is there. Editing a rendered file that you still subscribe to
+therefore loses the edit on the next render, which is
+[§2](#2-what-this-does)'s "nothing you wrote by hand lives in one" doing exactly what it
+says. The middle row is reachable only by editing a file and then unsubscribing from it.
+
+**Which makes the report the thing that has to be honest.** A render holds both hashes at
+that moment, so it can tell a file that was missing from one that had drifted, and it says
+which: replacing somebody's edit is reported as replacing it, named, rather than counted
+among the files written. Nothing is recovered by saying so, and the alternative is a routine
+command quietly throwing away the one file in the directory with anything of theirs in it.
+
+**There is no patch, and that is a decision rather than an omission.** Keeping a local edit
+across renders means storing it, which means owning a three-way merge, and it breaks
+outright for the one case where it would matter most: a committed render recomputed by
+`--check` on a runner that has none of this machine's state would be stale on every run
+forever ([§10](#render)). Wanting a rendered rule to read differently is answered by
+subscribing to a rule of your own, which is a kit and costs nothing this design does not
+already have.
 
 **Two things stop withdrawal running at all**, and both are the same caution: the record is
 only a trustworthy candidate list when this render saw everything that could explain a file.

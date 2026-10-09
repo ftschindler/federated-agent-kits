@@ -61,8 +61,12 @@ from federated_agent_kits import (
     privacy,
     record,
     rules,
+    skills,
     sources,
     targets,
+)
+from federated_agent_kits import (
+    renames as renames_,
 )
 from federated_agent_kits.adapters import Adapter
 from federated_agent_kits.adapters.adapter import SEPARATOR
@@ -164,6 +168,14 @@ class Outcome:
     harnesses: dict[Scope, tuple[str, ...]]
     entries: tuple[Entry, ...]
     withdrawals: tuple[Withdrawal, ...] = ()
+    replaced: tuple[Spot, ...] = ()
+    """Spots whose rendered copy somebody had edited, overwritten by this render.
+
+    Reported rather than protected: an explained file is refreshed from its
+    source, and the edit is gone whether or not anybody is told. Being told is
+    the part this build owes (DESIGN.md section 10).
+    """
+
     pruned: tuple[Path, ...] = ()
     ignored: tuple[tuple[Path, tuple[str, ...], bool], ...] = ()
     """Each repository whose `.gitignore` was considered, what it now lists, and
@@ -477,8 +489,26 @@ class _Wanted:
     def scope(self) -> Scope:
         return self.subscription.scope
 
+    @property
+    def claim(self) -> _Claim:
+        return _Claim(explanation=self.explanation, source=self.subscription.source, scope=self.scope)
 
-def _spot_wanted(writes: dict[Spot, _Target], spot: Spot, data: bytes, wanted: _Wanted, harness: str) -> str | None:
+
+@dataclass(frozen=True)
+class _Claim:
+    """Who wants a spot filled, which is three facts that always travel together.
+
+    One value rather than three parameters because every caller has all three or
+    none: a claim is what a record entry is explained by, and splitting it would
+    let a caller name a source without the scope it belongs to.
+    """
+
+    explanation: str
+    source: str
+    scope: Scope
+
+
+def _spot_wanted(writes: dict[Spot, _Target], spot: Spot, data: bytes, claim: _Claim, harness: str) -> str | None:
     """Add one wanted spot to the plan, or say why it could not be added.
 
     A spot two subscriptions want with different bytes is a collision the
@@ -492,10 +522,10 @@ def _spot_wanted(writes: dict[Spot, _Target], spot: Spot, data: bytes, wanted: _
         writes[spot] = _Target(
             data=data,
             digest=digest,
-            explained_by={wanted.explanation},
+            explained_by={claim.explanation},
             harnesses={harness},
-            sources={wanted.subscription.source},
-            scopes={wanted.scope},
+            sources={claim.source},
+            scopes={claim.scope},
         )
         return None
     if standing.digest != digest:
@@ -505,11 +535,27 @@ def _spot_wanted(writes: dict[Spot, _Target], spot: Spot, data: bytes, wanted: _
             f"another subscription already wants different bytes at {where}; "
             f"this copy was not written. Give one of them a different name with `as:`"
         )
-    standing.explained_by.add(wanted.explanation)
+    standing.explained_by.add(claim.explanation)
     standing.harnesses.add(harness)
-    standing.sources.add(wanted.subscription.source)
-    standing.scopes.add(wanted.scope)
+    standing.sources.add(claim.source)
+    standing.scopes.add(claim.scope)
     return None
+
+
+def _skill_bytes(wanted: _Wanted, file: Path) -> bytes:
+    """What one file of a skill is rendered as, which is its own bytes unless it is the identity.
+
+    Only the `SKILL.md` at the skill's root, and only when the rendered name is
+    not the one the source gave it. Everything else - references, scripts, a
+    nested `SKILL.md` that is some other skill's - is copied literally, and a
+    skill nobody renamed is copied literally throughout (DESIGN.md section 7).
+    """
+    data = file.read_bytes()
+    if file.parent != wanted.part.path or file.name != skills.MANIFEST_FILE:
+        return data
+    if wanted.name == wanted.part.name:
+        return data
+    return skills.as_copied(data, name=wanted.name)
 
 
 def _plan_skill(walk: _Pass, wanted: _Wanted, writes: dict[Spot, _Target]) -> tuple[list[Placement], str | None]:
@@ -525,7 +571,13 @@ def _plan_skill(walk: _Pass, wanted: _Wanted, writes: dict[Spot, _Target]) -> tu
         spots: list[Spot] = []
         for file in _files_of(wanted.part.path):
             spot = ((directory / file.relative_to(wanted.part.path)).resolve(), None)
-            problem = _spot_wanted(writes, spot, file.read_bytes(), wanted, adapter.name)
+            problem = _spot_wanted(
+                writes,
+                spot,
+                _skill_bytes(wanted, file),
+                wanted.claim,
+                adapter.name,
+            )
             if problem is not None:
                 clash = problem
                 continue
@@ -559,7 +611,13 @@ def _plan_rule(walk: _Pass, wanted: _Wanted, writes: dict[Spot, _Target]) -> tup
             else rules.as_file(data, name=wanted.name, keys=adapter.rule_frontmatter)
         )
         spot = (target.resolve(), region)
-        problem = _spot_wanted(writes, spot, written, wanted, adapter.name)
+        problem = _spot_wanted(
+            writes,
+            spot,
+            written,
+            wanted.claim,
+            adapter.name,
+        )
         if problem is not None:
             clash = problem
             continue
@@ -623,6 +681,106 @@ def _unrendered(subscription: Subscription, *, problem: str | None = None, waiti
     )
 
 
+@dataclass
+class _Referring:
+    """One rule that named a renamed kit, kept until the note can be planned.
+
+    Collected during the main pass rather than looked for afterwards, because
+    the rule's bytes and the scope it was rendered in are both in hand there and
+    neither is cheap to recover once the loop has moved on.
+    """
+
+    scope: Scope
+    renames: tuple[renames_.Rename, ...]
+    subscription: Subscription
+
+
+def _renamed(merged: Merged) -> tuple[renames_.Rename, ...]:
+    """Every kit installed under a name its source did not give it.
+
+    Skills only. A renamed rule is a file of ours whose name nothing else says
+    out loud, and agents land with T13 along with the declared `skills:` list
+    that makes their references rewritable rather than prose.
+    """
+    return tuple(
+        renames_.Rename(source=entry.source, original=entry.name, rendered=entry.rename)
+        for entry in merged.subscriptions
+        if entry.kind is Kind.SKILL and entry.rename and not entry.is_wildcard
+    )
+
+
+def _plan_note(walk: _Pass, referring: Sequence[_Referring], writes: dict[Spot, _Target]) -> list[Entry]:
+    """The `akit-renames` rule, in every scope where some rule referred to a rename.
+
+    Explained by the subscription that did the renaming, so the note withdraws
+    by the ordinary rules the moment that subscription stops renaming, stops
+    being subscribed, or stops being referred to (DESIGN.md section 7).
+
+    Every contributor writes identical bytes into one spot, so this goes through
+    `_spot_wanted` exactly as a shared skill does and arrives as one placement
+    explained by several subscriptions.
+    """
+    entries: list[Entry] = []
+    by_scope: dict[Scope, list[_Referring]] = {}
+    for entry in referring:
+        by_scope.setdefault(entry.scope, []).append(entry)
+    for scope in sorted(by_scope, key=lambda found: found.value):
+        here = by_scope[scope]
+        data = renames_.note([rename for entry in here for rename in entry.renames])
+        placements: list[Placement] = []
+        for adapter in walk.chosen[scope]:
+            target = adapter.target(Kind.RULE, scope, renames_.RENAMES, walk.anchor(adapter, scope))
+            if target is None:
+                continue
+            region = adapter.region(Kind.RULE, renames_.RENAMES)
+            written = (
+                rules.as_block(data, name=renames_.RENAMES, ours=True)
+                if region is not None
+                else rules.as_file(data, name=renames_.RENAMES, keys=adapter.rule_frontmatter, ours=True)
+            )
+            spot = (target.resolve(), region)
+            for entry in here:
+                _spot_wanted(
+                    writes,
+                    spot,
+                    written,
+                    _Claim(
+                        explanation=str(
+                            Explanation(kind=Kind.RULE, source=entry.subscription.source, name=renames_.RENAMES)
+                        ),
+                        source=entry.subscription.source,
+                        scope=scope,
+                    ),
+                    adapter.name,
+                )
+            placements.append(
+                Placement(path=target, harnesses=(adapter.name,), written=0, unchanged=0, region=region, spots=(spot,))
+            )
+        if placements:
+            entries.append(
+                Entry(
+                    subscription=_note_subscription(scope),
+                    name=renames_.RENAMES,
+                    found_as=renames_.RENAMES,
+                    relative="",
+                    placements=_shared(placements),
+                )
+            )
+    return entries
+
+
+def _note_subscription(scope: Scope) -> Subscription:
+    """What the note reports itself as, which is a rule nobody subscribed to.
+
+    It has to be a `Subscription` because that is what an `Entry` carries, and
+    naming `akit` as its source is the honest answer: this one really is ours
+    rather than any repository's.
+    """
+    return Subscription(
+        kind=Kind.RULE, source="akit", pin=None, name=renames_.RENAMES, rename=None, scope=scope, line=0
+    )
+
+
 def _plan(walk: _Pass, merged: Merged) -> tuple[list[Entry], dict[Spot, _Target]]:
     """Every subscription as the spots it wants filled, with nothing written yet.
 
@@ -632,6 +790,8 @@ def _plan(walk: _Pass, merged: Merged) -> tuple[list[Entry], dict[Spot, _Target]
     """
     writes: dict[Spot, _Target] = {}
     entries: list[Entry] = []
+    renamed = _renamed(merged)
+    referring: list[_Referring] = []
     for subscription in merged.subscriptions:
         if subscription.kind not in RENDERED:
             entries.append(_unrendered(subscription, waiting=WAITING[subscription.kind]))
@@ -652,8 +812,51 @@ def _plan(walk: _Pass, merged: Merged) -> tuple[list[Entry], dict[Spot, _Target]
             wanted = "anything" if subscription.is_wildcard else f'a {subscription.kind} called "{subscription.name}"'
             entries.append(_unrendered(subscription, problem=f"this source does not hold {wanted}"))
             continue
-        entries.extend(_plan_part(walk, subscription, part, writes) for part in parts)
+        for part in parts:
+            entries.append(_plan_part(walk, subscription, part, writes))
+            if subscription.kind is not Kind.RULE or not renamed:
+                continue
+            found = renames_.referenced(renamed, subscription.source, part.path.read_bytes())
+            if found:
+                referring.append(_Referring(scope=subscription.scope, renames=found, subscription=subscription))
+    entries.extend(_plan_note(walk, referring, writes))
     return entries, writes
+
+
+def _replaced(before: Mapping[Scope, Record], writes: Mapping[Spot, _Target]) -> tuple[Spot, ...]:
+    """Every spot about to be overwritten where somebody had edited our copy.
+
+    A file something still explains is refreshed rather than protected: the
+    source says what it holds, so a render writes the source's bytes over
+    whatever is there, and the withdrawal table's middle row is about deletion
+    and never about this (DESIGN.md section 10). Editing a rendered file you
+    still subscribe to therefore loses the edit, which is what "nothing you
+    wrote by hand lives in one" has always meant.
+
+    What that leaves owing is the report. The three hashes needed to tell the
+    cases apart are all in hand at this moment and nowhere else: what we wrote
+    last time, what is there now, and what is about to be. A spot counts here
+    only when all three disagree in the one way that means somebody typed in it:
+    the disk has drifted from what we recorded, and it is not already what this
+    render is about to put there. A file whose disk and record agree is an
+    ordinary update from a changed source, and a file that is already correct is
+    not being written at all.
+
+    A spot whose file has gone is not a replacement either. That is a restore,
+    which is the case DESIGN.md section 2 means by calling a rendered file
+    disposable, and it is the good outcome rather than a loss.
+    """
+    found: list[Spot] = []
+    for record_ in before.values():
+        for entry in record_.written:
+            planned = writes.get(entry.spot)
+            if planned is None:
+                continue
+            standing = entry.current()
+            if standing is None or standing in (entry.digest, planned.digest):
+                continue
+            found.append(entry.spot)
+    return tuple(sorted(set(found), key=lambda spot: (str(spot[0]), spot[1] or "")))
 
 
 def _perform(
@@ -1144,6 +1347,7 @@ def render(start: Path, places: Directories, choices: Choices = EVERYTHING, mode
         withdrawals, kept, removals = _withdraw(
             before, writes, choices.scopes, _directories(adapters.ADAPTERS, walk, choices.scopes)
         )
+    replaced = _replaced(before, writes)
     entries, done = _perform(planned, writes, removals, writing=writing)
     standing: set[Path] = set()
     keeps_a_record = False
@@ -1168,6 +1372,7 @@ def render(start: Path, places: Directories, choices: Choices = EVERYTHING, mode
         blocks_written=sum(1 for spot, changed in done.items() if changed and spot[1] is not None),
         blocks_unchanged=sum(1 for spot, changed in done.items() if not changed and spot[1] is not None),
         withdrawals=tuple(withdrawals),
+        replaced=replaced,
         pruned=tuple(pruned),
         ignored=_ignore_block(walk, owned, standing, choices.scopes, keeps_a_record=keeps_a_record),
         unexplained=_unexplained(walk, writes, manifest.worktree_root(start)) if checking else (),
@@ -1246,6 +1451,25 @@ def _print_entry(entry: Entry, out: TextIO) -> None:
         print(f"{INDENT * 2}{did} {where}, for {joined(place.harnesses)}", file=out)
 
 
+def _print_replacements(outcome: Outcome, out: TextIO) -> None:
+    """Name every rendered copy whose hand edit this render wrote over.
+
+    Printed before the withdrawals and the summary, because it is the one thing
+    in the report that describes something lost rather than something arranged.
+    """
+    if not outcome.replaced:
+        return
+    print("Replaced, because the source decides what a rendered copy holds", file=out)
+    for path, region in outcome.replaced:
+        where = str(path) if region is None else f'the "{region}" block in {path}'
+        print(f"{INDENT}{where} had been edited since it was rendered, and now holds its source again", file=out)
+    print(
+        f"{INDENT * 2}fix: to keep a change, make it in the source, or subscribe to a kit of your own",
+        file=out,
+    )
+    print("", file=out)
+
+
 def _print_withdrawals(outcome: Outcome, out: TextIO) -> None:
     print("Withdrawn", file=out)
     if outcome.suspended is not None:
@@ -1305,6 +1529,7 @@ def text(outcome: Outcome, out: TextIO) -> None:
     for name in outcome.unknown:
         print(f'A manifest names the harness "{name}", and no adapter answers to it.', file=out)
         print(f"{INDENT}fix: run `akit list` to see the harnesses this build knows", file=out)
+    _print_replacements(outcome, out)
     _print_withdrawals(outcome, out)
     for root, listed, changed in outcome.ignored:
         state = "now lists" if changed else "already listed"
@@ -1361,6 +1586,7 @@ def payload(outcome: Outcome) -> dict[str, Any]:
             {"path": str(entry.path), "region": entry.region, "action": entry.action} for entry in outcome.withdrawals
         ],
         "pruned": [str(path) for path in outcome.pruned],
+        "replaced": [{"path": str(path), "region": region} for path, region in outcome.replaced],
         "ignored": [
             {"repository": str(root), "lists": list(listed), "changed": changed}
             for root, listed, changed in outcome.ignored

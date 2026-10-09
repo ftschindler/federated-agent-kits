@@ -41,18 +41,17 @@ code behind it. DESIGN.md section 7 says so outright.
 
 from __future__ import annotations
 
-import io
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
-from ruamel.yaml.error import YAMLError
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
+from federated_agent_kits import frontmatter
 from federated_agent_kits.exits import AkitError
+from federated_agent_kits.frontmatter import FENCE, Document
 
 #: What opens and closes one rule inside a file we share. An HTML comment
 #: because the host is markdown somebody reads: the markers carry the id a
@@ -64,10 +63,6 @@ END = "<!-- END akit {id} -->"
 _BEGIN_PATTERN = re.compile(r"^<!--\s*BEGIN akit (?P<id>\S+)\s*-->$")
 _END_PATTERN = re.compile(r"^<!--\s*END akit (?P<id>\S+)\s*-->$")
 
-#: What separates frontmatter from a body, and what a frontmatter block has to
-#: start with for there to be one at all.
-FENCE = "---"
-
 #: The key Copilot loads a targeted instruction file on, and the glob that means
 #: "every file". Without `applyTo` or `description` such a file is discovered,
 #: listed, and never loaded unless somebody attaches it by hand, so this is not
@@ -75,6 +70,11 @@ FENCE = "---"
 #: own documentation writes it.
 APPLY_TO = "applyTo"
 EVERYTHING = "**"
+
+#: Ids this tool writes its own rules under, which a subscription may not take.
+#: Spelled here rather than imported from `renames.py`, because that module
+#: imports the renderer's vocabulary and this one is imported by it.
+RESERVED_NAMES = frozenset({"akit-renames"})
 
 #: What a rule may be called. The name becomes a filename for one shape and a
 #: marker id for the other, so it has to survive both: one path segment, no
@@ -99,13 +99,24 @@ class RuleError(AkitError):
     """A rule this build will not render, named with what to do about it."""
 
 
-def check_name(name: str) -> None:
+def check_name(name: str, *, ours: bool = False) -> None:
     """Refuse a rule whose name cannot be both a filename and a marker id.
 
     Refused rather than sanitised. Two rules called `my rule` and `my-rule`
     sanitise to one file, and the loser disappears without anything failing,
     which is worse than being told to rename one of them.
+
+    `ours` is set only by the renderer writing a rule this tool generates, which
+    is the one caller allowed to use a reserved id. Everybody else is a
+    subscription, and a subscription that could take `akit-renames` would fight
+    the rename note over one marker in somebody's `AGENTS.md`, with the loser
+    silently overwritten on every render.
     """
+    if not ours and name in RESERVED_NAMES:
+        raise RuleError(
+            f'"{name}" is a name `akit` writes its own rules under.\n'
+            "  Subscribe to it with `as: <another-name>`, which renames it on the way in."
+        )
     if not SAFE_NAME.match(name) or name.endswith("."):
         raise RuleError(
             f'"{name}" is not a name a rule can have.\n'
@@ -121,47 +132,6 @@ def check_name(name: str) -> None:
         )
 
 
-def _yaml() -> YAML:
-    """One configured round-tripper, built per call because a `YAML` is stateful."""
-    yaml = YAML()
-    yaml.preserve_quotes = True
-    yaml.width = 4096
-    return yaml
-
-
-@dataclass(frozen=True)
-class Document:
-    """One rule as it was written: the keys it carried, and the prose under them."""
-
-    front: CommentedMap | None
-    """The source's own frontmatter, or `None` where it had none."""
-
-    body: str
-    """Everything after the frontmatter, unchanged, ending in exactly one newline."""
-
-
-def _text(data: bytes) -> str:
-    """Source bytes as text, with line endings settled before anything reads them.
-
-    A rule authored on Windows and rendered on Linux has to produce the same
-    bytes as the other way round, or two machines rendering one repository
-    disagree about whether it is up to date.
-    """
-    return data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
-
-
-def _ends_once(body: str) -> str:
-    """The body with its surrounding blank lines settled.
-
-    The blank line after a closing `---` is the fence's separator rather than
-    the author's paragraph break, and a trailing newline is a habit two editors
-    disagree about. Both are decided here so that the same rule renders to the
-    same bytes whatever the source file's whitespace was, which is what keeps a
-    second render a no-op.
-    """
-    return "" if not body.strip() else body.strip("\n") + "\n"
-
-
 def parse(data: bytes, *, name: str) -> Document:
     """One rule file into its frontmatter and its body.
 
@@ -170,38 +140,13 @@ def parse(data: bytes, *, name: str) -> Document:
     reading it as a broken header would refuse a rule that renders perfectly
     well everywhere.
     """
-    text = _text(data)
-    lines = text.split("\n")
-    if not lines or lines[0].strip() != FENCE:
-        return Document(front=None, body=_ends_once(text))
     try:
-        closing = next(index for index, line in enumerate(lines[1:], start=1) if line.strip() == FENCE)
-    except StopIteration:
-        return Document(front=None, body=_ends_once(text))
-    header = "\n".join(lines[1:closing])
-    try:
-        front = _yaml().load(header or "{}")
-    except YAMLError as error:
-        raise RuleError(
-            f'the rule "{name}" opens with frontmatter that is not valid YAML: {error}.\n'
-            "  Correct it in the source, or remove the `---` block: a rule with no frontmatter "
-            "renders everywhere."
-        ) from error
-    if not isinstance(front, CommentedMap):
-        raise RuleError(
-            f'the rule "{name}" opens with frontmatter that is not a mapping of keys.\n'
-            "  Write `key: value` lines between the `---` fences, or remove them."
-        )
-    return Document(front=front, body=_ends_once("\n".join(lines[closing + 1 :])))
+        return frontmatter.parse(data)
+    except frontmatter.FrontmatterError as error:
+        raise RuleError(f'the rule "{name}" opens with frontmatter that is {error.summary}.\n  {error.fix}') from error
 
 
-def _dump(front: CommentedMap) -> str:
-    stream = io.StringIO()
-    _yaml().dump(front, stream)
-    return stream.getvalue()
-
-
-def as_file(data: bytes, *, name: str, keys: Mapping[str, str] = NO_KEYS) -> bytes:
+def as_file(data: bytes, *, name: str, keys: Mapping[str, str] = NO_KEYS, ours: bool = False) -> bytes:
     """One rule as a file for a harness that reads a directory of them.
 
     `keys` are the ones the harness needs and the source cannot be trusted to
@@ -215,17 +160,17 @@ def as_file(data: bytes, *, name: str, keys: Mapping[str, str] = NO_KEYS) -> byt
     comments. `description:` is the one that matters: it is the other key
     Copilot loads a rule on, and it is the author's to write.
     """
-    check_name(name)
+    check_name(name, ours=ours)
     document = parse(data, name=name)
     if not keys:
         return document.body.encode("utf-8")
     front = document.front if document.front is not None else CommentedMap()
     for key, value in keys.items():
         front[key] = DoubleQuotedScalarString(value)
-    return f"{FENCE}\n{_dump(front)}{FENCE}\n\n{document.body}".encode()
+    return f"{FENCE}\n{frontmatter.dump(front)}{FENCE}\n\n{document.body}".encode()
 
 
-def as_block(data: bytes, *, name: str) -> bytes:
+def as_block(data: bytes, *, name: str, ours: bool = False) -> bytes:
     """One rule as the bytes that go between markers in a file we share.
 
     The frontmatter goes. A `description:` means something to Copilot and
@@ -237,7 +182,7 @@ def as_block(data: bytes, *, name: str) -> bytes:
     not when read back would make every rendered block look edited on the
     render after the one that wrote it.
     """
-    check_name(name)
+    check_name(name, ours=ours)
     return parse(data, name=name).body.rstrip("\n").encode("utf-8")
 
 

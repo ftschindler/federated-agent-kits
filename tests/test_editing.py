@@ -288,3 +288,67 @@ def test_a_blank_manifest_is_the_version_and_nothing_else(tmp_path: Path):
 
     assert found.subscriptions == ()
     assert manifests.dump(found) == "version: 1\n"
+
+
+class TestAddingBesideARenamedKit:
+    """A second kit on a key whose first kit was written as a `{name:, as:}` mapping.
+
+    The shape `akit add --as` leaves behind, which until now could not be added
+    to: the mapping carried the comment that sat beside its key, kept carrying
+    it into the list it was moved into, and came back out as one line that is
+    not YAML. It failed on re-parse, so nothing was written and the manifest was
+    left correct - which is why it survived to be found by hand rather than by a
+    broken file.
+    """
+
+    def renamed(self, tmp_path: Path, kind: str, lead: str) -> manifests.Manifest:
+        path = tmp_path / ".akit.yaml"
+        path.write_text(
+            f"version: 1\n\n{kind}:\n{lead}https://example.test/kits#abc:  # frozen: main\n"
+            "    name: writing\n    as: felix-writing\n",
+            encoding="utf-8",
+        )
+        return manifests.read(path, scope=Scope.PROJECT)
+
+    @pytest.mark.parametrize(("kind", "lead"), [("skills", "  "), ("rules", "- ")])
+    def test_a_second_kit_lands_beside_a_renamed_one_and_still_parses(self, tmp_path: Path, kind: str, lead: str):
+        found = self.renamed(tmp_path, kind, lead)
+
+        after = editing.subscribe(
+            found,
+            editing.Entry(
+                kind=Kind.SKILL if kind == "skills" else Kind.RULE,
+                key="https://example.test/kits#abc",
+                name="agent-conduct",
+                comment="frozen: main",
+            ),
+        )
+
+        reparsed = manifests.parse(manifests.dump(after), scope=Scope.PROJECT)
+        assert sorted(entry.name for entry in reparsed.subscriptions) == ["agent-conduct", "writing"]
+
+    def test_the_rename_it_was_added_beside_survives(self, tmp_path: Path):
+        found = self.renamed(tmp_path, "skills", "  ")
+
+        after = editing.subscribe(
+            found,
+            editing.Entry(
+                kind=Kind.SKILL, key="https://example.test/kits#abc", name="agent-conduct", comment="frozen: main"
+            ),
+        )
+
+        reparsed = manifests.parse(manifests.dump(after), scope=Scope.PROJECT)
+        writing = next(entry for entry in reparsed.subscriptions if entry.name == "writing")
+        assert writing.rename == "felix-writing"
+
+    def test_the_comment_is_not_duplicated_into_the_list(self, tmp_path: Path):
+        found = self.renamed(tmp_path, "skills", "  ")
+
+        after = editing.subscribe(
+            found,
+            editing.Entry(
+                kind=Kind.SKILL, key="https://example.test/kits#abc", name="agent-conduct", comment="frozen: main"
+            ),
+        )
+
+        assert manifests.dump(after).count("frozen: main") == 1
