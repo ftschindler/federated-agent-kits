@@ -124,11 +124,15 @@ harnesses treat as the skill's identity. Renaming one and not the other produces
 Copilot declines to load and a collision opencode still has.
 
 A rename leaves one loose end, and it gets written down rather than papered over. A rule from
-the same source still names the kit the way its author wrote it, and that reference is prose:
-in `**Load theriting`sil** when writing a draft` one of those words is a reference and
-the other is a verb, so nothing may rewrite it. Instead, where a rule does name a renamed kit,
-a short `akit-renames` rule is rendered beside it saying which name the kit is installed
-under. No rename, or no rule mentioning one, and nothing is written at all.
+the same source still names the kit the way its author wrote it, and that reference is prose.
+One line of a real rule carries both readings:
+
+> **Load the `writing` skill** when writing anything longer than a reply
+
+The first is a reference and the second is a verb, so nothing may rewrite it. Instead, where
+a rule does name a renamed kit, a short `akit-renames` rule is rendered beside it saying which
+name the kit is installed under. No rename, or no rule mentioning one, and nothing is written
+at all.
 
 Every command explains itself, because the agent-facing skill is deliberately thin: it says
 run `akit list` and never describes the output. So `akit <command> --help` is the
