@@ -95,6 +95,8 @@ def prose_and_code(text: str) -> tuple[str, list[str]]:
 
 SKILL_TEXT = read(SKILL)
 EVERYTHING = {SKILL: SKILL_TEXT, **{path: read(path) for path in sorted(REFERENCES.glob("*.md"))}}
+STARTED = EVERYTHING[REFERENCES / "getting-started.md"]
+REQUIREMENTS = EVERYTHING[REFERENCES / "install-requirements.md"]
 
 
 def invocations(text: str) -> list[re.Match[str]]:
@@ -182,20 +184,28 @@ class TestTheOneThingItMayNotInstall:
 
     A skill that installs software nobody asked for is the failure this guards,
     and on a managed machine it is somebody else's decision to make. So the
-    dependency is named, the check is named, and both ways out are offered.
+    dependency is named, the check is named, and both ways out are offered - in
+    a reference, because a page about installing a package manager is not what
+    somebody opening this skill came for.
     """
 
     def test_it_says_how_to_find_out_whether_uv_is_there(self) -> None:
         assert "uv --version" in SKILL_TEXT
+        assert "uv --version" in REQUIREMENTS
 
     def test_it_offers_both_ways_out_rather_than_picking_one(self) -> None:
-        assert "package manager" in SKILL_TEXT
-        assert "https://docs.astral.sh/uv/" in SKILL_TEXT
+        assert "package manager" in REQUIREMENTS
+        assert "https://docs.astral.sh/uv/" in REQUIREMENTS
 
     def test_it_waits_to_be_told_rather_than_installing(self) -> None:
-        prose, _ = prose_and_code(SKILL_TEXT)
-        assert "will not install" in prose
-        assert re.search(r"only once they have said so", prose)
+        prose, _ = prose_and_code(REQUIREMENTS)
+        assert "offer rather than install" in prose.lower()
+        assert "until they have picked one" in prose
+
+    def test_the_skill_itself_stays_out_of_it(self) -> None:
+        """One line and a link. The detail is a reference for a reason."""
+        assert "install-requirements.md" in SKILL_TEXT
+        assert "package manager" not in SKILL_TEXT
 
 
 @pytest.mark.unit
@@ -220,12 +230,42 @@ class TestTheRuleArrivesAsASubscription:
         for path, text in EVERYTHING.items():
             assert body not in text, f"{path.name} carries the rule's own text, which invites a hand-placed copy"
 
-    def test_getting_started_subscribes_to_this_kit(self) -> None:
-        """Unconditionally, because reading the skill is the person having asked."""
-        started = EVERYTHING[REFERENCES / "getting-started.md"]
-        _, code = prose_and_code(started)
-        subscribing = [line for line in code if "akit add" in line and "federated-agent-kits akit" in line]
+    def test_getting_started_subscribes_to_this_kit_first(self) -> None:
+        """Unconditionally and up front, because reading the skill is the asking.
+
+        Up front matters as much as unconditional: the steps after it are a
+        conversation, and a session that ends early has to have left the skill
+        and the rule working rather than half a setup.
+        """
+        _, code = prose_and_code(STARTED)
+        commands_run = [line for line in code if "akit " in line]
+        subscribing = [line for line in commands_run if "add --global" in line and "federated-agent-kits akit" in line]
         assert subscribing, "nothing in getting started takes the subscription out on this kit"
+        assert commands_run.index(subscribing[0]) == 0, "something else runs before this kit is installed"
+
+    def test_getting_started_says_how_to_undo_it(self) -> None:
+        """A setup step nobody can reverse is one nobody really consented to."""
+        _, code = prose_and_code(STARTED)
+        assert [line for line in code if "akit remove --global akit" in line]
+
+
+@pytest.mark.unit
+class TestItSaysWhereKitsCanLiveAndComeFrom:
+    """The two scopes are a question for the person, not a default to guess at."""
+
+    def test_it_names_both_scopes_and_asks(self) -> None:
+        prose, _ = prose_and_code(STARTED)
+        assert "--global" in STARTED
+        assert ".akit.yaml" in STARTED
+        assert "ask which they have in mind" in prose
+
+    def test_it_says_any_git_repository_will_do(self) -> None:
+        assert "git repository" in STARTED
+
+    def test_it_names_the_marketplace_it_replaces(self) -> None:
+        """Somebody arriving from `npx skills add` needs to be told it is the same gesture."""
+        assert "skills.sh" in STARTED
+        assert "npx skills add" in STARTED
 
 
 @pytest.mark.unit

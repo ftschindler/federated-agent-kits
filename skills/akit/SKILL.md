@@ -24,26 +24,10 @@ The `--from` is not decoration. The distribution is `federated-agent-kits` and
 the command inside it is `akit`, and `uvx` reads its first argument as a
 distribution name.
 
-## It needs uv, and uv is the one thing it will not install for you
-
-`uvx` comes with `uv`, which is a tool on the person's machine rather than
-something this skill may put there. Installing software somebody did not ask for
-is not a kit subscription, and on a managed or shared machine it is somebody
-else's decision.
-
-So when `uv --version` fails, stop and say so, with the two ways out and which
-one this machine suits:
-
-- **The platform's package manager**, which is the answer on a machine whose
-  software is managed by one. The person usually knows which it is; ask rather
-  than guessing from the operating system, because more than one is often
-  installed.
-- **Astral's install script**, documented at `https://docs.astral.sh/uv/`, which
-  is the answer everywhere else and installs into the person's own home rather
-  than system-wide.
-
-Offer to run whichever they pick, and run it only once they have said so.
-Nothing below works until `uv --version` answers.
+`uvx` comes with `uv`, which is the one thing here that has to be on the machine
+already. Where `uv --version` fails,
+[references/install-requirements.md](references/install-requirements.md) says
+what to offer; it is never installed without being asked for.
 
 **Every command explains itself, so read its help rather than guessing.** `akit
 <command> --help` says what the command writes and what it never writes, with a
@@ -56,15 +40,16 @@ want to read.
 here writes a manifest line and renders files, both of which are reversible and
 both of which somebody asked for. Two things are asked about first: a change to
 what a repository commits, which is the harness with no machine below, and
-installing `uv`, which is above.
+installing `uv`, which is the reference above.
 
 Three situations come up, and nothing here covers a fourth.
 
 ## Nothing is set up
 
-Walk through [references/getting-started.md](references/getting-started.md). It
-covers the one question you have to ask the person, which manifest their answer
-means, the first render, and the subscription this kit takes out on itself.
+Walk through [references/getting-started.md](references/getting-started.md). Its
+first step runs without asking and leaves this kit subscribed to itself for this
+person, which is what makes the rule arrive; the rest is the two scopes, where
+kits come from, and the first render.
 
 ## Something needs doing
 
