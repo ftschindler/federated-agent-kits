@@ -45,7 +45,7 @@ builds a part of it or keeps it releasable.
 - [x] **[T7](#t7---add-remove-update-harness)** - `add`, `remove`, `update`, `harness`
 - [x] **[T8](#t8---the-machineless-harness-and-the-leak-refusal)** - The machineless harness, and the leak refusal
 - [x] **[T9](#t9---doctor)** - `doctor`
-- [ ] **[T10](#t10---adding-an-adapter-documented)** - Adding an adapter, documented
+- [x] **[T10](#t10---adding-an-adapter-documented)** - Adding an adapter, documented
 - [ ] **[T11](#t11---the-skill-and-the-rule)** - The skill, and the rule
 - [ ] **[T12](#t12---publish-10)** - Publish 1.0
 - [ ] **[T13](#t13---agents)** - Agents, *after 1.0*
@@ -856,6 +856,22 @@ go stale in silence.
 
 **Done when.** A reader can add a harness from the guide alone, demonstrated by the fixture
 adapter, and the diff budget passes.
+
+**The one-file claim held, and the budget that checks it allows two imports.** Nothing in
+`src/` outside `adapters/` branches on a harness name, so the guide exposed no refactor. What
+the budget had to learn is the difference between importing the interface and importing a
+harness: `doctor.py`, `listing.py` and `render.py` all take `Adapter` and `SEPARATOR` from
+`adapters.adapter`, which is what an interface is for, and none of them imports
+`adapters.opencode`, which is the breach. The check lists the concrete modules by name,
+computed from `ADAPTERS`, so a fourth adapter needs no edit to it.
+[JOURNAL.md](JOURNAL.md) has the rest.
+
+**And one contract assertion was three adapters' answer rather than the contract's.** The
+project anchor was asserted to be the git worktree root, which pi is not: it anchors on the
+nearest ancestor holding a `.pi` directory. What every adapter owes is that the anchor
+answers nothing where there is no project, since one that fell back to the directory it was
+asked about would make every directory a project. The git-root assertion stayed, over the
+shipped three.
 
 **Leave alone.** Shipping a fourth adapter. The guide plus the fixture is the evidence; a
 harness nobody here runs is maintenance with no user, and
