@@ -200,6 +200,11 @@ jobs:
 
     - name: Write the version into the working tree
       if: steps.bump.outputs.level != 'none'
+      # Two files, one number: `pyproject.toml`, and the `VERSION` beside the
+      # skill. A skill copied into somebody's skills directory keeps no link to
+      # the package it describes, so that file is the only way it can say how
+      # old it is - and writing it anywhere other than here is how the two come
+      # to disagree. The test suite fails when they do.
       env:
         NEXT: ${{ steps.version.outputs.next }}
       run: uv run .scripts/version.py write "${NEXT}"
@@ -245,7 +250,7 @@ jobs:
         set -euo pipefail
         git config user.name "${BOT_NAME}"
         git config user.email "${BOT_EMAIL}"
-        git add pyproject.toml
+        git add pyproject.toml skills/akit/VERSION
         git commit -m "Release ${NEXT}"
         git tag -a "v${NEXT}" -m "Release ${NEXT}"
         git push origin HEAD:main

@@ -36,8 +36,10 @@ import sys
 import time
 
 PYPI = "https://pypi.org/simple/"
-ATTEMPTS = 10
-PAUSE_SECONDS = 6
+#: Roughly two minutes of waiting. The first budget was a minute and was spent
+#: in full, once, on an upload the index had accepted and not yet published.
+ATTEMPTS = 12
+PAUSE_SECONDS = 10
 
 
 def run(version: str, index: str, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -52,6 +54,12 @@ def run(version: str, index: str, *arguments: str) -> subprocess.CompletedProces
         # dependencies and the right one for us.
         "--index-strategy",
         "unsafe-best-match",
+        # uv caches an index's answer, including the answer "this version is not
+        # here". Without this the retry loop asks the cache eleven times and
+        # learns nothing after the first miss, which looks exactly like an index
+        # that never caught up.
+        "--refresh-package",
+        "federated-agent-kits",
         "--from",
         f"federated-agent-kits=={version}",
         "akit",

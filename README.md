@@ -13,7 +13,7 @@ This subscribes you to the kits you want, from wherever they live, and writes th
 harness looks.
 
 **Status: it subscribes, it renders skills and rules into three harnesses, it refuses to
-leak, and it tells you what is wrong.** [DESIGN.md](DESIGN.md) is the source of truth for what
+leak, it tells you what is wrong, and it ships the skill that drives it.** [DESIGN.md](DESIGN.md) is the source of truth for what
 gets built, [IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets built in. Every verb
 works today: `akit add`, `akit remove`, `akit update`, `akit harness`, `akit list`,
 `akit render` and `akit doctor`,
@@ -124,16 +124,47 @@ harnesses treat as the skill's identity. Renaming one and not the other produces
 Copilot declines to load and a collision opencode still has.
 
 A rename leaves one loose end, and it gets written down rather than papered over. A rule from
-the same source still names the kit the way its author wrote it, and that reference is prose:
-in `**Load theriting`sil** when writing a draft` one of those words is a reference and
-the other is a verb, so nothing may rewrite it. Instead, where a rule does name a renamed kit,
-a short `akit-renames` rule is rendered beside it saying which name the kit is installed
-under. No rename, or no rule mentioning one, and nothing is written at all.
+the same source still names the kit the way its author wrote it, and that reference is prose.
+One line of a real rule carries both readings:
+
+> **Load the `writing` skill** when writing anything longer than a reply
+
+The first is a reference and the second is a verb, so nothing may rewrite it. Instead, where
+a rule does name a renamed kit, a short `akit-renames` rule is rendered beside it saying which
+name the kit is installed under. No rename, or no rule mentioning one, and nothing is written
+at all.
 
 Every command explains itself, because the agent-facing skill is deliberately thin: it says
 run `akit list` and never describes the output. So `akit <command> --help` is the
 documentation, and `akit help manifest`, `akit help sources`, `akit help harnesses` and
 `akit help privacy` cover the four things that are not commands.
+
+## The skill it ships
+
+An agent asked to "set up my kits" has nowhere to look, so this repository is a source like
+any other and the kit it holds is called `akit`: the skill under `skills/akit/`, and the
+five-line rule beside it in `rules/` that tells a model when to open it.
+
+```sh
+uvx --from federated-agent-kits akit add --global ftschindler/federated-agent-kits akit
+```
+
+The skill covers three situations and no more: nothing is set up, something needs doing, a
+new release is out. It names commands and never describes their output, so there is one
+description of what `akit list` prints rather than two that can disagree. A copy carries a
+`VERSION` file, written by the release job from the same number as the package, because a
+skill copied into a skills directory cannot tell how old it is any other way.
+
+The first copy is placed by hand, or by whatever skill installer you already use, and the
+skill runs the command above itself the first time it is asked to set anything up: the rule
+is subscribed to rather than pasted in, because a pasted copy is one no render record knows
+about and no later subscription can replace. A test drives a real agent through all three
+situations on both operating systems, which is how an instruction that only parses in one
+shell gets caught.
+
+It will not install `uv` for you. Where `uv --version` fails the skill says so and offers
+the platform's package manager or Astral's install script, and runs neither until you pick
+one. Subscribing to a kit and putting a tool on somebody's machine are different acts.
 
 ```sh
 uvx --from federated-agent-kits akit --help
