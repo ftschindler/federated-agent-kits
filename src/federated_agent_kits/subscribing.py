@@ -378,12 +378,17 @@ def harness(call: Call, *, action: str, name: str) -> Outcome:
     pins the list to exactly what it names, and on a machine holding a harness
     the list no longer names, the render that follows withdraws that harness's
     files as any other removal would.
+
+    **A name nobody knows can be removed and cannot be added.** Adding one is a
+    typo and fails saying so. Removing one is how that typo gets taken out
+    again, and it is the fix `akit doctor` names for it, so refusing here would
+    leave the only way out of a misspelt harness list a hand edit.
     """
     known = {*adapters.BY_NAME, adapters.DETECTED}
-    if name not in known:
-        raise UsageError(f"no adapter answers to the harness `{name}`.\n  Known harnesses: {', '.join(sorted(known))}.")
     chosen = call.chosen()
     listed = chosen.manifest.harnesses
+    if name not in known and not (action == "remove" and name in listed):
+        raise UsageError(f"no adapter answers to the harness `{name}`.\n  Known harnesses: {', '.join(sorted(known))}.")
     if action == "add":
         if name in listed:
             note = Note(

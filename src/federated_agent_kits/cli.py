@@ -24,7 +24,7 @@ from importlib.metadata import version as installed_version
 from pathlib import Path
 from typing import Any, TextIO
 
-from federated_agent_kits import listing, render, subscribing
+from federated_agent_kits import doctor, listing, render, subscribing
 from federated_agent_kits.commands import COMMANDS, TOPICS, TOPICS_BY_NAME, Argument, Command
 from federated_agent_kits.exits import AkitError, Exit, NotImplementedYetError
 from federated_agent_kits.manifest import Kind
@@ -248,6 +248,8 @@ def dispatch(arguments: argparse.Namespace, out: TextIO) -> Exit:
         return listing.run(out, as_json=arguments.json)
     if arguments.command == "render":
         return render_command(arguments, out)
+    if arguments.command == "doctor":
+        return doctor.run(out, as_json=arguments.json)
     if arguments.command in WRITING:
         return writing_command(arguments, out)
     command = next(entry for entry in COMMANDS if entry.name == arguments.command)

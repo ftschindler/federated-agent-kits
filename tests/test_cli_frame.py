@@ -18,7 +18,7 @@ import pytest
 
 from federated_agent_kits import cli, commands
 from federated_agent_kits.cli import build_parser, dispatch, main, show_topic, version
-from federated_agent_kits.commands import COMMANDS, unimplemented
+from federated_agent_kits.commands import COMMANDS, Command, unimplemented
 from federated_agent_kits.exits import AkitError, Exit, NotImplementedYetError, RefusalError, UsageError
 
 pytestmark = pytest.mark.unit
@@ -176,13 +176,35 @@ class TestHelpTopics:
 class TestNotImplementedYet:
     """Every verb parses, and then says which task it is waiting for.
 
-    The list below is the whole of what T1 ships: a frame. T12 replaces the
-    expected value with an empty list, and until then any verb arriving or
-    leaving has to be a deliberate edit to this line.
+    The list was the whole of what T1 shipped: a frame. T9 emptied it, which is
+    the thing T1 said a test would have to notice, so any verb arriving or
+    leaving has to be a deliberate edit to the line below.
+
+    The frame keeps the branch anyway. A verb registered without its task is how
+    this project has added every one of them, and the next one - agents, in T13 -
+    gets the same treatment: it parses, it says which task it waits for, and it
+    exits 2 rather than pretending.
     """
 
-    def test_the_list_is_exactly_what_has_not_landed(self) -> None:
-        assert unimplemented() == ["doctor"]
+    def test_nothing_is_waiting_for_a_task_any_more(self) -> None:
+        assert unimplemented() == []
+
+    def test_a_verb_whose_task_has_not_landed_still_says_which_one(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        someday = Command(
+            name="someday",
+            summary="Do the thing a later task is about",
+            writes="Writes nothing at all, because it does not exist yet.",
+            examples=("akit someday",),
+            following="akit list",
+            task="T13",
+        )
+        monkeypatch.setattr(cli, "COMMANDS", (someday,))
+
+        with pytest.raises(NotImplementedYetError) as raised:
+            dispatch(argparse.Namespace(command="someday"), io.StringIO())
+
+        assert "T13" in str(raised.value)
+        assert raised.value.exit_code is Exit.USAGE
 
     def test_the_verbs_that_work_are_exactly_the_ones_whose_tasks_landed(self) -> None:
         assert [command.name for command in COMMANDS if command.implemented] == [
@@ -192,14 +214,6 @@ class TestNotImplementedYet:
             "harness",
             "render",
             "update",
+            "doctor",
             "help",
         ]
-
-    @pytest.mark.parametrize("name", unimplemented())
-    def test_each_one_names_its_task(self, name: str) -> None:
-        with pytest.raises(NotImplementedYetError) as raised:
-            dispatch(argparse.Namespace(command=name), io.StringIO())
-        message = str(raised.value)
-        assert name in message
-        assert "not implemented yet" in message
-        assert "T" in message
