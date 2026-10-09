@@ -8,7 +8,7 @@ name = "federated-agent-kits"
 # version disagrees with its tag the first time somebody forgets, and every
 # concurrent pull request touches this one line and conflicts on merge. What a
 # pull request carries instead is a label saying how big it is.
-version = "0.10.0"
+version = "0.10.1"
 description = "Subscribe to agent kits from wherever they live, and render them where each harness looks"
 readme = "README.md"
 requires-python = ">=3.11"
