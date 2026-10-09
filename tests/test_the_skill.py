@@ -300,7 +300,7 @@ def test_akit_installs_its_own_skill_into_a_fresh_home(fake_home: FakeHome) -> N
     skill = fake_home.root / ".agents" / "skills" / "akit" / "SKILL.md"
     assert skill.is_file(), added.stdout
     assert "name: akit" in read(skill)
-    assert (skill.parent / "references" / "activation-rule.md").is_file(), "the references did not travel with it"
+    assert (skill.parent / "references" / "getting-started.md").is_file(), "the references did not travel with it"
     assert (skill.parent / "VERSION").is_file(), "a copied skill with no VERSION cannot tell how old it is"
 
     listed = fake_home.run("list")
