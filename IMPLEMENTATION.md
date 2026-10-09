@@ -165,6 +165,27 @@ The journal entry is part of the work. A path that moved is the evidence
 [T14](#t14---iterate-on-what-use-earns) runs on, and the second time one moves is what decides
 whether this project is reading documentation often enough or needs a test that does it.
 
+**At least one test that drives a transition rather than a state.** A task's tests mostly
+build a setup and assert one thing about it. Every bug this project has actually had lived in
+the step between two setups, and [JOURNAL.md](JOURNAL.md) has the tally: `update` could not
+follow a tag, which took an `add` and then an `update`; a reorder reported no change, which
+took a render, a swap and a render; `--check` called a fresh render stale, which took a render
+and then a check; `as:` renamed the directory only, which took a render and then a question
+about what a harness reads; and `akit add --as` wrote a manifest the next `add` could not
+re-parse, which took two adds and a rename between them.
+
+So a task that adds a verb, a flag or a field also adds a sequence: perform it, change
+something, perform it again, and assert at every step rather than only at the end.
+`tests/test_scenarios.py` is where those live and the `cli` layer is where they belong, since
+what is being tested is a command's effect on the one before it.
+
+Two things this is not. It is not a wheel layer: three of the five above were found by hand
+with a built wheel, and what the wheel uniquely tests is packaging, which
+`tests/test_entry_point.py` and [T12](#t12---publish-10)'s `uvx` smoke already cover. And it
+is not a substitute for somebody using the thing with no test in mind, which is what found
+them. That cannot be automated, which is why it is written down here with everything else that
+has to be remembered.
+
 **Documentation that ships with the change.** `README.md` and the command's own help are part
 of the diff, never a follow-up.
 
@@ -426,10 +447,18 @@ state directory and a repository's in `.akit/` inside it.
 
 **Build.**
 
-- Copy skills into `.agents/skills/`, once, for every harness that reads it. Never translate,
-  never link. Both adapters [T4](#t4---adapters-detection-and-akit-list) ships write there,
-  so one copy really is one copy; the per-harness directories each of them also *reads* are a
-  separate list and discovery's business.
+- Copy skills into `.agents/skills/`, once, for every harness that reads it. Never link, and
+  translate nothing except the one key that says which skill this is. Both adapters
+  [T4](#t4---adapters-detection-and-akit-list) ships write there, so one copy really is one
+  copy; the per-harness directories each of them also *reads* are a separate list and
+  discovery's business.
+- **A renamed skill has its frontmatter `name` written over**, because that key rather than
+  the directory is what most harnesses treat as a skill's identity
+  ([§7](DESIGN.md#skills)). This landed after T5, as repair rather than as plan: shipping the
+  directory alone meant a rename either unloaded the skill or left the collision it was
+  invoked to prevent, and [JOURNAL.md](JOURNAL.md) has what that cost. A skill nobody renamed
+  is still copied byte for byte, so the ordinary render stays as literal as this bullet
+  originally promised.
 - One record per scope root: yours in the state directory, a repository's in `.akit/` beside
   its `.akit.yaml`. Each holds every file written under its own root, every subscription and
   harness that explains it, and a hash of the copy. Explained by a set, not by one
@@ -453,7 +482,8 @@ state directory and a repository's in `.akit/` inside it.
   repository, both by default, `--global` and `--project` to narrow. `--harness` and
   `--no-harness` narrow the expanded harness list, write nothing to a manifest, and delete
   nothing.
-- `as:` end to end: the kit lands under the new name and the record knows both names.
+- `as:` end to end: the kit lands under the new name, carries that name in its own
+  frontmatter, and the record knows both names.
 
 **Tests.** The idempotence test compares the whole tree after two renders, by hash, rather
 than by inspection. One test per row of the withdrawal table, including the edited-copy row,
@@ -533,6 +563,14 @@ describes a rule inside somebody else's file ([§6](DESIGN.md#what-a-render-leav
   narrower glob than `**` stays open and stays out of the renderer
   ([§12](DESIGN.md#12-still-open)).
 
+- **A rule this tool writes itself landed later, and uses these renderers unchanged.** The
+  `akit-renames` note ([§7](DESIGN.md#when-a-rename-breaks-a-reference)) is shaped like a rule
+  a source could have written, frontmatter and all, so it goes through `as_file` and
+  `as_block` exactly as a subscribed rule does. That is the property worth keeping when either
+  renderer is next touched: a second code path emitting the same markdown would be a second
+  place for the two shapes to drift. Its id is reserved, so a subscription cannot take it and
+  fight the note over one marker.
+
 **Tests.** A hand-authored paragraph between two marker blocks survives three renders, and so
 does a block somebody reordered by hand being put back. Two contradicting rules render into a shared file in
 manifest order, and swapping the manifest swaps the output; the same pair rendered for a
@@ -611,6 +649,14 @@ And that `update` follows the branch in the key or the source's default, never t
 [§6](DESIGN.md#6-the-manifest) forbids; the design is corrected in the same diff and
 [§12](DESIGN.md#12-still-open) now carries what it costs, which is that a subscription cannot
 stay on a tag. [JOURNAL.md](JOURNAL.md) has the three ways out.
+
+**One thing it got wrong, found later.** `add` wrote a `{name:, as:}` mapping that the next
+`add` to the same key could not re-parse: the mapping carried its key's comment into the list
+it was moved into and came back out as one line that is not YAML. It failed safe, rolling back
+rather than corrupting the file, which is why it survived into a release. The fix is in
+`editing._appended` and [JOURNAL.md](JOURNAL.md) has why the existing tests missed it, which
+is the reason "What every task delivers" now asks for a sequence: `--as` and the code that
+appends to an entry landed in this same task and were never tried against each other.
 
 **Leave alone.** The leak refusal, which is the next task and which `add` and `harness add`
 will both grow a call into.
@@ -890,6 +936,22 @@ whether it is per harness or per agent. Stop the render on a tool name with no m
 a skill or an MCP server an agent names and you have not subscribed to, as a warning, and
 install nothing ([§1](DESIGN.md#1-what-this-is), [§13](DESIGN.md#13-not-doing)).
 
+**An agent naming a renamed skill is the easy half of a problem that was hard for rules, and
+this task must not solve it the same way.** pi's agent frontmatter carries a `skills:` list
+and Copilot's carries `mcp-servers`, which are *declared* names rather than prose. So a
+rename rewrites them, the way [§7](DESIGN.md#skills) rewrites a skill's own `name`, and the
+`akit-renames` note is not the answer here: the note exists only because a rule's reference is
+a sentence nobody can parse ([§7](DESIGN.md#when-a-rename-breaks-a-reference)). The dividing
+line is declared data against prose, and agents are the first kind to sit on the near side of
+it in more than one field.
+
+**Which also decides the warning above.** "An agent names a skill you have not subscribed to"
+compares the name in the agent against the names in the manifest, and a renamed subscription
+makes those two differ for a kit you *do* have. Compared against the name as written, every
+rename is a false warning; compared against the rendered name, an agent naming the original is
+missed. It has to be the rendered name, with the rewrite above applied first, so that the
+agent on disk and the check are reading the same word.
+
 **Tests.** One source file renders to opencode and Copilot with the right keys and the body
 byte-identical. An unmappable tool name fails the render, names both spellings, and leaves no
 file behind: the tempting bug is to drop it and carry on, so the test asserts the failure. A
@@ -930,6 +992,13 @@ construction: no completion date, and its first output is evidence rather than c
   has not changed needs rewriting, and whether reading a harness's documentation should be a
   test rather than a habit. The second has three incidents behind it already and wants
   deciding rather than more evidence.
+- **See whether the rename note fires when nobody wanted it.** It is written when a rule from
+  the same source names a renamed kit as a whole word, backticked or bare
+  ([§7](DESIGN.md#when-a-rename-breaks-a-reference)). Bare was the deliberate choice: a false
+  positive costs one sentence that is true anyway and a false negative leaves the stale
+  reference. What would change it is a kit whose name is a common enough word that the note
+  appears beside rules with nothing to do with it, which the same ten rules above would show.
+  Nothing to decide before then, and the note is absent entirely from a setup with no renames.
 - Revisit MCP servers only on evidence ([§13](DESIGN.md#13-not-doing)). The entry that would
   move them is an agent that is useless without one, more than once.
 
