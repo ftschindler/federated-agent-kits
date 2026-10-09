@@ -33,6 +33,30 @@ already. Where `uv --version` fails,
 [references/install-requirements.md](references/install-requirements.md) says
 what to offer; it is never installed without being asked for.
 
+**Everything below writes `akit <command>` and means
+`uvx --from federated-agent-kits akit <command>`.** The short form works only
+where somebody has run `uv tool install federated-agent-kits`, which most people
+have not. So check once, at the start of a session:
+
+```sh
+akit --version
+```
+
+Where that fails, put `uvx --from federated-agent-kits` in front of every `akit`
+in this skill and its references. Where it answers, compare what it said with
+the `VERSION` file beside this skill, which is the release these instructions
+were written for:
+
+- **The same, or a patch or minor apart.** Use the short form.
+- **The installed one is older by a major.** It is a different generation from
+  these instructions, and the gap is silent: the command runs and means
+  something else. Say so, use the long form for this session, which always
+  resolves the published release, and offer
+  `uv tool upgrade federated-agent-kits` as the fix.
+- **The installed one is newer by a major.** This copy of the skill is the stale
+  half. Say so, carry on with the short form, and run `akit update` afterwards,
+  which brings the skill and its rule up to the release the tool came from.
+
 **Every command explains itself, so read its help rather than guessing.** `akit
 <command> --help` says what the command writes and what it never writes, with a
 worked example. `akit help manifest`, `akit help sources`, `akit help harnesses`

@@ -99,6 +99,24 @@ STARTED = EVERYTHING[REFERENCES / "getting-started.md"]
 REQUIREMENTS = EVERYTHING[REFERENCES / "install-requirements.md"]
 
 
+def typed_lines(text: str) -> list[str]:
+    """Only what is inside a fenced block: the lines somebody is told to run.
+
+    A code span in a sentence names a command; a fenced line is the command. The
+    two are held to different standards, because the short form reads better in
+    prose and only the full one is safe to type.
+    """
+    lines: list[str] = []
+    in_fence = False
+    for line in text.splitlines():
+        if FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence and line.strip():
+            lines.append(line.strip())
+    return lines
+
+
 def invocations(text: str) -> list[re.Match[str]]:
     _, code = prose_and_code(text)
     return [found for line in code for found in INVOCATION.finditer(line)]
@@ -176,6 +194,51 @@ class TestEveryCommandItNamesExists:
             if found.group("command") == "help"
         }
         assert set(commands.TOPICS_BY_NAME) <= named
+
+
+@pytest.mark.unit
+class TestItSaysHowToActuallyTypeACommand:
+    """The body writes `akit list` and the machine usually has no `akit` on PATH.
+
+    One worked `uvx` line at the top and short forms everywhere after it reads
+    fine to a person and leaves an agent one "command not found" from concluding
+    the whole setup is broken. So the shorthand is declared, and the check that
+    decides which form to use is a command rather than an assumption.
+    """
+
+    def test_it_declares_the_shorthand(self) -> None:
+        assert "uvx --from federated-agent-kits akit <command>" in SKILL_TEXT
+
+    def test_it_says_how_to_find_out_which_form_this_machine_wants(self) -> None:
+        assert "akit --version" in typed_lines(SKILL_TEXT)
+
+    def test_it_compares_the_two_versions_rather_than_trusting_either(self) -> None:
+        """An `akit` on PATH can be older than the skill, and the gap is silent.
+
+        `uvx` resolves the published release every time; a tool somebody
+        installed once stays where it was. Both answer `--version`, so "the
+        command exists" is not the question worth asking.
+        """
+        assert "VERSION" in SKILL_TEXT
+        assert "uv tool upgrade federated-agent-kits" in SKILL_TEXT
+        assert "akit update" in SKILL_TEXT
+
+    def test_the_references_spell_every_command_out_in_full(self) -> None:
+        """A reference is read on its own, so a line to type cannot rely on a note elsewhere.
+
+        Code spans are left alone: `akit list` inside a sentence is a name, and
+        writing the whole invocation there would make every sentence unreadable
+        to buy nothing. What somebody copies is what is fenced.
+        """
+        for path, text in EVERYTHING.items():
+            if path == SKILL:
+                continue
+            for line in typed_lines(text):
+                if "akit" not in line:
+                    continue
+                assert line.startswith("uvx --from federated-agent-kits akit"), (
+                    f"{path.name} offers a command nothing may have on PATH: {line}"
+                )
 
 
 @pytest.mark.unit

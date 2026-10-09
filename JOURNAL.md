@@ -1571,3 +1571,28 @@ So every attempt now passes `--refresh-package federated-agent-kits`, which is t
 of the cache that has to be ignored, and the budget goes from ten six-second waits to twelve
 ten-second ones. The first change is the fix; the second is the admission that an index
 occasionally takes longer than a minute.
+
+## 2026-10-09 - `akit` in the skill's prose is not a command anybody has
+
+The skill shows one worked `uvx --from federated-agent-kits akit list` at the top and then
+writes `akit list`, `akit doctor`, `akit add` for the rest of the page, which reads well and
+leaves an agent one "command not found" away from reporting that the whole setup is broken.
+Nothing in the page said the short form is shorthand.
+
+It says so now, and the choice between the two forms is a command rather than an assumption:
+run `akit --version`, and where it fails put `uvx --from federated-agent-kits` in front of
+every `akit` in the skill and its references.
+
+**Then the second half of the same question: an `akit` on PATH can answer and still be the
+wrong one.** `uvx` resolves the published release on every run; a tool somebody installed
+once stays where it was, and both answer `--version`. So the check compares what it said
+with the `VERSION` file beside the skill, which is the release the instructions were written
+for. A major apart in either direction is a silent disagreement with a named fix:
+`uv tool upgrade federated-agent-kits` when the tool is behind, `akit update` when the skill
+is.
+
+**And a test that knows what a line somebody types is.** The lint now separates fenced lines
+from code spans: a fenced command in a reference has to carry the full invocation, because a
+reference is read on its own, while `akit list` inside a sentence stays short. The first
+version of that test made no distinction and failed on a sentence, which was the test being
+wrong rather than the prose.
