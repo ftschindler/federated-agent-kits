@@ -44,8 +44,8 @@ akit --version
 
 Where that fails, put `uvx --from federated-agent-kits` in front of every `akit`
 in this skill and its references. Where it answers, compare what it said with
-the `VERSION` file beside this skill, which is the release these instructions
-were written for:
+the [VERSION](VERSION) file beside this skill, which is the release these
+instructions were written for:
 
 - **The same, or a patch or minor apart.** Use the short form.
 - **The installed one is older by a major.** It is a different generation from
@@ -70,7 +70,7 @@ both of which somebody asked for. Two things are asked about first: a change to
 what a repository commits, which is the harness with no machine below, and
 installing `uv`, which is the reference above.
 
-Three situations come up, and nothing here covers a fourth.
+Three situations usually come up, and this skill only covers these three.
 
 ## Nothing is set up
 
@@ -101,8 +101,8 @@ found something. Carry out the command it names rather than editing a rendered
 file: a copy you edit by hand is one `akit` refuses to touch again, which is a
 finding of its own.
 
-Two flags decide where a change lands, and getting them wrong is the common
-mistake. `--global` means this person, on this machine. `--project` means this
+Two flags decide where a change lands, and getting them right matters.
+`--global` means this person, on this machine. `--project` means this
 repository, for everybody who clones it, and is the default. Ask which one they
 meant when the request does not say.
 
@@ -117,10 +117,10 @@ it runs. Run `akit render` once afterwards, then `akit doctor`, and carry out
 whatever it names. A version that wants more than that says so in its own
 release notes.
 
-The copy of this skill on disk carries a `VERSION` file beside it, which is the
-only way it can tell how old it is. If it disagrees with `akit --version` by more
-than a patch, and `akit list` does not show this kit as subscribed, take the
-subscription out now: it is the last step of
+The copy of this skill on disk carries a [VERSION](VERSION) file beside it,
+which is the only way it can tell how old it is. If it disagrees with
+`akit --version` by more than a patch, and `akit list` does not show this kit as
+subscribed, take the subscription out now: it is the last step of
 [references/getting-started.md](references/getting-started.md), and from then on
 `akit update` keeps both the skill and its rule current.
 
