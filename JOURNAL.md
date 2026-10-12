@@ -1468,3 +1468,131 @@ a throwaway repository: `akit list` named it and said it reads rules in manifest
 `akit doctor` reported "kits are rendered for pi, and this machine shows no sign of it being
 installed" with the command that fixes it. Two edited lines and one new file, with nothing
 else touched, which is the claim. The copy was then deleted: the shipped set is still three.
+
+## 2026-10-09 - The agent layer tested whatever shipped last, until the wheel outranked it
+
+[T11](IMPLEMENTATION.md#t11---the-skill-and-the-rule) ships a skill whose first instruction
+is `uvx --from federated-agent-kits akit list`. That sentence is the thing under test, so a
+cold session has to type it literally, and typed literally it resolves against PyPI: the
+three cold sessions would have been driving the last release while the branch beside them
+changed nothing they could see.
+
+Three ways out were available and two of them are worse. Rewriting the skill to say `akit`
+tests a sentence the skill does not contain. `UV_NO_INDEX` with a directory of local wheels
+blocks the dependencies as well, so nothing installs at all. What works is pointing the
+agent's `uv` at a directory of wheels and giving the local build a version nothing will ever
+publish:
+
+```text
+akit 99.0.0
+```
+
+`tests/disposable_agent.py` copies `pyproject.toml`, `src/`, `README.md` and `LICENSE` into a
+staging directory, rewrites the version line to `99.0.0`, builds a wheel from the copy, and
+sets `UV_FIND_LINKS` in the agent's environment. The copy is not tidiness: building in place
+would rewrite a version line in a file the developer is probably looking at, and a failing
+test would leave it rewritten.
+
+**The environment needed three more variables than the port carried.** uv keeps its cache and
+its installed tools outside `XDG_*` on some platforms, so an agent told to install `akit`
+wrote into the developer's real uv cache from inside a home that was supposed to be
+disposable. `UV_CACHE_DIR`, `UV_TOOL_DIR` and `UV_TOOL_BIN_DIR` now point inside the agent,
+and the whole `UV_` namespace is dropped from the inherited environment for the same reason
+the `OPENCODE_` one already was.
+
+**The second cold session failed on the test's assumption, not on the skill.** It globbed for
+`.akit.yaml` under the agent's home to check that a personal subscription went into the
+personal manifest. The personal manifest is `manifest.yaml` in the config directory, which is
+what `akit help manifest` says and what the agent had correctly written. The transcript was
+right, the files were right, and the assertion was looking for a filename this project does
+not use at that scope.
+
+**And the Windows runner printed the command instead of running it.** The same
+session passed on ubuntu and failed on windows-latest with a transcript that is
+not wrong, just inert:
+
+```text
+Run:
+uvx --from federated-agent-kits akit add --global "C:\...\source\kits" house-style
+```
+
+The skill said which command to use and never said to use it, which left the
+choice to the model and the model chose differently on two runners.
+`skills/akit/SKILL.md` now says to run the command rather than print it, with
+the one exception that has to be said out loud first: a change to what a
+repository commits.
+
+## 2026-10-09 - The skill was about to install a rule nothing could remove
+
+[T11](IMPLEMENTATION.md#t11---the-skill-and-the-rule) asked for the five-line activation rule
+as "text the skill offers to place", with the agent asking its own harness where user-level
+instructions live. Written that way and reviewed before merging, it is the failure this
+project exists to prevent, performed by the project's own skill.
+
+A placed copy is a file `akit` did not write, so it is in no render record. The subscription
+somebody takes out a week later renders the managed rule beside it, under the same name, and
+nothing can see the first one to withdraw it. Two copies of one rule, one of them permanent.
+
+So getting started ends with the subscription instead, taken out every time and without
+asking:
+
+```sh
+uvx --from federated-agent-kits akit add --global ftschindler/federated-agent-kits akit
+```
+
+Reading the skill is the consent. Somebody whose agent opened it wanted it, the skill and the
+rule carry one name and are therefore one kit, and the managed copy lands over the
+hand-placed one where that is the same path. `skills/akit/references/activation-rule.md` is
+gone, and the test that kept its quoted text in step with `rules/akit.md` is replaced by one
+asserting the skill carries no such text at all.
+
+**The uv question that arrived in the same review belongs on the other side of the line.**
+A skill may not install software nobody asked for, so `uv` is named, checked with
+`uv --version`, and offered two ways out - the platform's package manager, or Astral's
+install script - with neither run until somebody says so. Subscribing to a kit and putting a
+tool on a machine are different acts, and the skill now treats them differently.
+
+## 2026-10-09 - The rehearsal asked a cache eleven times
+
+The rehearsal upload was accepted, `200 OK`, and `verify-published.py` then failed ten
+attempts in a row inside one minute:
+
+```text
+error: No solution found when resolving tool dependencies
+  cause: Because there is no version of federated-agent-kits==0.11.0.dev37926476582 ...
+```
+
+Ten identical failures in 54 seconds, with no sign of progress, is not what a slow index
+looks like. uv caches an index's answer, and "this version is not here" is an answer. The
+first attempt fetched the simple page before TestPyPI had published the file, and the nine
+after it read that page back out of the cache.
+
+So every attempt now passes `--refresh-package federated-agent-kits`, which is the only part
+of the cache that has to be ignored, and the budget goes from ten six-second waits to twelve
+ten-second ones. The first change is the fix; the second is the admission that an index
+occasionally takes longer than a minute.
+
+## 2026-10-09 - `akit` in the skill's prose is not a command anybody has
+
+The skill shows one worked `uvx --from federated-agent-kits akit list` at the top and then
+writes `akit list`, `akit doctor`, `akit add` for the rest of the page, which reads well and
+leaves an agent one "command not found" away from reporting that the whole setup is broken.
+Nothing in the page said the short form is shorthand.
+
+It says so now, and the choice between the two forms is a command rather than an assumption:
+run `akit --version`, and where it fails put `uvx --from federated-agent-kits` in front of
+every `akit` in the skill and its references.
+
+**Then the second half of the same question: an `akit` on PATH can answer and still be the
+wrong one.** `uvx` resolves the published release on every run; a tool somebody installed
+once stays where it was, and both answer `--version`. So the check compares what it said
+with the `VERSION` file beside the skill, which is the release the instructions were written
+for. A major apart in either direction is a silent disagreement with a named fix:
+`uv tool upgrade federated-agent-kits` when the tool is behind, `akit update` when the skill
+is.
+
+**And a test that knows what a line somebody types is.** The lint now separates fenced lines
+from code spans: a fenced command in a reference has to carry the full invocation, because a
+reference is read on its own, while `akit list` inside a sentence stays short. The first
+version of that test made no distinction and failed on a sentence, which was the test being
+wrong rather than the prose.

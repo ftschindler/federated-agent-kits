@@ -46,7 +46,7 @@ builds a part of it or keeps it releasable.
 - [x] **[T8](#t8---the-machineless-harness-and-the-leak-refusal)** - The machineless harness, and the leak refusal
 - [x] **[T9](#t9---doctor)** - `doctor`
 - [x] **[T10](#t10---adding-an-adapter-documented)** - Adding an adapter, documented
-- [ ] **[T11](#t11---the-skill-and-the-rule)** - The skill, and the rule
+- [x] **[T11](#t11---the-skill-and-the-rule)** - The skill, and the rule
 - [ ] **[T12](#t12---publish-10)** - Publish 1.0
 - [ ] **[T13](#t13---agents)** - Agents, *after 1.0*
 - [ ] **[T14](#t14---iterate-on-what-use-earns)** - Iterate on what use earns, *open-ended*
@@ -902,8 +902,12 @@ keep the layers apart ([§11](DESIGN.md#11-the-skill)).
   gets spent: if the skill needs to explain a command, the command's help is wrong and the fix
   goes there.
 - A skill never tells the model to open another skill.
-- The activation rule is text the skill offers to place, asking the agent where its own
-  harness keeps user-level instructions rather than carrying a list of paths.
+- The activation rule arrives as a subscription rather than as text to place. This bullet
+  asked for the second, and the second is a copy `akit` did not write: the subscription
+  somebody takes out later renders a rule beside it, under one name, and nothing can see the
+  hand-placed one. So getting started ends by subscribing to this repository's own `akit`
+  kit, which is the skill and the rule together, unconditionally - reading the skill is the
+  consent. [DESIGN.md](DESIGN.md#it-bootstraps-itself-once) is corrected in the same diff.
 - `VERSION` is written by the release job from the same number as the package, since a skill
   copied into a directory cannot tell how old it is any other way.
 - The skill is subscribable from this repository, so the hand-placed first copy becomes a
@@ -919,6 +923,13 @@ CLI, which is a test over `--help` rather than a grep.
 
 **Done when.** Three cold-session tests pass on both operating systems, and the skill is
 installed into a fresh home by `akit` itself.
+
+**The agent layer had to outrank PyPI, which the plan did not say.** The skill's first
+instruction is `uvx --from federated-agent-kits akit list`, and a cold session that types it
+installs the last release rather than the branch. So the layer builds this working tree as a
+wheel carrying a version nothing will ever publish and points the agent's `uv` at it, which
+leaves the index reachable for the dependencies and makes the local build the only answer for
+this one. [JOURNAL.md](JOURNAL.md) has the two alternatives and why both are worse.
 
 **Settles.** Nothing. The CLI living outside the skill was settled in
 [§9](DESIGN.md#how-it-ships), and this task is where that pays off.

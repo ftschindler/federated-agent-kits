@@ -190,6 +190,25 @@ class TestTheVersionLine:
     def test_this_repository_declares_one(self) -> None:
         assert version.read_version(version.PYPROJECT.read_text(encoding="utf-8"))
 
+    def test_the_skill_carries_the_same_number(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Written by the same command, so the two cannot be bumped separately.
+
+        A copied skill keeps no link to the package it describes, which is what
+        the file beside it is for. Two writers would be two chances to forget.
+        """
+        beside_the_skill = tmp_path / "skills" / "akit" / "VERSION"
+        beside_the_skill.parent.mkdir(parents=True)
+        beside_the_skill.write_text("0.1.0\n", encoding="utf-8")
+        monkeypatch.setattr(version, "SKILL_VERSION", beside_the_skill)
+
+        version.write_skill_version("0.2.0")
+
+        assert beside_the_skill.read_text(encoding="utf-8") == "0.2.0\n"
+
+    def test_the_two_agree_in_this_working_tree(self) -> None:
+        declared = version.read_version(version.PYPROJECT.read_text(encoding="utf-8"))
+        assert version.SKILL_VERSION.read_text(encoding="utf-8").strip() == declared
+
 
 class TestTheVersionGuard:
     """A rewrite is refused; the line arriving for the first time is not.
