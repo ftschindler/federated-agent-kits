@@ -1,65 +1,191 @@
 # federated-agent-kits
 
-A **kit** is a composition of three kinds of thing: **skills** your agent can open, **rules**
-that go into every prompt, and **agent definitions** with their own model and tools. A kit may
-be one skill, or a skill with the rule that makes a model reach for it, or an agent with
-everything it leans on. What makes them one kit is that you want them together.
+Subscribe to agent kits from wherever they live, and render them where each harness looks.
 
-Kits accumulate in different places. Some you would publish, some belong to your employer,
-some never leave your laptop. Meanwhile each harness wants them in its own directory, under
-its own filename.
+You write a style guide, a debugging workflow, a rule your agents should always have. It
+belongs in one place. But opencode wants it in `AGENTS.md`, GitHub Copilot wants one file per
+rule under `.github/instructions/`, and the next harness will want something else again. So
+the same instruction gets pasted into four files, and three of them go stale.
 
-This subscribes you to the kits you want, from wherever they live, and writes them where each
-harness looks.
+`akit` keeps one line in a manifest instead. It fetches the kit from the git repository it
+lives in, pins the commit, and writes the files each harness reads.
 
-**Status: it subscribes, it renders skills and rules into three harnesses, it refuses to
-leak, it tells you what is wrong, and it ships the skill that drives it.** [DESIGN.md](DESIGN.md) is the source of truth for what
-gets built, [IMPLEMENTATION.md](IMPLEMENTATION.md) for the order it gets built in. Every verb
-works today: `akit add`, `akit remove`, `akit update`, `akit harness`, `akit list`,
-`akit render` and `akit doctor`,
-against both manifests, every source form and the opencode, GitHub Copilot in VS Code and
-GitHub Copilot in CI adapters. A render copies the skills you
-subscribed to into the directory every harness reads, writes each rule you subscribed to in
-whichever shape its harness wants, maintains the `.gitignore` block, and deletes a rendered
-copy only while its bytes are still the ones it wrote. Agents are the one kind still waiting,
-in T13, so a subscription to one says which task it is waiting for.
+```sh
+uvx --from federated-agent-kits akit list
+```
 
-**`akit doctor` is what you run when something is already wrong.** It reads the manifests,
-the records and the files on disk, changes nothing, and names a command for every finding: two
-kits rendering to one name, a copy you edited by hand, a render nothing subscribes to any
-more, a source missing from the cache, a harness installed here that your manifest leaves
-out, a `.gitignore` block that has drifted. It exits non-zero when it found something, and
-`--json` carries the findings as data.
+That writes nothing, fetches nothing, and needs no install beyond
+[uv](https://docs.astral.sh/uv/). It says which harnesses are on this machine, what you
+subscribe to, and where each part landed.
+
+**Alpha.** Everything below works today, on Linux and Windows, both running the full suite in
+CI. Agent definitions are the one kind still being built, so a subscription to one says which
+task it is waiting for. Expect the shape to hold and the edges to move.
+
+## Install
+
+There is nothing to install. `uvx` fetches the package on first use and keeps it in a cache:
+
+```sh
+uvx --from federated-agent-kits akit --help
+```
+
+**The `--from` is not decoration.** The distribution is `federated-agent-kits` and the command
+inside it is `akit`. `uvx` reads its first argument as a distribution, so naming only the
+command asks PyPI for a project called `akit`, which belongs to somebody else.
+
+If you run this daily and would rather type four words fewer, `uv tool install
+federated-agent-kits` puts `akit` on your `PATH` for good.
+
+`uv` is the one thing that has to be on the machine already, and `akit` will not install it
+for you. Subscribing to a kit and putting a tool on somebody's machine are different acts.
+
+## Your first kit
+
+This repository is a source like any other, and the kit it holds is called `akit`: a skill
+that teaches an agent to drive these commands, and the rule that makes a model reach for it.
+
+```sh
+uvx --from federated-agent-kits akit add --global ftschindler/federated-agent-kits akit
+uvx --from federated-agent-kits akit list
+```
+
+The first line resolves the source, checks the kit is really there, writes one line into your
+own manifest, and renders. The second says where both parts landed. To undo all of it:
+
+```sh
+uvx --from federated-agent-kits akit remove --global akit
+```
+
+That deletes the copies it wrote and leaves anything you wrote yourself alone.
+
+From there, any git repository with a `skills/`, `rules/` or `agents/` directory is a source.
+It needs no manifest, no registration and no permission, and it never learns that you
+subscribed:
+
+```sh
+uvx --from federated-agent-kits akit add ftschindler/federated-knowledge-skills fkb
+```
+
+A typo fails before the manifest is touched, listing what the source does hold, so a failure
+here is a spelling to correct rather than a mess to clean up.
+
+## What a kit is
+
+**A kit is the parts you want together under one name.** A part is a skill your agent can
+open, a rule that goes into every prompt, or an agent definition with its own model and tools.
+A kit may be a single skill, or a skill with the rule that makes a model reach for it, or an
+agent with everything it leans on.
+
+So `akit add owner/repo writing` takes the skill called `writing` and the rule called
+`writing` when the source has both, because a skill with the rule that triggers it is the
+thing you wanted. `--kind skill` narrows it, and `akit remove writing` drops whatever that
+name brought in.
+
+**Two sources shipping a kit under one name is what `--as` is for.** Subscribing with `--as
+upstream-kb` installs it under that name, and the name goes into the copied `SKILL.md` as well
+as onto its directory, because that header rather than the directory is what most harnesses
+treat as the skill's identity.
+
+## The two scopes
+
+Subscriptions live in two files with one format, and both can be in use on a machine at once.
+
+| Scope | Flag | Where it lives | True for |
+| --- | --- | --- | --- |
+| Yours | `--global` | your platform's config directory | you, in every repository you open on this machine |
+| This repository's | `--project`, the default | `.akit.yaml` beside the `.git` | everybody who clones it |
+
+Neither overrules the other, because each renders into its own scope and the two never write
+to the same place. A name used in both is two copies in two directories, which `akit list` and
+`akit doctor` report rather than picking a winner between.
+
+A committed `.akit.yaml` is what turns a fresh clone into a working setup in one line, in a
+contributing guide or in a pre-commit hook:
+
+```sh
+uvx --from federated-agent-kits akit render
+```
+
+**That line needs nothing installed and no warm cache.** `akit render` reads a source this
+machine already holds and clones one it has never seen, at the commit the manifest names. It
+moves no pin and writes no manifest, so a colleague gets what the repository committed rather
+than whatever `main` holds this afternoon. Once a source is cached it needs no network at all.
+
+## The commands
+
+```text
+akit add <source> <name>   subscribe to one kit, and render it
+akit remove <name>         drop one subscription, and delete what it rendered
+akit update                fetch, move the pins, and show the diff
+akit harness add <name>    start rendering for a harness by name
+akit list                  what you subscribed to, and where it landed
+akit render                make the files on disk match the manifests
+akit render --check        write nothing, fail if what you commit is stale
+akit doctor                what is wrong, and which command fixes it
+```
+
+**You never type a commit hash.** `akit add owner/repo#v2 writing` resolves the tag or branch
+you named, writes the commit it resolved to, and leaves the name you asked for in a comment
+beside it. `akit update` moves both and prints the diff of every part you subscribe to, so a
+change to a rule your agents read arrives as something you saw rather than as something that
+happened. A part that disappeared upstream stops that key and names the ways out, rather than
+guessing between a deletion and a rename.
+
+**`akit doctor` is what you run when something is already wrong.** It reads the manifests, the
+render records and the files on disk, changes nothing, and names a command for every finding:
+two kits rendering to one name, a copy you edited by hand, a render nothing subscribes to any
+more, a source missing from the cache, a harness installed here that your manifest leaves out,
+a `.gitignore` block that has drifted. It exits non-zero when it found something, and `--json`
+carries the findings as data.
+
+**Every command explains itself.** `akit <command> --help` says what the command writes and
+what it never writes, with a worked example. `akit help manifest`, `akit help sources`, `akit
+help harnesses` and `akit help privacy` cover the four things that are not commands. `--json`
+works on all of them, which is usually what you want when a model is reading.
+
+## The harnesses
+
+opencode, GitHub Copilot in VS Code and GitHub Copilot in CI ship today. The first two are
+detected by evidence on this disk, never by what a repository contains.
 
 **One rule reaches three differently shaped harnesses.** Copilot reads a directory, so it gets
 one file per rule, with the `applyTo` frontmatter without which it would never read them.
-opencode reads one `AGENTS.md` that you write in too, so each rule goes between markers
-inside it and everything you wrote around them survives every render. Unsubscribing takes the
-block out and leaves the file. `akit list` says which harnesses read rules in the order your
-manifest lists them and which promise no order at all.
+opencode reads one `AGENTS.md` that you write in too, so each rule goes between markers inside
+it, and everything you wrote around them survives every render. Unsubscribing takes the block
+out and leaves the file.
+
+The two shapes differ in one way worth knowing about. A harness that reads one file reads the
+rules in the order your manifest lists them, and a harness that reads a directory promises no
+order at all, so two rules that contradict are a coin toss there. `akit list` says which of
+the two each harness is, so nobody has to find out from behaviour.
+
+**A new harness is one file.** An adapter answers seven questions about where that harness
+keeps things and how to tell it is installed, and nothing else in the system changes. A test
+enforces that rather than this paragraph asserting it: nothing outside an adapter may import
+one or branch on a harness name.
 
 ## The harness that commits
 
-GitHub Copilot in CI runs on GitHub's infrastructure. It clones your repository and reads
-what is there, which means **nothing you do not commit exists as far as it is concerned**. So
-it cannot be detected and arrives only by being named:
+GitHub Copilot in CI runs on GitHub's infrastructure. It clones your repository and reads what
+is there, which means **nothing you do not commit exists as far as it is concerned**. So it
+cannot be detected, and arrives only by being named:
 
 ```sh
-akit harness add copilot-ci
+uvx --from federated-agent-kits akit harness add copilot-ci
 ```
 
 That one line changes what gets committed. The directories it reads leave the `.gitignore`
-block, computed rather than maintained, so the skills every other harness was reading
-privately go into the repository's history. That is the intended behaviour: a directory with
-two readers is committed if either of them commits, because git cannot ignore a directory
-halfway.
+block, so the skills every other harness was reading privately go into the repository's
+history. That is the intended behaviour: a directory with two readers is committed if either
+of them commits, because git cannot ignore a directory halfway.
 
 Two things follow, and both ship with it.
 
 **A private kit cannot reach a public repository.** A source that needed credentials to clone
 is private, and a repository whose remote resolves anonymously is public. A private source's
-parts rendering into a public repository fails hard, naming the source and the target, with
-no override and no `--force`. Private into private is the ordinary employer setup and renders
+parts rendering into a public repository fails hard, naming the source and the target, with no
+override and no `--force`. Private into private is the ordinary employer setup and renders
 without a question being asked. Your repository is classified only when a private source is
 about to be committed into it, so an ordinary render still needs no network.
 
@@ -68,7 +194,7 @@ when what the repository commits no longer matches its manifest. It is one hook 
 
 ```yaml
 - repo: https://github.com/ftschindler/federated-agent-kits
-  rev: v0.7.0
+  rev: v0.12.0
   hooks:
   - id: akit-render-check
 ```
@@ -86,136 +212,43 @@ which repository it sits in. There is no field to get wrong, and a kit that may 
 published cannot be rendered into a public repository.
 
 **Take other people's kits without copying them by hand.** A subscription names a source and
-an item. An update arrives as a diff you read, not as something that changed under you.
+an item, and an update arrives as a diff you read.
 
 **Stop writing the same instructions into four files.** One rule, written once, reaches every
 harness you use, in whichever shape each of them wants it.
 
-Use something else if you want a registry, a marketplace, or a runtime. This writes files and
+Use something else if you want a registry, a marketplace or a runtime. This writes files and
 gets out of the way.
-
-## How it works
-
-```text
-akit add owner/repo writing      # this repository's manifest; --global for yours
-akit list            # what you subscribed to, where it is, and where it would land
-akit update          # fetch, move the pins, and show what moved
-akit render          # safe to run from a git hook
-akit render --check  # write nothing, fail if what you commit is out of date
-akit doctor          # name collisions, stale renders, refusals
-```
-
-**You never type a commit hash.** `akit add owner/repo#v2 writing` resolves the tag or branch
-you named, writes the commit it resolved to, and leaves the name you asked for in the comment
-beside it. `akit update` moves both and prints the diff of every part you subscribe to, so a
-change to a rule your agents read arrives as something you saw rather than something that
-happened. A part that disappeared upstream stops that key and names the three ways out
-instead of guessing between a deletion and a rename.
-
-**A name is a kit, not a file.** `akit add owner/repo writing` takes the skill called
-`writing` and the rule called `writing` if the source has both, because a skill with the rule
-that makes a model reach for it is the thing you wanted. `--kind skill` narrows it, and
-`akit remove writing` drops whatever that name brought in.
-
-**Two sources shipping a kit with the same name is what `as:` is for.** Subscribing with
-`as: upstream-kb` installs it under that name, and the name goes into the copied `SKILL.md`
-as well as onto its directory, because that header rather than the directory is what most
-harnesses treat as the skill's identity. Renaming one and not the other produces a skill
-Copilot declines to load and a collision opencode still has.
-
-A rename leaves one loose end, and it gets written down rather than papered over. A rule from
-the same source still names the kit the way its author wrote it, and that reference is prose.
-One line of a real rule carries both readings:
-
-> **Load the `writing` skill** when writing anything longer than a reply
-
-The first is a reference and the second is a verb, so nothing may rewrite it. Instead, where
-a rule does name a renamed kit, a short `akit-renames` rule is rendered beside it saying which
-name the kit is installed under. No rename, or no rule mentioning one, and nothing is written
-at all.
-
-Every command explains itself, because the agent-facing skill is deliberately thin: it says
-run `akit list` and never describes the output. So `akit <command> --help` is the
-documentation, and `akit help manifest`, `akit help sources`, `akit help harnesses` and
-`akit help privacy` cover the four things that are not commands.
-
-## The skill it ships
-
-An agent asked to "set up my kits" has nowhere to look, so this repository is a source like
-any other and the kit it holds is called `akit`: the skill under `skills/akit/`, and the
-five-line rule beside it in `rules/` that tells a model when to open it.
-
-```sh
-uvx --from federated-agent-kits akit add --global ftschindler/federated-agent-kits akit
-```
-
-The skill covers three situations and no more: nothing is set up, something needs doing, a
-new release is out. It names commands and never describes their output, so there is one
-description of what `akit list` prints rather than two that can disagree. A copy carries a
-`VERSION` file, written by the release job from the same number as the package, because a
-skill copied into a skills directory cannot tell how old it is any other way.
-
-The first copy is placed by hand, or by whatever skill installer you already use, and the
-skill runs the command above itself the first time it is asked to set anything up: the rule
-is subscribed to rather than pasted in, because a pasted copy is one no render record knows
-about and no later subscription can replace. A test drives a real agent through all three
-situations on both operating systems, which is how an instruction that only parses in one
-shell gets caught.
-
-It will not install `uv` for you. Where `uv --version` fails the skill says so and offers
-the platform's package manager or Astral's install script, and runs neither until you pick
-one. Subscribing to a kit and putting a tool on somebody's machine are different acts.
-
-```sh
-uvx --from federated-agent-kits akit --help
-```
-
-**The `--from` is not decoration.** The distribution is `federated-agent-kits` and the command
-it installs is `akit`, and `uvx` reads its first argument as a distribution rather than as a
-command. Naming only the command therefore asks the index for a project called `akit`, which
-belongs to somebody else. `--from` names the distribution and `akit` names the command inside
-it. If you run this daily and would rather type four words fewer, `uv tool install
-federated-agent-kits` puts `akit` on your `PATH` for good.
-
-A source is an ordinary git repository with `skills/`, `rules/` or `agents/` in it. It needs
-no manifest and no registration, and it never learns that you subscribed.
-
-Your subscriptions live in two files with one format. A personal one says what is true of
-you. A committed one in a repository says what that repository expects, so a colleague clones
-it and runs one command:
-
-```text
-uvx --from federated-agent-kits akit render
-```
-
-**Nothing to install first.** `federated-agent-kits` ships on PyPI, so the step between a
-fresh clone and a working set of kits is that one line, in a contributing guide or in a
-pre-commit hook.
-
-**A clone with an empty cache fetches what it has to.** `akit render` reads a source the
-cache already holds and clones one it has never seen, at the commit the manifest names. It
-moves no pin and writes no manifest, so what a colleague gets is what the repository
-committed rather than whatever `main` holds this afternoon. Once a source is cached the
-command needs no network at all.
 
 ## What it promises
 
-**Windows and Linux are equally supported.** Both are tested in CI, and neither is the afterthought.
-
-**Python only**, shipped as a package you run with `uvx`. No dependency lockfile of ours to
-go stale, and no install step for anyone who just wants to work on a repository.
-
-**A new harness is one file.** opencode, GitHub Copilot in VS Code and GitHub Copilot in CI
-ship today. An adapter answers seven questions about where that harness keeps things and how
-to tell it is installed, and nothing else in the system changes. A test enforces that rather
-than this paragraph asserting it: nothing outside an adapter may import one or branch on a
-harness name. [docs/adding-an-adapter.md](docs/adding-an-adapter.md) says how to answer the
-seven questions, with pi as the worked example, and
-[DESIGN.md](DESIGN.md#4-adding-a-harness) says why those are the seven.
-
 **The file you edit is the only copy.** Everything rendered is generated and disposable,
-except what a harness with no machine reads, which has to be committed to exist at all.
+except what a harness with no machine reads, which has to be committed to exist at all. A
+rendered copy is deleted only while its bytes are still the ones `akit` wrote, so a file you
+edited by hand survives and gets named rather than overwritten.
+
+**Windows and Linux are equally supported.** Both run the full suite in CI, and neither is the
+afterthought.
+
+**Python only.** No dependency lockfile of ours to go stale, and no install step for anyone
+who only wants to work on a repository.
+
+## Alpha testing
+
+Please report what breaks, what reads badly, and what you expected a command to do that it did
+not, at
+[the issue tracker](https://github.com/ftschindler/federated-agent-kits/issues).
+`akit doctor --json` and `akit list --json` are the two most useful things to paste.
+
+## More
+
+| | |
+| --- | --- |
+| [DESIGN.md](https://github.com/ftschindler/federated-agent-kits/blob/main/DESIGN.md) | what gets built, and why each decision went the way it did |
+| [IMPLEMENTATION.md](https://github.com/ftschindler/federated-agent-kits/blob/main/IMPLEMENTATION.md) | the order it gets built in, and what is left |
+| [docs/adding-an-adapter.md](https://github.com/ftschindler/federated-agent-kits/blob/main/docs/adding-an-adapter.md) | the seven questions a new harness answers, with a worked example |
+| [CONTRIBUTING.md](https://github.com/ftschindler/federated-agent-kits/blob/main/CONTRIBUTING.md) | the test layers, the conventions, and how a release is cut |
 
 ## License
 
-[MIT](LICENSE).
+[MIT](https://github.com/ftschindler/federated-agent-kits/blob/main/LICENSE).
