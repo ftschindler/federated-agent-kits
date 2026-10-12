@@ -49,24 +49,18 @@ Every other subscription has the same two arguments, a source and a kit:
 uvx --from federated-agent-kits akit add <source> <kit>
 ```
 
-**A source is any git repository with a `skills/`, `rules/` or `agents/` directory.** It needs
-no manifest, no registration and no permission, and it never learns that you subscribed. A
-typo fails before the manifest is touched, listing what the source does hold, so a failure
-here is a spelling to correct rather than a mess to clean up. `akit help sources` lists every
-form the argument can take, including a path to a repository you are writing yourself.
+**A source is any git repository that keeps skills, rules or agent definitions in it.** It
+needs no manifest, no registration and no permission, and it never learns that you subscribed.
+`akit` looks in all the standard places each kind is kept, several levels down, plus wherever
+an installed harness keeps its own, so a repository laid out the way its ecosystem lays them
+out needs nothing doing to it. `akit help sources` is the full account, and it also lists
+every form the source argument takes, including a path to a repository you are writing
+yourself.
 
-**That includes anything you would install with `npx skills add`.** The skills.sh marketplace
-is a git repository like any other, so a line translates directly, with `*` for every kit the
-source holds:
-
-```sh
-npx skills add owner/repo
-uvx --from federated-agent-kits akit add owner/repo '*'
-```
-
-Three things change in the translation: `akit` takes rules as well as skills, the subscription
-is written down in a file you own rather than only on disk, and `akit update` brings changes
-as a diff you read rather than as something that changed under you.
+**Both arguments are required, and a wrong one costs nothing.** A kit that is not in the
+source fails before the manifest is touched, listing what the source does hold, so a typo is a
+spelling to correct rather than a mess to clean up. `*` in place of a name subscribes to every
+kit the source holds.
 
 **The `--from` is not decoration.** The distribution is `federated-agent-kits` and the command
 inside it is `akit`. `uvx` reads its first argument as a distribution, so naming only the
@@ -76,6 +70,22 @@ daily and would rather type four words fewer, `uv tool install federated-agent-k
 
 `uv` is the one thing that has to be on the machine already, and `akit` will not install it
 for you. Subscribing to a kit and putting a tool on somebody's machine are different acts.
+
+## Coming from `npx skills`
+
+The skills.sh marketplace lists git repositories containing skills, which is what a source
+already is. So anything installable with `npx skills add` is installable here, and a line
+translates directly:
+
+```sh
+npx skills add owner/repo
+uvx --from federated-agent-kits akit add owner/repo '*'
+```
+
+Three things change in the translation. `akit` takes rules and agent definitions as well as
+skills. The subscription is written down in a file you own, so it can be committed, reviewed
+and moved to another machine. And `akit update` brings a change as a diff you read, rather
+than as something that changed under you.
 
 ## What it is for
 
@@ -133,10 +143,13 @@ contributing guide or in a pre-commit hook:
 uvx --from federated-agent-kits akit render
 ```
 
-**That line needs nothing installed and no warm cache.** `akit render` reads a source this
-machine already holds and clones one it has never seen, at the commit the manifest names. It
-moves no pin and writes no manifest, so a colleague gets what the repository committed rather
-than whatever `main` holds this afternoon. Once a source is cached it needs no network at all.
+**That line needs nothing installed beforehand.** `akit render` fetches whatever it does not
+already have, at the commit the manifest names. It moves no pin and writes no manifest, so a
+colleague gets what the repository committed rather than whatever `main` holds this afternoon.
+
+**A manifest is the only file you edit.** Everything rendered from one is generated and
+disposable, and `akit` deletes a rendered copy only while its bytes are still the ones it
+wrote, so anything you changed by hand survives and gets named rather than overwritten.
 
 ## The commands
 
@@ -172,24 +185,38 @@ works on all of them, which is usually what you want when a model is reading.
 
 ## The harnesses
 
-opencode, GitHub Copilot in VS Code and GitHub Copilot in CI ship today. The first two are
-detected by evidence on this disk, never by what a repository contains.
+**You subscribe to a kit once, and never say anything about a harness.** The manifest records
+what you want, not where it goes, and every harness on the machine gets the kit in the shape
+it reads. Install a second harness and the next `akit render` writes everything you already
+subscribe to into it as well.
 
-**One rule reaches three differently shaped harnesses.** Copilot reads a directory, so it gets
-one file per rule, with the `applyTo` frontmatter without which it would never read them.
-opencode reads one `AGENTS.md` that you write in too, so each rule goes between markers inside
-it, and everything you wrote around them survives every render. Unsubscribing takes the block
-out and leaves the file.
+Rules are where the shapes differ, and harnesses divide into two kinds by how they take them.
+A harness that reads a **directory** gets one file per rule, each with whatever frontmatter
+that harness needs to read it at all. A harness that reads **one file you also write in**,
+such as opencode's `AGENTS.md`, gets each rule between markers inside it, and everything you
+wrote around them survives every render. Unsubscribing takes the block out and leaves the file.
 
-The two shapes differ in one way worth knowing about. A harness that reads one file reads the
-rules in the order your manifest lists them, and a harness that reads a directory promises no
-order at all, so two rules that contradict are a coin toss there. `akit list` says which of
-the two each harness is, so nobody has to find out from behaviour.
+The two kinds differ in one way worth knowing about. The single-file kind reads your rules in
+the order your manifest lists them, and the directory kind promises no order at all, so two
+rules that contradict are a coin toss there.
+
+Three adapters ship today:
+
+| Harness | Takes | Rules as | Found by |
+| --- | --- | --- | --- |
+| opencode | skills, rules | a block in `AGENTS.md` | evidence on this disk |
+| GitHub Copilot in VS Code | skills, rules | one file each | evidence on this disk |
+| GitHub Copilot in CI | skills, rules | one file each | being named, see below |
+
+`akit list` reports all of this for the machine it runs on, so nobody has to find out from
+behaviour. Detection is always by evidence on this disk, never by what a repository contains.
 
 **A new harness is one file.** An adapter answers seven questions about where that harness
-keeps things and how to tell it is installed, and nothing else in the system changes. A test
-enforces that rather than this paragraph asserting it: nothing outside an adapter may import
-one or branch on a harness name.
+keeps each kind, which shape it takes rules in, and how to tell it is installed. Nothing else
+in the system changes, and a test enforces that rather than this paragraph asserting it:
+nothing outside an adapter may import one or branch on a harness name.
+[docs/adding-an-adapter.md](https://github.com/ftschindler/federated-agent-kits/blob/main/docs/adding-an-adapter.md)
+walks the seven questions with a worked example, and a pull request adding one is welcome.
 
 ## The harness that commits
 
@@ -227,19 +254,6 @@ when what the repository commits no longer matches its manifest. It is one hook 
 
 One hook rather than three, because the walk that finds a stale render is the walk that finds
 a leak and the one that finds a committed manifest naming a path off somebody's laptop.
-
-## What it promises
-
-**The file you edit is the only copy.** Everything rendered is generated and disposable,
-except what a harness with no machine reads, which has to be committed to exist at all. A
-rendered copy is deleted only while its bytes are still the ones `akit` wrote, so a file you
-edited by hand survives and gets named rather than overwritten.
-
-**Windows and Linux are equally supported.** Both run the full suite in CI, and neither is the
-afterthought.
-
-**Python only.** No dependency lockfile of ours to go stale, and no install step for anyone
-who only wants to work on a repository.
 
 ## Alpha testing
 
