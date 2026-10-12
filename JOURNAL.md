@@ -1596,3 +1596,37 @@ from code spans: a fenced command in a reference has to carry the full invocatio
 reference is read on its own, while `akit list` inside a sentence stays short. The first
 version of that test made no distinction and failed on a sentence, which was the test being
 wrong rather than the prose.
+
+## 2026-10-12 - The one command a fresh clone runs rendered nothing
+
+[T12](IMPLEMENTATION.md#t12---the-release-gate) asks for a smoke job that does what the README
+says: clone a repository carrying an `.akit.yaml`, run one command, have the kits. Written
+and run against a wheel built from `main`, it failed on the first step.
+
+```text
+problem: ftschindler/agent-kits: this source is not in the cache
+    This command does not fetch. Run `akit add` or `akit update` for this source while online.
+```
+
+Exit 1, nothing written. The README makes that claim twice, in "a colleague clones it and
+runs one command" and in "the step between a fresh clone and a working set of kits is that
+one line", and both were false on any machine that had never rendered.
+
+Worse, the message named the wrong way out. `akit update` does work, and it works by moving
+the pins the repository committed: on the run that found this it moved `e2c019f` to
+`e2c019fda`, following `main`. A colleague's first act in a new clone would have been to
+quietly take a different commit than the one their team pinned.
+
+The fix is one line of policy. `cache.resolve` already fetched only where the cache fell
+short, and `render` was passing `offline=True` to forbid even that, so `RENDERING` now passes
+`offline=False` and `INSPECTING`, the pass `akit doctor` walks, keeps it. A cached source is
+still read from the cache by every command, no pin moves, and no manifest is written. `doctor`
+is the one pass that still refuses the network, because a clone is an act and `doctor`
+performs none.
+
+What this cost, and what it is worth writing down: the behaviour had 100% branch coverage and
+three test layers, and not one of them started from an empty cache. `tests/test_render_command.py`
+prefetches in a fixture, with a comment that said "`render` never fetches, so a machine it
+runs on has to have fetched already" - the test harness encoded the bug as a premise.
+`TestAMachineThatHasNeverRun` is now the layer that does not, and the smoke job is the same
+assertion from outside the suite.

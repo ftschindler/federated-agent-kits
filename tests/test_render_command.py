@@ -26,10 +26,14 @@ pytestmark = pytest.mark.cli
 
 SKILLS = Path(".agents") / "skills"
 
-#: `render` never fetches, so a machine it runs on has to have fetched already.
-#: `akit add` is what does that from T7; until then the fixture does it, and
-#: asks the package where this platform keeps the cache rather than writing the
-#: Linux answer down as if it were the only one.
+#: A render fetches a source the cache has never seen, so most of this file
+#: would otherwise be testing the clone rather than what it came for. The
+#: fixture puts the source in the cache first, which is also the state a
+#: machine is in from its second render onwards. `TestAMachineThatHasNeverRun`
+#: is where the cold path is tested on purpose.
+#:
+#: It asks the package where this platform keeps the cache rather than writing
+#: the Linux answer down as if it were the only one.
 PREFETCH = textwrap.dedent(
     """
     import json, sys
@@ -247,15 +251,53 @@ class TestASourceThatIsAlreadyHere:
         assert tree(cloned / SKILLS) == tree(local / SKILLS)
 
 
+class TestAMachineThatHasNeverRun:
+    """The clone a colleague makes, where nothing is in the cache yet.
+
+    This is the sentence the README makes: clone the repository, run one
+    command, have the kits it expects. The cache is empty, the pins are what
+    the repository committed, and neither may move.
+    """
+
+    @pytest.fixture
+    def pinned(self, fake_home: FakeHome, remote: str, tmp_path: Path) -> Path:
+        (fake_home.root / ".config" / "opencode").mkdir(parents=True)
+        commit = git("-C", str(tmp_path / "remote"), "rev-parse", "HEAD").stdout.strip()
+        root = fake_home.root / "clone"
+        (root / ".git").mkdir(parents=True)
+        (root / ".akit.yaml").write_text(f"version: 1\n\nskills:\n  {remote}#{commit}: [writing]\n", encoding="utf-8")
+        return root
+
+    def test_it_fetches_what_the_pin_names_and_renders_it(self, fake_home: FakeHome, pinned: Path):
+        done = fake_home.run("render", cwd=pinned)
+
+        assert done.returncode == Exit.OK, done.stdout + done.stderr
+        assert (pinned / SKILLS / "writing" / "SKILL.md").read_text(encoding="utf-8") == "# writing\n"
+
+    def test_it_leaves_the_manifest_the_colleague_cloned_alone(self, fake_home: FakeHome, pinned: Path):
+        before = (pinned / ".akit.yaml").read_bytes()
+
+        fake_home.run("render", cwd=pinned)
+
+        assert (pinned / ".akit.yaml").read_bytes() == before
+
+    def test_the_second_render_is_the_no_op_the_first_one_promised(self, fake_home: FakeHome, pinned: Path):
+        fake_home.run("render", cwd=pinned)
+
+        again = fake_home.run("render", cwd=pinned)
+
+        assert again.returncode == Exit.OK, again.stderr
+        assert "Nothing changed" in again.stdout
+
+
 class TestWhenItWillNotRun:
-    def test_an_uncached_source_fails_saying_which_it_was(self, machine: Machine, tmp_path: Path):
-        project = repository(machine, "project", "nobody/nothing")
+    def test_a_source_nothing_can_reach_fails_saying_so(self, machine: Machine, tmp_path: Path):
+        project = repository(machine, "project", str(tmp_path / "gone"))
 
         done = machine.home.run("render", cwd=project)
 
         assert done.returncode == Exit.ERROR
-        assert "not in the cache" in done.stdout
-        assert "does not fetch" in done.stdout
+        assert "there is no directory at" in done.stdout
 
     def test_check_on_a_repository_that_commits_nothing_passes_and_says_why(self, machine: Machine, remote: str):
         project = repository(machine, "project", remote)

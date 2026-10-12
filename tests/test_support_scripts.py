@@ -28,8 +28,21 @@ SCRIPTS = REPO_ROOT / ".scripts"
 BEFORE_THE_GUARD = "cf2618e32d55972757ea0b3fe139aed22979ffa9"
 
 
+def load_from_tests(name: str) -> ModuleType:
+    """Another test module, as a module, so two constants can be compared.
+
+    By path rather than by import, for the same reason `load` is: a test module
+    imported from inside a test is collected twice under some layouts, and this
+    only wants to read two names off it.
+    """
+    return load_file(Path(__file__).resolve().parent / name)
+
+
 def load(name: str) -> ModuleType:
-    path = SCRIPTS / name
+    return load_file(SCRIPTS / name)
+
+
+def load_file(path: Path) -> ModuleType:
     spec = importlib.util.spec_from_file_location(path.stem.replace("-", "_"), path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
@@ -41,6 +54,7 @@ version = load("version.py")
 run_tests = load("run-tests.py")
 verify_published = load("verify-published.py")
 check_uvx = load("check_uvx_invocation.py")
+smoke = load("smoke.py")
 
 
 class TestNextVersion:
@@ -389,3 +403,30 @@ class TestRunTests:
         )
         assert result.returncode != 0
         assert "everything" in result.stderr
+
+
+class TestTheSmoke:
+    """The job that runs the sentence the README makes, on a runner with nothing.
+
+    Its two constants are a copy of the federation layer's, because the source
+    it renders from is the same published repository pinned at the same commit.
+    A copy that drifts would leave the smoke reading a commit no test has
+    looked at, which is the one way this job can go quietly wrong.
+    """
+
+    def test_it_reads_the_source_the_federation_layer_pins(self) -> None:
+        federation = load_from_tests("test_federation.py")
+
+        assert smoke.SOURCE == federation.KITS
+        assert smoke.COMMIT == federation.KITS_COMMIT
+
+    def test_it_names_a_harness_that_needs_nothing_installed(self) -> None:
+        # A detected harness renders nothing on a bare runner, so the smoke
+        # would pass by writing no files at all.
+        assert smoke.HARNESS == "copilot-ci"
+
+    def test_the_manifest_it_writes_carries_the_pin(self) -> None:
+        assert f"{smoke.SOURCE}#{smoke.COMMIT}" in smoke.MANIFEST
+
+    def test_a_missing_wheel_is_said_rather_than_rendered_around(self) -> None:
+        assert smoke.main([str(REPO_ROOT / "dist" / "nothing-here.whl")]) == 1

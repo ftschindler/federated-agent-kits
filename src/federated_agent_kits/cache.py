@@ -358,6 +358,11 @@ def resolve(
     is what a command that may not fetch passes: a source the cache already
     holds resolves, and one it does not fails saying which it was, rather than
     quietly producing less than yesterday.
+
+    Without it, the network is asked only where the cache falls short. A cached
+    source holding the commit its pin names never reaches a remote, whichever
+    command is running, which is what keeps an ordinary render the same render
+    on a train as at a desk.
     """
     if source.kind is SourceKind.PATH:
         return _path_source(source, anchor)
@@ -378,7 +383,7 @@ def resolve(
         raise CacheError(
             source,
             "this source is not in the cache" if not cached else f"the cache does not hold the commit {pin}",
-            "This command does not fetch. Run `akit add` or `akit update` for this source while online.",
+            "This command does not fetch. Run `akit render` for this source while online.",
         )
     privacy = None if cached else _fetch(source, destination)
     if pin is not None:

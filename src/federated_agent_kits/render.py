@@ -16,8 +16,13 @@ like.
 rewritten, so a second render reports a no-op rather than performing one, which
 is what makes this safe from a git hook or the end of another command.
 
-**It never fetches.** Resolution is offline, so a render can change files on
-disk and never what a kit contains. Only `add` and `update` move a pin.
+**It fetches only what the cache cannot answer.** A source whose pinned commit
+is already in the cache is read from there, so a render on a train writes the
+same files as a render at a desk. A source this machine has never seen is cloned
+at the commit the manifest already names, because the alternative is that a
+colleague's fresh clone renders nothing and is told to run a command that moves
+the pins their repository committed. No pin moves and no manifest is written:
+only `add` and `update` change what a kit contains.
 
 Two cases suspend withdrawal entirely, and both are deliberate.
 
@@ -293,12 +298,13 @@ class Mode:
     """
 
     offline: bool = True
-    """False only for `--check`, which runs where there is no cache at all.
+    """True only for the pass `akit doctor` walks, which may not touch the cache.
 
-    An ordinary render reads the commits already in the cache, so it can change
-    files on disk and never what a kit contains. A CI runner has never
-    rendered, and has nothing to recompute a committed render from unless it
-    fetches the commits its pins already name (DESIGN.md section 10).
+    Resolution asks a remote where the cache falls short, so a render and a
+    check both bring back the commits their pins already name and neither
+    re-fetches a source the cache can answer for. `doctor` reports rather than
+    acts, and a clone is an act, so it is the one pass that refuses the network
+    and says a source is missing instead (DESIGN.md section 10).
     """
 
     writing: bool = True
@@ -316,17 +322,19 @@ class Mode:
     """
 
 
-#: An ordinary render: offline, writing, reporting what it did.
-RENDERING = Mode()
+#: An ordinary render: writing, reporting what it did, and fetching a source
+#: the cache has never seen at the commit its pin already names.
+RENDERING = Mode(offline=False)
 
 #: `--check`: fetches what it must, writes nothing, answers yes or no.
 CHECKING = Mode(offline=False, writing=False, checking=True)
 
-#: What `akit doctor` walks with: the ordinary render, offline, with every act
-#: suspended. Not `CHECKING`, which judges one repository's committed half and
-#: fetches to do it; what `doctor` wants is the whole plan a plain `akit render`
+#: What `akit doctor` walks with: the ordinary render, with every act suspended
+#: and the network refused. Not `CHECKING`, which judges one repository's
+#: committed half; what `doctor` wants is the whole plan a plain `akit render`
 #: would carry out, so that "nothing explains this file any more" is the same
-#: sentence in both commands.
+#: sentence in both commands. A clone is an act, so this pass declines it and
+#: reports a source the cache lacks instead.
 INSPECTING = Mode(writing=False)
 
 #: The half of the world `--check` looks at. Your own subscriptions render to
@@ -437,13 +445,13 @@ class _Pass:
     before: Records
     chosen: dict[Scope, tuple[Adapter, ...]]
     offline: bool = True
-    """Whether resolution may go near the network, which only `--check` sets.
+    """Whether resolution may go near the network, which only `doctor` refuses.
 
-    An ordinary render reads the commits already in the cache, so it can change
-    files on disk and never what a kit contains. A check runs where there is no
-    cache at all, because a CI runner has never rendered, and has nothing to
-    recompute a committed render from unless it fetches the commits its pins
-    already name (DESIGN.md section 10).
+    A cached source holding the commit its pin names is read from the cache by
+    every pass, so this decides one thing: what happens to a source this machine
+    has never seen. A render and a check clone it at the commit the manifest
+    already names. `doctor` reports that it is missing, because a clone is an
+    act and `doctor` performs none (DESIGN.md section 10).
     """
 
     writing: bool = True

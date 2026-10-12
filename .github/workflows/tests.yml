@@ -80,6 +80,40 @@ jobs:
       # GNU make. The target is one line either way.
       run: uv run .scripts/run-tests.py ${{ matrix.marker }}
 
+  smoke:
+    # The sentence the README makes, run rather than asserted: a repository
+    # with a committed manifest, a runner with nothing installed and an empty
+    # cache, one command, and the files a harness reads afterwards.
+    #
+    # It installs this branch's wheel rather than `federated-agent-kits` from
+    # PyPI. `uvx --from federated-agent-kits` resolves to the last release, so
+    # the literal line would green-light code it never ran; everything else
+    # about the invocation is identical.
+    name: 💨 (uvx smoke, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    timeout-minutes: 10
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+    - name: Setup uv
+      uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d  # v10.0.1
+      with:
+        cache-dependency-glob: |
+          pyproject.toml
+          .scripts/*.py
+
+    - name: Build the wheel a user would install
+      run: uv build --wheel --out-dir dist
+
+    - name: Render a fresh clone with it
+      run: uv run .scripts/smoke.py
+
   tests:
     name: 🛠 (Tests)
     # The single job branch protection requires. A matrix job's check is named
@@ -89,7 +123,7 @@ jobs:
     # required. This one has a fixed name and fails unless every job above
     # actually succeeded.
     runs-on: ubuntu-latest
-    needs: [layer]
+    needs: [layer, smoke]
     # `always()`, or this job is skipped the moment anything it needs fails, and
     # a skipped required check is one that never reports.
     if: always()
