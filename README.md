@@ -190,26 +190,32 @@ what you want, not where it goes, and every harness on the machine gets the kit 
 it reads. Install a second harness and the next `akit render` writes everything you already
 subscribe to into it as well.
 
-Rules are where the shapes differ, and harnesses divide into two kinds by how they take them.
-A harness that reads a **directory** gets one file per rule, each with whatever frontmatter
-that harness needs to read it at all. A harness that reads **one file you also write in**,
-such as opencode's `AGENTS.md`, gets each rule between markers inside it, and everything you
-wrote around them survives every render. Unsubscribing takes the block out and leaves the file.
+Harnesses come in two kinds, and the difference decides what ends up in your repository.
 
-The two kinds differ in one way worth knowing about. The single-file kind reads your rules in
-the order your manifest lists them, and the directory kind promises no order at all, so two
-rules that contradict are a coin toss there.
+**One kind runs on your machine**, and `akit` finds it by evidence on this disk. What it
+renders is yours alone, so it stays out of the repository: the `.gitignore` block covers it,
+and nobody you share the repository with sees it.
+
+**The other kind has no machine.** It runs on somebody else's infrastructure and reads what
+your repository commits, so there is nothing on this disk to detect and it arrives only by
+being named. From then on what it reads is committed, which the next section is about.
 
 Three adapters ship today:
 
-| Harness | Takes | Rules as | Found by |
-| --- | --- | --- | --- |
-| opencode | skills, rules | a block in `AGENTS.md` | evidence on this disk |
-| GitHub Copilot in VS Code | skills, rules | one file each | evidence on this disk |
-| GitHub Copilot in CI | skills, rules | one file each | being named, see below |
+| Harness | Kind | Takes |
+| --- | --- | --- |
+| opencode | on this machine | skills, rules |
+| GitHub Copilot in VS Code | on this machine | skills, rules |
+| GitHub Copilot in CI | no machine, so named | skills, rules |
 
-`akit list` reports all of this for the machine it runs on, so nobody has to find out from
-behaviour. Detection is always by evidence on this disk, never by what a repository contains.
+`akit list` reports which of them it found, for the machine it runs on. Detection is always by
+evidence on this disk, never by what a repository contains.
+
+Rules differ in shape between harnesses, and `akit` absorbs that. Where a harness reads a
+directory of rules, each rule is a file of ours, with whatever frontmatter that harness needs
+to read it at all. Where it reads one file you also write in, such as opencode's `AGENTS.md`,
+`akit` manages the individual blocks inside it and leaves everything you wrote around them
+alone, every render. Unsubscribing takes a block out and leaves the file.
 
 **A new harness is one file.** An adapter answers seven questions about where that harness
 keeps each kind, which shape it takes rules in, and how to tell it is installed. Nothing else
@@ -220,9 +226,9 @@ walks the seven questions with a worked example, and a pull request adding one i
 
 ## The harness that commits
 
-GitHub Copilot in CI runs on GitHub's infrastructure. It clones your repository and reads what
-is there, which means **nothing you do not commit exists as far as it is concerned**. So it
-cannot be detected, and arrives only by being named:
+GitHub Copilot in CI is the harness with no machine that ships today. It runs on GitHub's
+infrastructure, clones your repository and reads what is there, which means **nothing you do
+not commit exists as far as it is concerned**. Naming it is one line:
 
 ```sh
 uvx --from federated-agent-kits akit harness add copilot-ci
