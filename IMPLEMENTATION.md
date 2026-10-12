@@ -9,7 +9,7 @@
 This plan assumes nothing from this repository except [DESIGN.md](DESIGN.md) and this file. A
 fresh session should be able to start at any unticked task and know what it owns.
 
-**Two kinds and three harnesses ship with 1.0.** Skills and rules, into opencode, GitHub
+**Two kinds and three harnesses ship today.** Skills and rules, into opencode, GitHub
 Copilot in VS Code and GitHub Copilot in CI. The first two harnesses are built in
 [T4](#t4---adapters-detection-and-akit-list), the third in
 [T8](#t8---the-machineless-harness-and-the-leak-refusal), and between them they cover both
@@ -18,7 +18,7 @@ halves of [§4](DESIGN.md#4-adding-a-harness): a harness with a machine and one 
 **Agents come after the release**, in [T13](#t13---agents). They are the kind that does not
 travel: [§7](DESIGN.md#agents-are-the-hard-one) has every harness disagreeing about frontmatter
 keys, tool names and what an agent is even for, while a kit is made of skills and rules almost
-every time. Every adapter shipped in 1.0 therefore declines the agent kind, which
+every time. Every adapter shipped so far therefore declines the agent kind, which
 [§4](DESIGN.md#4-adding-a-harness) already calls a valid answer, and the CLI says so rather
 than failing.
 
@@ -47,8 +47,8 @@ builds a part of it or keeps it releasable.
 - [x] **[T9](#t9---doctor)** - `doctor`
 - [x] **[T10](#t10---adding-an-adapter-documented)** - Adding an adapter, documented
 - [x] **[T11](#t11---the-skill-and-the-rule)** - The skill, and the rule
-- [ ] **[T12](#t12---publish-10)** - Publish 1.0
-- [ ] **[T13](#t13---agents)** - Agents, *after 1.0*
+- [x] **[T12](#t12---the-release-gate)** - The release gate
+- [ ] **[T13](#t13---agents)** - Agents, *after the release gate*
 - [ ] **[T14](#t14---iterate-on-what-use-earns)** - Iterate on what use earns, *open-ended*
 
 ## How to use it
@@ -181,7 +181,7 @@ what is being tested is a command's effect on the one before it.
 
 Two things this is not. It is not a wheel layer: three of the five above were found by hand
 with a built wheel, and what the wheel uniquely tests is packaging, which
-`tests/test_entry_point.py` and [T12](#t12---publish-10)'s `uvx` smoke already cover. And it
+`tests/test_entry_point.py` and [T12](#t12---the-release-gate)'s `uvx` smoke already cover. And it
 is not a substitute for somebody using the thing with no test in mind, which is what found
 them. That cannot be automated, which is why it is written down here with everything else that
 has to be remembered.
@@ -209,7 +209,7 @@ tested, released package.
 - The CLI frame: `akit` with subcommands registered in one place, `--version`, `--json`,
   `--verbose`, and the help contract above. Argument parsing only; every verb prints "not
   implemented yet" and exits 2 until its task lands, and a test asserts that list shrinks to
-  empty by [T12](#t12---publish-10).
+  empty by [T12](#t12---the-release-gate).
 - Exit codes, defined once and tested: 0 fine, 1 something is wrong, 2 usage, 3 a refusal
   ([§8](DESIGN.md#8-keeping-the-employers-kits-in)). A refusal is not a usage error and the
   caller has to be able to tell.
@@ -937,37 +937,65 @@ this one. [JOURNAL.md](JOURNAL.md) has the two alternatives and why both are wor
 **Leave alone.** Anything the three situations do not need. A skill that documents every flag
 is a manual, and the CLI already has `--help`.
 
-## T12 - Publish 1.0
+## T12 - The release gate
 
 **Goal.** The thing [§9](DESIGN.md#how-it-ships) promises, installed by somebody who has
 never seen this repository.
 
-**Needs.** Everything above. [T13](#t13---agents) is deliberately not in that list: 1.0 renders
-skills and rules, and every adapter declines agents.
+**Needs.** Everything above. [T13](#t13---agents) is deliberately not in that list: this
+build renders skills and rules, and every adapter declines agents.
 
 **Build.**
 
 - A `uvx` smoke job in CI on both operating systems: from a clean runner with nothing
-  installed, clone a fixture repository carrying an `.akit.yaml`, run
-  `uvx --from federated-agent-kits akit render`, and
-  assert the files a harness reads are in place. That is the exact sentence the README and
-  every contributing guide make, so it is a test rather than a claim.
+  installed, a repository carrying an `.akit.yaml` renders with one command, and the files a
+  harness reads are in place afterwards. That is the exact sentence the README and every
+  contributing guide make, so it is a test rather than a claim.
 - README and `CONTRIBUTING.md` updated to the shipped reality, with the design and this plan
   demoted from "what will exist" to "why it is shaped this way".
-- A compatibility statement: the `akit` entry point and the rendered file shapes are the
-  contract, and changing either is a major ([§9](DESIGN.md#how-it-ships)).
 - The "not implemented yet" list from T1 is empty, asserted by the test written then.
-- Publish `1.0.0`.
 
-**Done when.** `uvx --from federated-agent-kits akit render` works in a fresh clone on both
-operating systems, in CI,
-without this repository being present.
+**Done when.** A repository carrying an `.akit.yaml` renders in a fresh clone on both
+operating systems, in CI, without this repository being present.
+
+**The smoke installs this branch's wheel, not the index's.** The plan's sentence is `uvx
+--from federated-agent-kits akit render`, which on a pull request resolves to the last
+release and would green-light code it never ran. This is the same conflict
+[T11](#t11---the-skill-and-the-rule)'s agent layer hit and it has the same answer: build the
+wheel here and point `uvx` at it, so that every part of the invocation that can break is the
+one a user meets. `.scripts/smoke.py` also builds the target repository rather than cloning a
+fixture from a forge, because what the claim needs is a committed manifest and an empty
+cache; the source it subscribes to is real and pinned, which is the half a fixture cannot
+fake.
+
+**It found that the sentence was false.** A render refused to fetch a source the cache had
+never seen, so the one command a fresh clone runs rendered nothing and named `akit update` as
+the way out, which moves the pins the repository committed.
+[JOURNAL.md](JOURNAL.md) has the run. `render` now fetches a source it has never seen at the
+commit its pin already names, `doctor` is the one pass that still refuses the network, and
+[§10](DESIGN.md#10-commands) is corrected in the same diff. The lesson is in the fixtures
+rather than the code: three layers and 100% branch coverage, and not one test started from an
+empty cache, because the harness prefetched with a comment saying renders never fetch.
+
+**1.0 is not here, and it is not a step this task performs.** The version stays at `0.x`
+whilst agents do not render and the questions [§12](DESIGN.md#12-still-open) carries are
+open, so what this task ships is everything that makes a release *possible*. What earns `1.0`
+is [T14](#t14---iterate-on-what-use-earns)'s evidence, not a date: ten real rules written
+against it, a second person's setup, and the `applyTo` and record questions settled by use.
+
+**The compatibility statement this task asked for was written and then dropped.** It said
+what a reader of the version number already knows, that the entry point and the file shapes
+are what a release can break and that a leading zero means they may. A paragraph restating
+semver in a project's own words is a promise nobody can check and a line nobody needed. The
+contract is where it was already stated, in `pyproject.toml` beside the entry point and in
+[§9](DESIGN.md#how-it-ships); the release labels are in `CONTRIBUTING.md`; and nothing else
+needs saying until there is a break worth naming.
 
 ## T13 - Agents
 
 **Goal.** One agent definition, two harnesses, with no silent loss.
 
-**Needs.** [T12](#t12---publish-10). Agents come after the release deliberately. They are the
+**Needs.** [T12](#t12---the-release-gate). Agents come after the release deliberately. They are the
 least portable kind and the least used: [§7](DESIGN.md#agents-are-the-hard-one) has four
 harnesses disagreeing about frontmatter keys, tool names and what an agent is even for, while
 skills and rules are what a kit is made of almost every time. Three agents that genuinely want

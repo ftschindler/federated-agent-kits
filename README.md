@@ -192,9 +192,15 @@ uvx --from federated-agent-kits akit render
 fresh clone and a working set of kits is that one line, in a contributing guide or in a
 pre-commit hook.
 
+**A clone with an empty cache fetches what it has to.** `akit render` reads a source the
+cache already holds and clones one it has never seen, at the commit the manifest names. It
+moves no pin and writes no manifest, so what a colleague gets is what the repository
+committed rather than whatever `main` holds this afternoon. Once a source is cached the
+command needs no network at all.
+
 ## What it promises
 
-**Windows and Linux are equal.** Both are tested in CI, and neither is the afterthought.
+**Windows and Linux are equally supported.** Both are tested in CI, and neither is the afterthought.
 
 **Python only**, shipped as a package you run with `uvx`. No dependency lockfile of ours to
 go stale, and no install step for anyone who just wants to work on a repository.

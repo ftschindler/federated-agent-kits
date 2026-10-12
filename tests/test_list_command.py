@@ -219,7 +219,7 @@ class TestListInAFakeHome:
 
         assert result.returncode == 0
         assert "not in the cache" in result.stdout
-        assert "akit add" in result.stdout
+        assert "akit render" in result.stdout
 
     def test_the_same_answer_as_data(self, machine: Places, repository: Path):
         result = listed(machine, repository, "--json")

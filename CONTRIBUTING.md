@@ -32,9 +32,12 @@ Four layers, each in its own marker, each a separate job in CI on both Linux and
 | `federation` | the same commands against two real public repositories | network |
 | `agent` | a disposable agent that reads the skill and types what it says | network, node |
 
-The `agent` layer has no tests yet; it arrives with
-[T11](IMPLEMENTATION.md#t11---the-skill-and-the-rule). Its jobs exist already so the matrix
-does not change shape on the day they do.
+A fifth job runs beside them on both operating systems and is not a marker: `.scripts/smoke.py`
+builds this branch's wheel, installs it with `uvx` into a temporary machine with an empty
+cache, and renders a repository that carries nothing but an `.akit.yaml`. It is the README's
+claim about a fresh clone, run rather than asserted. It installs the local wheel rather than
+`federated-agent-kits` from PyPI, which would resolve to the last release and green-light
+code it never ran.
 
 **The `unit` layer runs git, against repositories it builds in its own `tmp_path` and clones
 over `file://`.** That is a deliberate reading of "no network" rather than a loophole: cloning,

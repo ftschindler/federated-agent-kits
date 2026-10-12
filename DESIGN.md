@@ -1151,12 +1151,12 @@ It asks which parts land somewhere a machineless harness reads, rather than whic
 harness renders. Skills share one directory ([§7](#7-rendering)), so a kit rendered for
 opencode in a repository that also names the cloud agent is committed by that fact alone.
 
-**Which is also what keeps `render` offline.** A target is classified only when the manifest
-names a machineless harness, and those exist only by being named in `.akit.yaml`
+**Which is also what keeps the leak check off the network.** A target is classified only when
+the manifest names a machineless harness, and those exist only by being named in `.akit.yaml`
 ([§6](#6-the-manifest)). An ordinary repository never asks what its remotes are, so a render
-on a train is the same render as yesterday's ([§10](#10-commands)), and the pre-commit hook
-in [§9](#9-windows-linux-python) needs a network only in the repositories that commit
-rendered files.
+whose sources are all cached is the same render on a train as yesterday's
+([§10](#10-commands)), and the pre-commit hook in [§9](#9-windows-linux-python) needs a
+network only in the repositories that commit rendered files.
 
 ### What this is not
 
@@ -1280,19 +1280,26 @@ akit update [name]           # fetch, move the pins, show what moved
 akit doctor                  # what is wrong, and which command fixes it
 ```
 
-**Two commands fetch, for different reasons.** `add` fetches a source this machine does not
-have yet, and skips that when the cache already holds it at the ref asked for. `update`
-fetches new commits for a source it does have. Nothing else fetches anything: `list`,
-`render` and `doctor` work from the three kinds of file below, so a render on a train
-produces exactly what it produced yesterday.
+**Three commands fetch, and only where the cache falls short.** `add` fetches a source this
+machine does not have yet, and skips that when the cache already holds it at the ref asked
+for. `update` fetches new commits for a source it does have. `render` fetches a source it has
+never seen, at the commit the manifest already names, because a colleague who clones a
+repository has an empty cache and one command to run. None of them re-fetches a source the
+cache can answer for, so a render on a train produces exactly what it produced yesterday, and
+`list` and `doctor` never go near a remote at all.
+
+**A render moves no pin and writes no manifest**, whatever it had to fetch. That is still the
+line between it and `update`, and it is the one that matters: a clone of a repository renders
+the commits that repository committed, not whatever `main` holds this afternoon.
 
 **One check resolves a remote without fetching**, which is the leak check asking whether this
 repository is public. It runs only where something is committed, which means only in a
 repository whose manifest names a harness with no machine
-([§8](#8-keeping-the-employers-kits-in)). Ordinary repositories work offline forever.
+([§8](#8-keeping-the-employers-kits-in)). An ordinary repository never asks what its remotes
+are.
 
-Offline, `add` therefore works for a source you already have and fails cleanly for one you do
-not, saying which it was.
+Offline, `add` and `render` therefore work for a source you already have and fail cleanly for
+one you do not, saying which it was.
 
 Three kinds of file are involved throughout, all described in [§6](#6-the-manifest). The
 **manifests** say what you want, each subscription naming the commit it is pinned to. The
@@ -1526,13 +1533,13 @@ repository that just named the cloud agent carries on ignoring the directory tha
 The files would be correct and absent at the same time, which is the silent failure the rest
 of this section is built to avoid.
 
-**`--check` is the one render that fetches.** Everything above keeps `render` offline by
-reading the commits already in the cache, and a CI runner has no cache at all: it has never
-rendered, so it has nothing to recompute a committed render from. So this flag fetches the
-commits its subscriptions are already pinned to, which moves no pin and changes no manifest.
-It needs a network, which the hook it runs in already does, and it learns each source's
-privacy on the way ([§8](#8-keeping-the-employers-kits-in)), which is what lets it answer the
-leak question on a machine that has never seen the source.
+**`--check` fetches for a second reason.** A render already brings back a source the cache
+has never seen, and a CI runner has no cache at all: it has never rendered, so it has nothing
+to recompute a committed render from. What this flag adds is that it fetches while writing
+nothing, which moves no pin and changes no manifest. It needs a network, which the hook it
+runs in already has, and it learns each source's privacy on the way
+([§8](#8-keeping-the-employers-kits-in)), which is what lets it answer the leak question on a
+machine that has never seen the source.
 
 **A committed manifest naming a path that leaves the repository is refused here**, by
 `render` and by `--check` alike ([§6](#where-a-source-actually-is)). It is the third thing
