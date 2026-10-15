@@ -119,13 +119,29 @@ class TestWhereRulesAndAgentsAreLookedFor:
 
         assert names(discovery.parts(root, Kind.AGENT)) == ["reviewer"]
 
-    def test_a_file_at_the_root_is_a_rule_because_the_convention_says_so(self, tmp_path: Path):
+    def test_a_file_at_the_root_is_documentation_rather_than_a_rule(self, tmp_path: Path):
+        root = build(tmp_path / "repo", {"README.md": "x", "CONTRIBUTING.md": "y", "rules/prose-style.md": "z"})
+
+        assert names(discovery.parts(root, Kind.RULE)) == ["prose-style"]
+
+    def test_a_file_at_the_root_is_not_an_agent_either(self, tmp_path: Path):
         root = build(tmp_path / "repo", {"README.md": "x"})
 
-        assert names(discovery.parts(root, Kind.RULE)) == ["README"]
+        assert discovery.parts(root, Kind.AGENT) == ()
+
+    def test_a_skill_at_the_root_is_still_a_skill(self, tmp_path: Path):
+        root = build(tmp_path / "writing", {"SKILL.md": "# writing", "README.md": "x"})
+
+        assert names(discovery.parts(root, Kind.SKILL)) == ["writing"]
+        assert discovery.parts(root, Kind.RULE) == ()
 
     def test_something_that_is_not_markdown_is_not_a_part(self, tmp_path: Path):
         root = build(tmp_path / "repo", {"rules/script.py": "x"})
+
+        assert discovery.parts(root, Kind.RULE) == ()
+
+    def test_a_rule_below_the_depth_is_not_found(self, tmp_path: Path):
+        root = build(tmp_path / "repo", {"rules/a/b/c/toodeep.md": "x"})
 
         assert discovery.parts(root, Kind.RULE) == ()
 

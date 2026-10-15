@@ -31,15 +31,22 @@ SKILL_FILE = "SKILL.md"
 #: What marks a rule or an agent: one markdown file, whose stem is its name.
 MARKDOWN = ".md"
 
-#: Where each kind is looked for, relative to the root of the source. The empty
-#: string is the root itself, so a repository holding one skill and nothing else
-#: is a source without having been arranged into one. The three dotted skill
-#: directories are what `npx skills add` already accepts, which is what
-#: repositories in the wild already look like (DESIGN.md section 5).
+#: Where each kind is looked for, relative to the root of the source. The three
+#: dotted skill directories are what `npx skills add` already accepts, which is
+#: what repositories in the wild already look like (DESIGN.md section 5).
+#:
+#: **The root is in the skill row and in no other, because `SKILL.md` is a
+#: marker and `*.md` is not.** A repository holding one skill and nothing else
+#: says so, in a filename, and is a source without having been arranged into
+#: one. A rule has no such file, so reading the root for rules made every
+#: top-level markdown file a kit: a `"*"` subscription to an ordinary
+#: repository came back holding its README and its contributing guide. The
+#: layouts that case was meant to reach are reached anyway, from `rules/` and
+#: from the directories the adapters declare (DESIGN.md section 5).
 KIND_DIRECTORIES: dict[Kind, tuple[str, ...]] = {
     Kind.SKILL: ("", "skills", "skills/.curated", "skills/.experimental", "skills/.system"),
-    Kind.RULE: ("", "rules"),
-    Kind.AGENT: ("", "agents"),
+    Kind.RULE: ("rules",),
+    Kind.AGENT: ("agents",),
 }
 
 #: `<dir>/<name>`, `<dir>/<category>/<name>` and one category deeper. Three
@@ -48,11 +55,10 @@ KIND_DIRECTORIES: dict[Kind, tuple[str, ...]] = {
 DEPTH = 3
 
 #: How deep the root of the source itself is read. One level, and not `DEPTH`:
-#: the root is in the list so that a repository holding a kit and nothing else
-#: is a source (DESIGN.md section 5), not so that every markdown file within
-#: three levels of it is a part. Walking it to `DEPTH` makes `rules/thing.md` an
-#: agent as well as a rule, because the root contains `rules/` and `agents/`
-#: both.
+#: the root is read so that a repository holding a skill and nothing else is a
+#: source (DESIGN.md section 5), not so that everything within three levels of
+#: it is a part. Walking it to `DEPTH` would find every skill twice, once as
+#: itself and once through `skills/`.
 ROOT_LEVELS = 1
 
 #: What a part found at the root of a base directory sits at, which is shallower
