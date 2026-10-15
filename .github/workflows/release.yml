@@ -242,6 +242,15 @@ jobs:
       # One commit carrying the version, and the tag on that commit rather than
       # on the merge: a tag whose tree holds the previous version is a release
       # that installs as its predecessor, and nothing downstream can tell.
+      #
+      # **One push, carrying both refs.** As two pushes this shipped 0.13.0's
+      # commit and then had its tag rejected with "missing necessary objects":
+      # the second pack holds the tag alone, because the commit it points at
+      # went up a moment earlier, and a receiving replica that has not seen that
+      # commit yet reads the pack as incomplete. One push puts both in one pack
+      # and closes the window. `--atomic` then makes the pair all-or-nothing,
+      # which is what the concurrency group at the top of this file is for: a
+      # half-done release is a tag with no version behind it, or the reverse.
       env:
         NEXT: ${{ steps.version.outputs.next }}
         BOT_NAME: ${{ steps.identity.outputs.name }}
@@ -253,8 +262,7 @@ jobs:
         git add pyproject.toml skills/akit/VERSION
         git commit -m "Release ${NEXT}"
         git tag -a "v${NEXT}" -m "Release ${NEXT}"
-        git push origin HEAD:main
-        git push origin "v${NEXT}"
+        git push --atomic origin HEAD:main "refs/tags/v${NEXT}"
 
     - name: Publish to PyPI
       if: steps.bump.outputs.level != 'none'
