@@ -1203,10 +1203,6 @@ hygiene suite in `governance.yml` is the same on every platform and runs on Linu
 doing real work. Every script carries its dependencies in a PEP 723 header and runs under
 `uv run`, so there is no install step and no dependency lockfile of our own to go stale.
 
-There is one exception, and it is deliberate. `.scripts/linkspector.mjs` is thirty lines of
-node that pin a Chrome build and start a link checker. It runs inside a pre-commit hook,
-never anywhere else, and nothing a user of `akit` touches depends on it.
-
 ### How it ships
 
 **A package on PyPI, so `uvx --from federated-agent-kits akit render` works in a clone with
