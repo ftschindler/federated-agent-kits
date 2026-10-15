@@ -2,7 +2,7 @@
 # Pre-commit config for federated-agent-kits.
 #
 # Principles honored (from the wiki):
-#   - Every file type in the repo has a linter/formatter here (md, mjs/js, yaml,
+#   - Every file type in the repo has a linter/formatter here (md, yaml,
 #     json/jsonc, toml, GitHub workflows) plus general text hygiene.
 #   - Every hook repo is pinned to a frozen SHA with a `# frozen: <tag>` comment
 #     (reproducible, auditable; upgrades are explicit diffs). Bump via
@@ -20,8 +20,9 @@ minimum_pre_commit_version: "3.0.0"
 repos:
 # ---- content formatters / linters (run FIRST) -------------------------
 
-# JavaScript (.mjs) - lint + format in one pass. Biome CLI pinned via
-# additional_dependencies so the toolchain is reproducible.
+# JSON and JSONC - lint + format in one pass. Biome CLI pinned via
+# additional_dependencies so the toolchain is reproducible. It still takes
+# JavaScript, which this repository no longer has any of.
 - repo: https://github.com/biomejs/pre-commit
   rev: 922fba1f8fd9f9f096d04586e54369a31e6c1c31  # frozen: v2.5.12
   hooks:
@@ -50,20 +51,13 @@ repos:
     # recognition so `fix` does not reflow (and break) YAML frontmatter.
     args: ["--config", ".pymarkdown.json", "--disable-rules", "MD046", "fix"]
 
-# Broken-link checking. Pins the exact Chrome puppeteer drives, tied to the
-# linkspector version (pin the transitive runtime, not just the tool).
-# ATTENTION: keep chrome@... and @umbrelladocs/linkspector@... versions matched.
-- repo: local
+# Broken-link checking. The hook pins the browser linkspector drives, which is
+# the half of the pin that decides whether a link is reported broken, so one
+# frozen rev here replaces a matched pair of versions kept in step by hand.
+- repo: https://github.com/ftschindler/linkspector-pre-commit
+  rev: db683f24c1df3b24e91c81271811a9e8b3ae5409  # frozen: v0.1.0
   hooks:
-  - id: linkspector
-    name: Check broken links (linkspector)
-    # Two steps behind one entry, in node rather than `bash -c`: the config is
-    # run by contributors on Windows too, where bash is not a given.
-    entry: node .scripts/linkspector.mjs
-    language: node
-    additional_dependencies: ["@umbrelladocs/linkspector@0.5.6", "puppeteer"]
-    pass_filenames: false
-    files: \.md$
+  - id: linkspector-changed
 
 # YAML formatting
 - repo: https://github.com/google/yamlfmt

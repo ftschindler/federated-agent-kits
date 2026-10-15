@@ -364,8 +364,8 @@ shadows anything nested beneath it.
 | Kind | Looked for | Looked for in |
 | --- | --- | --- |
 | Skill | `SKILL.md` | the repository root, `skills/`, and its `.curated/`, `.experimental/` and `.system/` subdirectories |
-| Rule | `*.md` | the repository root, `rules/` |
-| Agent | `*.md` | the repository root, `agents/` |
+| Rule | `*.md` | `rules/` |
+| Agent | `*.md` | `agents/` |
 
 Each kind then adds the directories harnesses already read for it, which every adapter
 declares and nothing here enumerates.
@@ -380,7 +380,17 @@ ourselves, because `skills` is node and [§9](#9-windows-linux-python) keeps nod
 anything a user runs. Following it rather than restating it is also why no harness directory
 appears in that row: when the convention grows one, we grow one.
 
-**Why those, for rules and agents:** no standard exists, so they mirror the skills layout.
+**Why those, for rules and agents:** no standard exists, so they mirror the skills layout in
+everything but the root.
+
+**Why the root is in the skill row and in no other:** `SKILL.md` is a marker and `*.md` is
+not. A repository that is one skill says so, in a filename. A repository that is one rule has
+no way to say so, so reading the root for rules made every top-level markdown file a kit, and
+`akit add <source> '*'` came back holding the source's README and its contributing guide. The
+mirror was wrong at exactly the point where the thing being mirrored was a declaration. Little
+is given up: a rule kept where its ecosystem keeps rules is reached from `rules/` or from the
+directories the adapters declare, and a rule a repository keeps loose at its top level is
+indistinguishable from documentation by anything we could look at.
 
 ### Reading is not writing
 
@@ -1192,10 +1202,6 @@ hygiene suite in `governance.yml` is the same on every platform and runs on Linu
 **Python is the only language we write.** No TypeScript, no shell scripts, no Makefile recipe
 doing real work. Every script carries its dependencies in a PEP 723 header and runs under
 `uv run`, so there is no install step and no dependency lockfile of our own to go stale.
-
-There is one exception, and it is deliberate. `.scripts/linkspector.mjs` is thirty lines of
-node that pin a Chrome build and start a link checker. It runs inside a pre-commit hook,
-never anywhere else, and nothing a user of `akit` touches depends on it.
 
 ### How it ships
 
