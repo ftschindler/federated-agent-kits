@@ -19,6 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from fake_home import confine
 from git_environment import FIXED_AUTHOR, git, local_remote
 
 from federated_agent_kits import cache, privacy, render, sources, subscribing
@@ -37,9 +38,7 @@ INSTRUCTIONS = Path(".github") / "instructions"
 @pytest.fixture(autouse=True)
 def house(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home = tmp_path / "home"
-    home.mkdir()
-    for variable in ("HOME", "USERPROFILE"):
-        monkeypatch.setenv(variable, str(home))
+    confine(monkeypatch, home)
     for variable in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
         monkeypatch.delenv(variable, raising=False)
     return home

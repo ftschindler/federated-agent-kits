@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 from disposable_agent import REPO_SKILLS_DIR, DisposableAgent, build_disposable_agent, build_local_wheel
-from fake_home import REDIRECTED, FakeHome, build_fake_home
+from fake_home import FakeHome, build_fake_home, confine
 
 #: `uv` keeps its downloads under `XDG_CACHE_HOME` too, and redirecting that
 #: without saying where else to look would make every layer that builds a wheel
@@ -47,12 +47,7 @@ def confined(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeHome:
     onto the developer's.
     """
     monkeypatch.setenv(UV_CACHE, os.environ.get(UV_CACHE) or str(Path.home() / ".cache" / "uv"))
-    house = build_fake_home(tmp_path / "machine")
-    for name in REDIRECTED:
-        monkeypatch.delenv(name, raising=False)
-    for name, value in house.env.items():
-        monkeypatch.setenv(name, value)
-    return house
+    return confine(monkeypatch, tmp_path / "machine")
 
 
 @pytest.fixture

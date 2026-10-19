@@ -31,6 +31,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+import pytest
 from git_environment import without_git_variables
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -39,7 +40,28 @@ SOURCE = REPO_ROOT / "src"
 #: Variables the house must be able to *remove*, not merely override. A house
 #: that unsets `XDG_CONFIG_HOME` while the parent environment still has one would
 #: test the fallback against the developer's own config directory.
-REDIRECTED = ("HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME")
+#:
+#: The two `WIN_PD_OVERRIDE_*` are the Windows half of the same sentence, and
+#: they are not optional there. `platformdirs` finds `%APPDATA%` and
+#: `%LOCALAPPDATA%` by asking the shell (`SHGetKnownFolderPath`) rather than by
+#: reading the environment, and the shell answers from a per-process cache it
+#: fills on the first call. So on Windows the first test to resolve one of those
+#: directories decides where *every later test in that process* believes its home
+#: is, whatever `USERPROFILE` says by then: the second test's record lands in the
+#: first test's directory. These two variables are the documented way past that
+#: cache - `platformdirs` reads them on every call, before it asks the shell -
+#: which is why `pyproject.toml` floors `platformdirs` at the release that added
+#: them.
+REDIRECTED = (
+    "HOME",
+    "USERPROFILE",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_STATE_HOME",
+    "WIN_PD_OVERRIDE_APPDATA",
+    "WIN_PD_OVERRIDE_LOCAL_APPDATA",
+)
 
 
 @dataclass
@@ -64,11 +86,18 @@ class FakeHome:
             "XDG_DATA_HOME": str(self.root / ".local" / "share"),
             "XDG_CACHE_HOME": str(self.root / ".cache"),
             "XDG_STATE_HOME": str(self.root / ".local" / "state"),
+            "WIN_PD_OVERRIDE_APPDATA": str(self.root / "AppData" / "Roaming"),
+            "WIN_PD_OVERRIDE_LOCAL_APPDATA": str(self.root / "AppData" / "Local"),
         }
 
     @property
     def env_without_xdg(self) -> dict[str, str]:
-        """The same house with every `XDG_*` unset, to reach the `Path.home()` fallback."""
+        """The same house with every `XDG_*` unset, to reach the `Path.home()` fallback.
+
+        The `WIN_PD_OVERRIDE_*` pair stays: on Windows there is no `XDG_*`
+        fallback to reach, and removing them would send the very test that
+        exercises the fallback at the shell's cached answer instead.
+        """
         return {key: value for key, value in self.env.items() if not key.startswith("XDG_")}
 
     def environment(self, env: dict[str, str] | None = None) -> dict[str, str]:
@@ -127,3 +156,19 @@ def build_fake_home(root: Path) -> FakeHome:
     root.mkdir(parents=True, exist_ok=True)
     (root / ".config").mkdir(parents=True, exist_ok=True)
     return FakeHome(root=root)
+
+
+def confine(monkeypatch: pytest.MonkeyPatch, root: Path) -> FakeHome:
+    """Move *this* process into a house at `root`, for the duration of one test.
+
+    The one way the in-process redirection is done, so that a fixture cannot
+    redirect half of it: every variable in `REDIRECTED` is removed before the
+    house sets its own, and a house that names fewer of them than the developer's
+    environment holds therefore leaves none of the developer's behind.
+    """
+    house = build_fake_home(root)
+    for name in REDIRECTED:
+        monkeypatch.delenv(name, raising=False)
+    for name, value in house.env.items():
+        monkeypatch.setenv(name, value)
+    return house

@@ -1669,3 +1669,34 @@ What this cost, and what is worth writing down: the gap was not in the isolation
 good, but in who it was applied to. A fixture that confines a subprocess says nothing about
 the process that spawns it, and the layer that needed it most was the one running the code
 directly.
+
+## 2026-10-19 - On Windows, `USERPROFILE` only redirects the home the first test asks for
+
+The `confined` fixture above went green on Linux and macOS and failed three ways on
+Windows, all of them the same way:
+
+```text
+assert WindowsPath('.../test_it_is_the_platform_cache_0/home/AppData/Local/akit')
+  .is_relative_to(WindowsPath('.../test_the_render_record_is_insi0/machine'))
+```
+
+The record landed in a fake home, which is what the fixture is for - but in *another
+test's* fake home, one that had finished running. Setting `USERPROFILE` per test is not
+enough there: on Windows `platformdirs` resolves `%APPDATA%` and `%LOCALAPPDATA%` through
+`SHGetKnownFolderPath`, and the shell answers that from a per-process cache it fills on the
+first call. The first test in the process to resolve one of those directories decides where
+every later test in it believes its home is.
+
+`platformdirs` 4.8 added `WIN_PD_OVERRIDE_APPDATA` and `WIN_PD_OVERRIDE_LOCAL_APPDATA`,
+which it reads on every call before it asks the shell. The house now sets both, they joined
+`REDIRECTED` so they are removed before being set like everything else, and the dependency
+floor moved to 4.8 because the isolation is no longer true without them.
+
+The second half of the fix is that there was more than one place doing this: six modules
+had their own autouse `house` fixture redirecting `HOME` and `USERPROFILE` by hand, each of
+which would have needed the same two variables. They now call one `confine` helper in
+`tests/fake_home.py`, so the next variable that turns out to be load-bearing is added once.
+
+Worth writing down: an environment variable that redirects a directory on one operating
+system may only redirect it *once* on another. The test that locks the isolation has to run
+on both, which is the only reason this was found at all rather than shipped.

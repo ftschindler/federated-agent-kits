@@ -21,6 +21,7 @@ import json
 from pathlib import Path
 
 import pytest
+from fake_home import confine
 from git_environment import FIXED_AUTHOR, git, local_remote
 
 from federated_agent_kits import adapters, cache, doctor, ignore, privacy, record, render, sources
@@ -43,9 +44,7 @@ NOWHERE = "0" * 40
 def house(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """The developer's own home, out of reach of everything below."""
     home = tmp_path / "house"
-    home.mkdir()
-    for variable in ("HOME", "USERPROFILE"):
-        monkeypatch.setenv(variable, str(home))
+    confine(monkeypatch, home)
     for variable in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
         monkeypatch.delenv(variable, raising=False)
     return home

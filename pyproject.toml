@@ -34,8 +34,11 @@ dependencies = [
   "ruamel.yaml>=0.18",
   # The config, cache and state directories are looked up per platform rather than
   # spelled `~/.config`, which is the Linux answer written down as if it were the
-  # only one. DESIGN.md section 9.
-  "platformdirs>=4.2",
+  # only one. DESIGN.md section 9. The floor is 4.8 rather than 4.2 because that
+  # is the release that honours `WIN_PD_OVERRIDE_*`, which is the only way to
+  # redirect those directories on Windows per call rather than once per process:
+  # see `REDIRECTED` in `tests/fake_home.py`.
+  "platformdirs>=4.8",
 ]
 
 [project.urls]
