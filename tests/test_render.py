@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from federated_agent_kits import adapters, ignore, privacy, record, render
+from federated_agent_kits import adapters, ignore, privacy, record, render, reporting
 from federated_agent_kits.adapters.adapter import Adapter, Destination, RuleShape
 from federated_agent_kits.cache import Privacy
 from federated_agent_kits.cli import build_parser, dispatch
@@ -761,7 +761,7 @@ class TestTheReport:
 
     @pytest.mark.parametrize(("number", "expected"), [(0, "no files"), (1, "1 file"), (2, "2 files")])
     def test_a_count_is_written_as_english_rather_than_as_a_log_line(self, number: int, expected: str):
-        assert render.counted(number, "file") == expected
+        assert reporting.counted(number, "file") == expected
 
     def test_a_no_op_says_it_was_a_no_op(self, project: Path, places: render.Directories, one_skill: Path):
         render.render(project, places)
@@ -848,6 +848,11 @@ class TestTheReport:
         subscribe(project / ".akit.yaml", f"version: 1\nharnesses: []\n\nskills:\n  {kits}: [writing]\n")
 
         assert "no harness in scope" in self.report(render.render(project, places))
+
+    def test_a_render_with_no_ignore_block_to_keep_says_nothing_about_ignore_rules(self):
+        outcome = render.Outcome(manifests={}, harnesses={}, entries=())
+
+        assert "Ignore rules" not in self.report(outcome)
 
     def test_the_ignore_line_says_whether_the_file_changed(
         self, project: Path, places: render.Directories, one_skill: Path

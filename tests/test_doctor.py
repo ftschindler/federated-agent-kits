@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import json
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -492,6 +493,11 @@ class TestWhatTheRepositoryCommits:
         )
 
 
+def _fixes(printed: str) -> list[str]:
+    """Every `fix:` line in a report, by the one prefix every one of them has."""
+    return [line.split("fix: ", 1)[1] for line in printed.splitlines() if "fix: " in line]
+
+
 class TestTheReportItself:
     def test_a_healthy_setup_says_so_and_names_where_it_looked(
         self, project: Path, places: render.Directories, kits: Path
@@ -516,8 +522,52 @@ class TestTheReportItself:
         doctor.text(found, out)
 
         printed = out.getvalue()
-        assert f"Found {len(found.findings)} things" in printed
-        assert printed.count("fix: ") == len(found.findings)
+        assert f"Findings ({len(found.findings)})" in printed
+        assert {fix for fix in (entry.fix for entry in found.findings)} <= set(_fixes(printed))
+
+    def test_findings_are_grouped_under_their_kind_with_a_count_in_the_heading(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        one_skill(project, kits, harnesses="copilot-vscode, emacs")
+        out = io.StringIO()
+
+        found = report(project, places)
+        doctor.text(found, out)
+
+        printed = out.getvalue()
+        for kind, number in Counter(entry.check for entry in found.findings).items():
+            assert f"{doctor.TITLE[kind]} ({number})" in printed
+
+    def test_a_group_whose_findings_share_one_fix_prints_that_fix_once(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        """Three identical `fix:` lines under one heading are the same sentence three times."""
+        one_skill(project, kits, harnesses="detected, copilot-ci")
+        render.render(project, places)
+        (project / ".agents" / "skills" / "stray.md").write_text("# stray\n", encoding="utf-8")
+        out = io.StringIO()
+
+        found = report(project, places)
+        doctor.text(found, out)
+
+        stale = [entry for entry in found.findings if entry.check == "stale"]
+        assert len(stale) > 1
+        assert len({entry.fix for entry in stale}) == 1
+        assert _fixes(out.getvalue()).count(stale[0].fix) == 1
+
+    def test_a_group_whose_findings_want_different_fixes_prints_each_of_them(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        one_skill(project, kits, harnesses="detected, emacs, vim")
+        out = io.StringIO()
+
+        found = report(project, places)
+        doctor.text(found, out)
+
+        wanted = [entry for entry in found.findings if entry.check == "unknown-harness"]
+        assert len({entry.fix for entry in wanted}) == len(wanted) > 1
+        for entry in wanted:
+            assert entry.fix in _fixes(out.getvalue())
 
     def test_one_finding_is_one_thing(self, project: Path, places: render.Directories, kits: Path):
         one_skill(project, kits, harnesses="detected, emacs")
@@ -525,7 +575,7 @@ class TestTheReportItself:
 
         doctor.text(report(project, places), out)
 
-        assert "Found 1 thing\n" in out.getvalue()
+        assert "Findings (1)\n" in out.getvalue()
 
     def test_a_finding_that_takes_several_lines_keeps_the_rest_of_them(self, project: Path, places: render.Directories):
         subscribe(project, "version: 1\n\nskills:\n  - this is not a mapping\n")

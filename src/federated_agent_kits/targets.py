@@ -75,7 +75,7 @@ class UnreachableTargetError(RefusalError):
         super().__init__(
             f"cannot tell whether {root} is public, because none of its remotes answered:\n"
             f"{listed}\n"
-            "  This repository commits rendered kits, so a private kit cannot be written into it "
+            "  This project commits rendered kits, so a private kit cannot be written into it "
             "until that question has an answer.\n"
             "  Nothing was written. Check the network and run the same command again."
         )

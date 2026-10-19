@@ -186,7 +186,7 @@ what is in the clone.
 
 So an adapter declares which it is. A harness with a machine is detected and gets files
 rendered on demand and ignored by git. A harness without one cannot be detected by anything
-running on your laptop, so it is named in the repository's manifest, and its files are
+running on your laptop, so it is named in the project's manifest, and its files are
 committed because for it the repository is the delivery mechanism
 ([§6](#6-the-manifest)).
 
@@ -489,7 +489,7 @@ computes.
 
 ### Naming the harnesses, when detection is not enough
 
-A repository's manifest may carry one more key, and most never do:
+A project's manifest may carry one more key, and most never do:
 
 ```yaml
 version: 1
@@ -560,8 +560,8 @@ everywhere. A project's renders inside that project. There is no `scope:` key, b
 is no third answer, and those two words are what the flags and every report call them
 ([§10](#what-a-report-looks-like)).
 
-The project file adds to yours rather than replacing it. Your subscriptions do not stop being
-true because you changed directory.
+The project file adds to the global one rather than replacing it. Your subscriptions do not
+stop being true because you changed directory.
 
 **Neither file overrules the other, because they almost never write to the same place.**
 Yours renders into the machine-level harness directories and a repository's renders inside
@@ -611,13 +611,13 @@ repository, because it stops at the first worktree root, and it cannot reach the
 manifest, which is in the config directory and never on that path.
 
 **Reading uses both, always.** `render`, `list` and `doctor` work from the two together, with
-each subscription acting on its own scope: yours on the machine-level harness directories, a
-repository's inside that repository ([§10](#10-commands)).
+each subscription acting on its own scope: the global manifest's on the machine-level harness
+directories, a project's inside that project ([§10](#10-commands)).
 
 **Writing picks one, and gets asked.** `add`, `remove` and `akit harness` write a manifest,
-`render` never does, and the flags are git's: `--global` for yours, `--project` for the
-repository's. The same two flags narrow the reading commands when you want one scope rather
-than both.
+`render` never does, and the flags are git's: `--global` for the global manifest, `--project`
+for this project's. The same two flags narrow the reading commands when you want one scope
+rather than both.
 
 **With neither flag, the repository's wins.** A repository with no `.akit.yaml` is an error
 naming `--global`, rather than a quiet write to your personal file.
@@ -723,7 +723,7 @@ and belongs in a committed file. The case it is for is a repository that ships k
 its own code: `.` as the key, a `skills/` directory holding what an agent needs in order to
 work on *this* project.
 
-An absolute path only ever makes sense in your own manifest, since nobody else's disk looks
+An absolute path only ever makes sense in the global manifest, since nobody else's disk looks
 like yours.
 
 **A committed manifest may only name a path that stays inside the repository.** `.` and
@@ -837,8 +837,8 @@ harnesses.
 about a source key, learned while cloning ([§8](#8-keeping-the-employers-kits-in)) and true
 however many repositories subscribe to it, so it lives beside the records in the state
 directory with a file of its own. Copying it into every repository's record would store one
-fact once per project, and putting it in yours alone would make one record the odd one that
-also carries machine state.
+fact once per project, and putting it in the global one alone would make one record the odd
+one that also carries machine state.
 
 A record is a cache of facts about this disk, so deleting one costs one `akit render` and
 nothing else. One thing does not come back: a file rendered before its record was deleted is
@@ -1278,7 +1278,7 @@ the flag stays, and `uv tool install federated-agent-kits` is what the daily use
 
 ```text
 akit list                    # what you subscribed to, and where it is
-akit add <source> <name>     # register a subscription, then render it; --global for yours
+akit add <source> <name>     # register a subscription, then render it; --global for global
 akit remove <name>           # drop a subscription, and the files it rendered
 akit harness add <name>      # render for a harness by name, and commit what it reads
 akit harness remove <name>   # stop, and withdraw what it rendered
@@ -1392,7 +1392,7 @@ A call does four things, in order:
 2. **Checks the kit is really there**, by the walk in [§5](#5-sources). A typo fails here,
    with a list of what the source does hold, rather than becoming a skill that silently never
    loads.
-3. **Writes one line** into the repository's manifest, or into yours with `--global`
+3. **Writes one line** into this project's manifest, or into the global one with `--global`
    ([§6](#6-the-manifest)). The line carries the commit; the comment after it carries the tag
    or branch you asked for.
 4. **Renders**, so the kit is usable when the command returns.
@@ -1550,10 +1550,10 @@ files, and `--no-harness` on a bad day would otherwise be a delete command. With
 on purpose is `akit harness remove`.
 
 **A subscription renders into its own scope and no other.** Yours go to the machine-level
-harness directories, the same ones whatever directory you are standing in. A repository's go
-inside that repository. So running this in a repository writes in two places, and the
-repository receives only what its own `.akit.yaml` asked for. Nothing personal of yours ends
-up in somebody's project.
+harness directories, the same ones whatever directory you are standing in. A project's go
+inside that project. So running this in a repository writes in two places, and the project
+receives only what its own `.akit.yaml` asked for. Nothing personal of yours ends up in
+somebody's project.
 
 It does both by default because a kit you are writing is usually a global one, and you are
 usually inside some repository while writing it. A render that skipped your own subscriptions

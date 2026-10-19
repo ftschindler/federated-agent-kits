@@ -50,7 +50,7 @@ builds a part of it or keeps it releasable.
 - [x] **[T12](#t12---the-release-gate)** - The release gate
 - [ ] **[T13](#t13---agents)** - Agents, *after the release gate*
 - [ ] **[T14](#t14---iterate-on-what-use-earns)** - Iterate on what use earns, *open-ended*
-- [ ] **[T15](#t15---one-report-shape-across-the-verbs)** - One report shape across the verbs, *`list` has landed*
+- [x] **[T15](#t15---one-report-shape-across-the-verbs)** - One report shape across the verbs
 
 ## How to use it
 
@@ -1136,6 +1136,12 @@ where the shared pieces get found.
 **Leave alone.** `--json`, which carries the whole of what was found however a report was
 asked for. The `--check` two-liner. The manifest diffs.
 
-**Open.** Whether `doctor` wants a severity colour, which wants a setup with enough findings
-of different kinds to say. Whether a mark column means anything in `update`, where the
-question is what moved rather than what is on disk.
+**Open.** Whether `doctor` wants a severity colour. Still open, and deliberately: `Finding`
+carries no severity, so answering it means classifying all seventeen checks, which is a
+design change [§10](DESIGN.md#what-a-report-looks-like) does not ask for.
+
+**Settled on the way.** A mark column means nothing in `update`, and the reason generalises
+to `add`, `remove` and `harness`: the mark belongs to the render that follows the manifest
+edit, never to the edit. The manifest diff is a diff. For the same reason `render`'s
+withdrawal and pruning sections carry no marks, since a withdrawal that worked leaves nothing
+on disk and marking one would paint the successful case red.

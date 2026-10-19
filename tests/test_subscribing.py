@@ -276,7 +276,7 @@ class TestRemove:
         subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
         subscribing.add(world.call(only_global=True), source=world.remote, name="writing", kind=Kind.SKILL)
 
-        with pytest.raises(AmbiguityError, match="--global for yours"):
+        with pytest.raises(AmbiguityError, match="--global for the global manifest"):
             subscribing.remove(world.call(), name="writing")
 
     def test_naming_the_file_settles_it(self, world: World):

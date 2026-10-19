@@ -1712,3 +1712,33 @@ So that file now also asks twice, from two houses, in one test. That is the ques
 ordering to be lucky with, and it fails against a cache reintroduced anywhere - verified by
 putting a `functools.cache` on `record.root` and watching it fail, rather than by trusting
 that it would.
+
+## 2026-10-19 - One report shape across the verbs, and the two things it exposed
+
+T15 moved the heading, the mark column and the scope vocabulary out of `listing.py` into a
+new `reporting.py`, and put `render`, `doctor` and the four manifest-writing verbs onto them.
+Two things only became visible once the shapes were side by side.
+
+**A dash is two columns and a mark is three.** `list` prints harnesses with no machine under
+their own `-` heading, as `- copilot-ci  takes skills`, directly under a block of
+`[x] opencode  ...` lines sharing the same name column. The names lined up and the text did
+not, by exactly the two characters the dash is short. Nobody had noticed because nothing
+asserted it; `tests/test_reporting.py` now does, and the dash is padded to the three columns
+`styling.MARKS` are. The old snapshot in `tests/test_list_command.py` moved by two spaces.
+
+**Grouping made a repeated fix line into visible noise.** `doctor` on a stale repository
+prints three `stale` findings, and flat they were three sentences each with its own
+`fix: run akit render and commit what it writes`. Under one heading they are three readings
+of one sentence, so a group whose findings share a fix prints it once. Flat, nobody could
+tell they were the same, which is the argument for grouping rather than for colour.
+
+Two decisions went the other way and are worth recording as refusals. `doctor` gets no
+severity colour: `Finding` has no severity field, and adding one means classifying all
+seventeen checks, which is a design change section 10 does not ask for. And the withdrawal
+and pruning sections of `akit render` get no mark column, because a mark says whether a thing
+is on disk and a withdrawal that worked leaves nothing there: marking one paints the
+successful case red.
+
+Verified by running all six verbs against a throwaway source and project, with `NO_COLOR` and
+with `FORCE_COLOR`, rather than from the snapshots alone. `akit render --check` is still the
+two lines a hook reads.

@@ -498,7 +498,7 @@ class TestTheReportForLinesNoPathSourceProduces:
         shown = self.printed(self.line(), (machineless,))
 
         assert "Harnesses with no machine" in shown
-        assert "- copilot-ci  takes skills, and is rendering for this repository's manifest" in shown
+        assert "-   copilot-ci  takes skills, and is rendering for this project's manifest" in shown
         assert "[x]" not in shown and "[ ]" not in shown
 
     def test_a_harness_with_no_machine_that_no_manifest_names_says_what_to_do_about_it(self):
@@ -513,7 +513,7 @@ class TestTheReportForLinesNoPathSourceProduces:
             scopes=(),
         )
 
-        assert "needs listing by name in a repository manifest" in self.printed(self.line(), (machineless,))
+        assert "needs listing by name in a project's manifest" in self.printed(self.line(), (machineless,))
 
     def test_a_harness_that_takes_nothing_says_nothing_rather_than_an_empty_line(self):
         declines = listing.HarnessLine(

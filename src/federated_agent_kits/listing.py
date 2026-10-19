@@ -30,40 +30,21 @@ from federated_agent_kits import adapters, cache, discovery, manifest, record, s
 from federated_agent_kits.adapters import Adapter
 from federated_agent_kits.exits import AkitError, Exit
 from federated_agent_kits.manifest import Kind, Merged, Scope, Subscription
+from federated_agent_kits.reporting import (
+    INDENT,
+    NOTHING,
+    ORDERING,
+    PLURAL,
+    SCOPE_NAMED,
+    SINGULAR,
+    Column,
+    group,
+    joined,
+    scope_title,
+    section,
+    wrapped,
+)
 from federated_agent_kits.styling import Style
-
-#: What each scope is called as a heading. "Yours" was the wrong word for it: a
-#: repository's subscriptions render onto your machine too, and the thing the
-#: two differ in is where the manifest lives rather than who it belongs to.
-SCOPE_TITLE: dict[Scope, str] = {
-    Scope.USER: "Global subscriptions",
-    Scope.PROJECT: "Project subscriptions",
-}
-
-#: The project's comes first, because that is the one the directory you are
-#: standing in decides and the one a colleague also gets. The headings use the
-#: words the flags use, `--global` and `--project`, so there is one pair of
-#: names for the two scopes rather than one pair per command.
-ORDERING: tuple[Scope, ...] = (Scope.PROJECT, Scope.USER)
-
-#: What is missing when a scope has no manifest, by the name that scope's file
-#: has. "No manifest found" says nothing about which file to go and write.
-MISSING: dict[Scope, str] = {Scope.USER: "no manifest.yaml found", Scope.PROJECT: "no .akit.yaml found"}
-
-#: Plurals for the three kinds, for a line that reads like English.
-PLURAL: dict[Kind, str] = {Kind.SKILL: "skills", Kind.RULE: "rules", Kind.AGENT: "agents"}
-
-#: And the singulars, because a kit line names one of them at a time.
-SINGULAR: dict[Kind, str] = {Kind.SKILL: "skill", Kind.RULE: "rule", Kind.AGENT: "agent"}
-
-#: The headings `--by-kind` puts the three groups under.
-TITLE: dict[Kind, str] = {Kind.SKILL: "Skills", Kind.RULE: "Rules", Kind.AGENT: "Agents"}
-
-#: How a scope is named inside a sentence, as opposed to as a heading.
-SCOPE_NAMED: dict[Scope, str] = {
-    Scope.USER: "the global manifest",
-    Scope.PROJECT: "this repository's manifest",
-}
 
 #: What `list` says about a harness and the order of its rules. Two rules can
 #: contradict each other and the manifest decides which wins, but only as far as
@@ -77,24 +58,13 @@ ORDER: dict[bool, str] = {
 }
 
 #: What a machineless harness is told to do instead of being detected.
-NAMING = "needs listing by name in a repository manifest"
+NAMING = "needs listing by name in a project's manifest"
 
-NOTHING = "nothing subscribed here"
-INDENT = "  "
+#: The headings `--by-kind` puts the three groups under, which only `list` has.
+TITLE: dict[Kind, str] = {Kind.SKILL: "Skills", Kind.RULE: "Rules", Kind.AGENT: "Agents"}
 
 #: How much of a commit is worth reading. The whole of one is in `--json`.
 SHORT = 7
-
-#: The length at which a list stops needing an "and" in it.
-ONE = 1
-
-
-def joined(items: Iterable[str]) -> str:
-    """`a`, `a and b`, `a, b and c`. Empty is the caller's problem, not this one's."""
-    listed = list(items)
-    if len(listed) <= ONE:
-        return "".join(listed)
-    return f"{', '.join(listed[:-1])} and {listed[-1]}"
 
 
 @dataclass(frozen=True)
@@ -378,20 +348,17 @@ def _print_targets(part: Found, kind: Kind, out: TextIO, style: Style) -> None:
     if not part.targets:
         print(f"{INDENT}no harness in this scope takes {PLURAL[kind]}", file=out)
         return
-    width = max(len(target.harness) for target in part.targets)
+    column = Column.of((target.harness for target in part.targets), style, indent=INDENT)
     for target in part.targets:
-        padded = style.harness(target.harness) + " " * (width - len(target.harness))
         stale = "" if target.rendered else " (not rendered)"
-        print(f"{INDENT}{style.mark(target.rendered)} {padded}  {style.place(target.described)}{stale}", file=out)
+        column.marked(target.harness, f"{style.place(target.described)}{stale}", out, present=target.rendered)
 
 
 def _print_problem(line: Line, out: TextIO) -> None:
     if line.problem is None:
         return
     reported = line.problem.splitlines()
-    print(f"{INDENT}problem: {reported[0]}", file=out)
-    for rest in reported[1:]:
-        print(f"{INDENT * 2}{rest}", file=out)
+    wrapped(f"problem: {reported[0]}", reported[1:], out)
 
 
 def _part_suffix(part: Found, style: Style) -> str:
@@ -403,11 +370,11 @@ def _part_suffix(part: Found, style: Style) -> str:
 
 def _print_by_source(lines: tuple[Line, ...], out: TextIO, style: Style) -> None:
     """The default shape: one heading per source, and its kits under it."""
-    for (source, pin, where), group in _grouped(lines).items():
+    for (source, pin, where), together in _grouped(lines).items():
         print(f"From {style.source(source)}{pin}:", file=out)
         if where:
             print(f"{INDENT}read from {style.place(where)}", file=out)
-        for line in group:
+        for line in together:
             kind = line.subscription.kind
             for part in line.found:
                 print(f"- {SINGULAR[kind]} {style.kit(part.name)}{_part_suffix(part, style)}", file=out)
@@ -424,7 +391,7 @@ def _print_by_kind(lines: tuple[Line, ...], out: TextIO, style: Style) -> None:
         of_kind = [line for line in lines if line.subscription.kind is kind]
         if not of_kind:
             continue
-        print(style.heading(TITLE[kind], "-"), end="", file=out)
+        group(TITLE[kind], out, style)
         for line in of_kind:
             origin = f"from {style.source(line.subscription.source)}{_pin(line)}"
             for part in line.found:
@@ -436,14 +403,13 @@ def _print_by_kind(lines: tuple[Line, ...], out: TextIO, style: Style) -> None:
         print("", file=out)
 
 
-def _print_harness(entry: HarnessLine, width: int, out: TextIO, style: Style) -> None:
+def _print_harness(entry: HarnessLine, column: Column, out: TextIO) -> None:
     """One harness this machine either has or does not, with its mark."""
-    padded = style.harness(entry.name) + " " * (width - len(entry.name))
     if not entry.known:
-        print(f"{style.mark(False)} {padded}  {entry.summary}", file=out)
+        column.marked(entry.name, entry.summary, out, present=False)
         print(f"{INDENT * 2}named by {joined(SCOPE_NAMED[scope] for scope in entry.scopes)}", file=out)
         return
-    print(f"{style.mark(entry.detected)} {padded}  {_presence(entry)}", file=out)
+    column.marked(entry.name, _presence(entry), out, present=entry.detected)
     print(f"{INDENT * 2}takes {_takes(entry)}, and {_rendering(entry)}", file=out)
     if Kind.RULE in entry.kinds:
         print(f"{INDENT * 2}{ORDER[entry.orders_rules]}", file=out)
@@ -463,30 +429,29 @@ def _rendering(entry: HarnessLine) -> str:
     return f"is rendering for {joined(SCOPE_NAMED[scope] for scope in entry.scopes)}"
 
 
-def _print_machineless(entry: HarnessLine, width: int, out: TextIO, style: Style) -> None:
+def _print_machineless(entry: HarnessLine, column: Column, out: TextIO) -> None:
     """One harness with nothing to detect, so no mark and nothing to be absent from.
 
     A mark here would be a claim about this machine, and a harness that runs on
     somebody else's has none to make. What decides whether it is in play is a
     manifest naming it, which is what the line says instead.
     """
-    padded = style.harness(entry.name) + " " * (width - len(entry.name))
     whether = _rendering(entry) if entry.scopes else NAMING
-    print(f"- {padded}  takes {_takes(entry)}, and {whether}", file=out)
+    column.listed(entry.name, f"takes {_takes(entry)}, and {whether}", out)
 
 
 def _print_harnesses(inventory: Inventory, out: TextIO, style: Style) -> None:
     machineless = [entry for entry in inventory.harnesses if entry.known and not entry.has_a_machine]
     on_this_machine = [entry for entry in inventory.harnesses if entry.has_a_machine or not entry.known]
-    width = max((len(entry.name) for entry in inventory.harnesses), default=0)
-    print(style.heading("Harnesses", "="), end="", file=out)
+    column = Column.of((entry.name for entry in inventory.harnesses), style)
+    section("Harnesses", out, style)
     for entry in on_this_machine:
-        _print_harness(entry, width, out, style)
+        _print_harness(entry, column, out)
     if machineless:
         print("", file=out)
-        print(style.heading("Harnesses with no machine", "-"), end="", file=out)
+        group("Harnesses with no machine", out, style)
         for entry in machineless:
-            _print_machineless(entry, width, out, style)
+            _print_machineless(entry, column, out)
     print("", file=out)
 
 
@@ -494,9 +459,7 @@ def text(inventory: Inventory, out: TextIO, *, shape: Shape = WHOLE, style: Styl
     """The report a person reads: grouped by scope, and silent about nothing."""
     shown = style or Style.plain()
     for scope in shape.scopes:
-        path = inventory.manifests[scope]
-        where = str(path) if path is not None else MISSING[scope]
-        print(shown.heading(f"{SCOPE_TITLE[scope]} ({where})", "="), end="", file=out)
+        section(scope_title(scope, inventory.manifests[scope]), out, shown)
         lines = inventory.of_scope(scope)
         if not lines:
             print(f"{NOTHING}\n", file=out)
@@ -505,7 +468,7 @@ def text(inventory: Inventory, out: TextIO, *, shape: Shape = WHOLE, style: Styl
         else:
             _print_by_source(lines, out, shown)
     _print_harnesses(inventory, out, shown)
-    print(shown.heading("Name collisions", "="), end="", file=out)
+    section("Name collisions", out, shown)
     if not inventory.collisions:
         print("none", file=out)
     for collision in inventory.collisions:

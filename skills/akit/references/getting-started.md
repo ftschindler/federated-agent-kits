@@ -44,12 +44,15 @@ and offer to delete it.
 There are two scopes, both can be in use on a machine at the same time,
 and the difference is important:
 
-- **User-wide**, which `--global` names: true of this person, on every
-  repository they open on this machine. A style guide they always want,
+- **Global**, which `--global` names: true of this person, in every
+  project they open on this machine. A style guide they always want,
   a debugging workflow they wrote. Step 1 used this one.
-- **Per-repository**, which is the default: true of the repository the `akit`
+- **Project**, which is the default: true of the repository the `akit`
   command is run in, for everybody who clones it. The kits a contributor needs
   to work on this code, committed in `.akit.yaml` at its root.
+
+Those are the words every report and every flag uses, so say them rather than
+"user-wide" or "per-repository".
 
 Say both, then ask which they have in mind and which kits, if any, they already
 know they want. Where the answer names neither, stop here: the setup works and

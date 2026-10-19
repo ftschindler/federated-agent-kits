@@ -39,7 +39,9 @@ from federated_agent_kits import manifest as manifests
 from federated_agent_kits.cache import Fetched, Privacy, RefKind, UnreachableError
 from federated_agent_kits.exits import Exit, RefusalError, UsageError
 from federated_agent_kits.manifest import Kind, Manifest, Scope, Subscription
+from federated_agent_kits.reporting import manifest_title, section
 from federated_agent_kits.sources import SourceKey
+from federated_agent_kits.styling import Style
 
 #: A pin somebody typed that is already an answer. Checked rather than asked
 #: about, because a commit cannot move and the remote has nothing to add.
@@ -123,6 +125,7 @@ class Outcome:
 
     command: str
     path: Path | None
+    scope: Scope
     created: bool
     notes: tuple[Note, ...]
     rendered: render.Outcome
@@ -338,7 +341,7 @@ def _in_one_file(found: Sequence[Subscription], name: str, *, scoped: bool) -> t
     if len({entry.scope for entry in found}) > ONE and not scoped:
         raise AmbiguityError(
             f"`{name}` is subscribed in both manifests, and dropping the wrong one would change "
-            "what everybody else gets.\n  Name the file: --global for yours, --project for this repository's."
+            "what everybody else gets.\n  Name the file: --global for the global manifest, --project for this project's."
         )
     return tuple(found)
 
@@ -636,6 +639,7 @@ def _finish(call: Call, chosen: editing.Chosen, edit: _Edit) -> Outcome:
     return Outcome(
         command=edit.command,
         path=chosen.path,
+        scope=chosen.scope,
         created=edit.changed and not chosen.existed,
         notes=tuple(edit.notes),
         rendered=rendered,
@@ -657,23 +661,35 @@ def _restore(path: Path, before: bytes | None) -> None:
         path.write_bytes(before)
 
 
-def text(outcome: Outcome, out: TextIO) -> None:
-    """What happened, in sentences, with the render that followed underneath it."""
+def text(outcome: Outcome, out: TextIO, *, style: Style | None = None) -> None:
+    """What happened to the manifest, and under it the render that followed.
+
+    Two sections, because two different things happened. The first names the
+    file that was edited and says what the edit was; the second is the ordinary
+    render report, which is what a person already knows how to read.
+
+    The diff inside the first keeps its own format. It is a diff, people read
+    those as diffs, and wrapping one in this report's furniture would make it
+    harder to read rather than more familiar.
+    """
+    shown = style or Style.plain()
+    section(manifest_title(outcome.scope, outcome.path), out, shown)
     if outcome.created and outcome.path is not None:
-        print(f"Created {outcome.path}.", file=out)
+        print(f"Created {shown.place(str(outcome.path))}.", file=out)
     for note in outcome.notes:
         print(note.text, file=out)
     for diff in outcome.diffs:
         print("", file=out)
         print(diff.rstrip("\n"), file=out)
     print("", file=out)
-    render.text(outcome.rendered, out)
+    render.text(outcome.rendered, out, style=shown)
 
 
 def payload(outcome: Outcome) -> dict[str, Any]:
     return {
         "command": outcome.command,
         "manifest": None if outcome.path is None else str(outcome.path),
+        "scope": str(outcome.scope),
         "created": outcome.created,
         "changed": outcome.changed,
         "notes": [{"said": note.text, **note.data} for note in outcome.notes],
@@ -687,7 +703,7 @@ def report(outcome: Outcome, out: TextIO, *, as_json: bool) -> Exit:
     if as_json:
         print(json.dumps(payload(outcome), indent=2), file=out)
     else:
-        text(outcome, out)
+        text(outcome, out, style=Style.of(out))
     return outcome.exit_code
 
 

@@ -126,7 +126,7 @@ class TestWhatTheExitCodeSays:
         code, _, errors = machine.run("remove", "writing")
 
         assert code == Exit.USAGE
-        assert "--global for yours" in errors
+        assert "--global for the global manifest" in errors
 
     def test_a_repository_without_a_manifest_names_the_way_in(self, machine: Machine):
         (machine.project / ".akit.yaml").unlink()

@@ -73,7 +73,7 @@ def choose(
     if only_global and only_project:
         raise UsageError(
             "--global and --project ask for two different files.\n"
-            "  Name one. Without either, this writes the repository's manifest."
+            "  Name one. Without either, this writes this project's manifest."
         )
     if named is not None:
         scope = Scope.USER if named == (user_path or manifests.user_manifest_path()) else Scope.PROJECT
@@ -83,7 +83,7 @@ def choose(
     root = manifests.worktree_root(start)
     if root is None:
         raise UsageError(
-            f"{start} is not inside a git repository, so there is no repository manifest to write.\n"
+            f"{start} is not inside a git repository, so there is no project manifest to write.\n"
             "  Run this with --global to write your own, or --manifest <path> to name a file."
         )
     found = root / manifests.PROJECT_MANIFEST

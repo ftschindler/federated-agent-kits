@@ -129,8 +129,11 @@ Subscriptions live in two files with one format, and both can be in use on a mac
 
 | Scope | Flag | Where it lives | True for |
 | --- | --- | --- | --- |
-| Yours | `--global` | your platform's config directory | you, in every repository you open on this machine |
-| This repository's | `--project`, the default | `.akit.yaml` beside the `.git` | everybody who clones it |
+| Global | `--global` | your platform's config directory | you, in every project you open on this machine |
+| Project | `--project`, the default | `.akit.yaml` beside the `.git` | everybody who clones that repository |
+
+Those two words are what every flag, heading and sentence calls them. **Global** means for
+you on this machine; **project** means for the repository the command is run in.
 
 Neither overrules the other, because each renders into its own scope and the two never write
 to the same place. A name used in both is two copies in two directories, which `akit list` and
@@ -193,7 +196,7 @@ subscribe to into it as well.
 Harnesses come in two kinds, and the difference decides what ends up in your repository.
 
 **One kind runs on your machine**, and `akit` finds it by evidence on this disk. What it
-renders is yours alone, so it stays out of the repository: the `.gitignore` block covers it,
+renders is yours alone, so it stays out of the project: the `.gitignore` block covers it,
 and nobody you share the repository with sees it.
 
 **The other kind has no machine.** It runs on somebody else's infrastructure and reads what

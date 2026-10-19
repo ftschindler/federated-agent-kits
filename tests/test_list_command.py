@@ -205,23 +205,23 @@ class TestListInAFakeHome:
             =========
 
             [x] opencode        detected on this machine
-                takes skills and rules, and is rendering for the global manifest and this repository's manifest
+                takes skills and rules, and is rendering for the global manifest and this project's manifest
                 reads rules in the order the manifest lists them
             [ ] copilot-vscode  not detected on this machine
                 takes skills and rules, and is in no manifest's harness list
                 promises no order between rules, so two that contradict are a coin toss
             [ ] emacs           named in a manifest, and no adapter answers to it
-                named by this repository's manifest
+                named by this project's manifest
 
             Harnesses with no machine
             -------------------------
 
-            - copilot-ci      takes skills and rules, and needs listing by name in a repository manifest
+            -   copilot-ci      takes skills and rules, and needs listing by name in a project's manifest
 
             Name collisions
             ===============
 
-            skills "writing" is wanted by <my-kits> (the global manifest) and <remote> (this repository's manifest)
+            skills "writing" is wanted by <my-kits> (the global manifest) and <remote> (this project's manifest)
               fix: subscribe to one of them with `--as <other-name>`
             """).lstrip()
         )
