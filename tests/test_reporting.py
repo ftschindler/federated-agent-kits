@@ -58,9 +58,13 @@ class TestWhatTheTwoScopesAreCalled:
         assert "no .akit.yaml found" in reporting.scope_title(Scope.PROJECT, None)
         assert "no manifest.yaml found" in reporting.scope_title(Scope.USER, None)
 
-    def test_a_scope_with_a_manifest_names_it(self):
-        assert reporting.scope_title(Scope.USER, Path("/tmp/manifest.yaml")).endswith("(/tmp/manifest.yaml)")
-        assert reporting.manifest_title(Scope.PROJECT, Path("/tmp/.akit.yaml")).endswith("(/tmp/.akit.yaml)")
+    def test_a_scope_with_a_manifest_names_it(self, tmp_path: Path):
+        """Spelled from the `Path` itself, because a separator is not the same on both."""
+        user = tmp_path / "manifest.yaml"
+        project = tmp_path / ".akit.yaml"
+
+        assert reporting.scope_title(Scope.USER, user).endswith(f"({user})")
+        assert reporting.manifest_title(Scope.PROJECT, project).endswith(f"({project})")
 
 
 class TestTheColumnOfMarks:
