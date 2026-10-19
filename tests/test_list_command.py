@@ -176,8 +176,8 @@ class TestListInAFakeHome:
         assert (
             shown
             == textwrap.dedent("""
-            Repository subscriptions (<repo>/.akit.yaml)
-            ============================================
+            Project subscriptions (<repo>/.akit.yaml)
+            =========================================
 
             From <remote>, at <commit>:
               read from <cache>/<slug>
@@ -236,8 +236,8 @@ class TestListInAFakeHome:
         assert (
             shown.split("Harnesses")[0]
             == textwrap.dedent("""
-            Repository subscriptions (<repo>/.akit.yaml)
-            ============================================
+            Project subscriptions (<repo>/.akit.yaml)
+            =========================================
 
             Skills
             ------

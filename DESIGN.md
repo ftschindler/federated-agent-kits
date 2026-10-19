@@ -555,9 +555,10 @@ about one person's disk and is never committed. Keeping the two apart means the 
 colleague has to read is one file, and everything generated sits in a directory they never
 open.
 
-**Which file a subscription is in is what decides its scope.** Yours renders everywhere.
-A repository's renders inside that repository. There is no `scope:` key, because there is no
-third answer.
+**Which file a subscription is in is what decides its scope.** The global manifest renders
+everywhere. A project's renders inside that project. There is no `scope:` key, because there
+is no third answer, and those two words are what the flags and every report call them
+([§10](#what-a-report-looks-like)).
 
 The project file adds to yours rather than replacing it. Your subscriptions do not stop being
 true because you changed directory.
@@ -1313,6 +1314,46 @@ Three kinds of file are involved throughout, all described in [§6](#6-the-manif
 directory and one inside each repository rendered into, say what was written under that root,
 with a hash per copy.
 
+### What a report looks like
+
+Every command prints to somebody standing at a terminal, and the same bytes go into a pipe,
+a log and a pull request comment. One set of rules covers all of it, so a person learns the
+shape once and a second verb does not get to invent its own.
+
+**The two scopes are called global and project, everywhere.** Those are the words the flags
+use, so the heading over a block of subscriptions is `Global subscriptions` or `Project
+subscriptions`, the flags that narrow a report to one of them are `--global` and `--project`,
+and a sentence about one says "the global manifest" or "this project's manifest". A report
+that said "yours" was wrong about the other half anyway: a project's subscriptions render
+onto your machine too, and what the two differ in is which file the subscription is in.
+
+**The project comes first.** It is the one the directory you are standing in decides, and the
+one a colleague cloning the repository also gets.
+
+**A heading is a line with a rule under it, and a blank line after.** `=` under the sections
+of a report, `-` under a group inside one. The rule is as long as the heading it is under,
+which is the only thing it is for.
+
+**State is a column of marks, not a word at the end of a line.** A mark says whether the
+thing described is on disk, so a block of them is read down rather than across. The two
+shapes are three columns wide each, so the column aligns either way.
+
+**Colour and marks are decided once, from the stream being written to.** `NO_COLOR` wins over
+everything, `FORCE_COLOR` turns it on where detection cannot, `TERM=dumb` and a pipe turn it
+off. Marks follow colour and then ask the encoding, because a console that cannot encode a
+tick would raise on the first one, and the fallback is `[x]` and `[ ]`. Within a line, the
+kit's name, the harness's id and the source's id are what carry colour, because those are
+what somebody scans for; a path is dimmed, since it is what they read once they have found
+the line.
+
+**A mark is a claim about this machine, so a thing with no machine does not get one.** A
+harness that runs on somebody else's infrastructure is listed rather than marked, and the
+line says what decides whether it is in play: a manifest naming it.
+
+**None of this reaches `--json`.** The flags that narrow or regroup a report shape what a
+person reads; the data carries the whole of what was found, whatever was asked for, because a
+model reading it is not reading a report ([§11](#11-the-skill)).
+
 ### `list`
 
 **Shows what is subscribed and what state it is in.** Reads the manifests, the render record
@@ -1321,6 +1362,19 @@ and the disk; writes nothing and fetches nothing.
 Per subscription it prints the source, the commit it is pinned to, the parts found there,
 and where each part was rendered. A subscription that was never rendered says so, and so
 does one whose source is missing from the cache.
+
+**Kits group under the source they came from.** One heading per source and pin, and under it
+one line per kit with a column of marks saying which harness has it on disk. That is the
+shape the manifest has, so the report and the file it reports on can be read against each
+other. `--by-kind` is the other grouping, every skill and then every rule, each line naming
+its own source, which is the one to reach for when the question is about a kind rather than
+about a source.
+
+**A kit says what the source calls it only where that differs**, which is where `as:` renamed
+it. Everything a subscription has in common with its neighbours is in the heading above them.
+
+**`--global` and `--project` narrow the report to one scope.** Both scopes at once is the
+honest default and is also a lot to read when the question is about one of them.
 
 Failures are reported per line rather than stopping the command, because this is what you run
 when something is already wrong.

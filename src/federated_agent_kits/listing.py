@@ -37,11 +37,13 @@ from federated_agent_kits.styling import Style
 #: two differ in is where the manifest lives rather than who it belongs to.
 SCOPE_TITLE: dict[Scope, str] = {
     Scope.USER: "Global subscriptions",
-    Scope.PROJECT: "Repository subscriptions",
+    Scope.PROJECT: "Project subscriptions",
 }
 
-#: The repository's comes first, because that is the one the directory you are
-#: standing in decides and the one a colleague also gets.
+#: The project's comes first, because that is the one the directory you are
+#: standing in decides and the one a colleague also gets. The headings use the
+#: words the flags use, `--global` and `--project`, so there is one pair of
+#: names for the two scopes rather than one pair per command.
 ORDERING: tuple[Scope, ...] = (Scope.PROJECT, Scope.USER)
 
 #: What is missing when a scope has no manifest, by the name that scope's file

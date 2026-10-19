@@ -359,7 +359,7 @@ class TestAnEmptyMachine:
         assert inventory.lines == ()
         assert inventory.manifests == {Scope.USER: None, Scope.PROJECT: None}
         assert "nothing subscribed here" in printed(inventory)
-        assert "Repository subscriptions (no .akit.yaml found)" in printed(inventory)
+        assert "Project subscriptions (no .akit.yaml found)" in printed(inventory)
         assert "Global subscriptions (no manifest.yaml found)" in printed(inventory)
 
     def test_a_subscription_outside_a_repository_still_resolves_against_somewhere(
@@ -602,19 +602,19 @@ class TestWhichScopesTheReportCovers:
     def test_both_scopes_put_the_repository_first(self, repository: Path, home: Path, kits: Path, tmp_path: Path):
         shown = self.shown(self.inventory(repository, home, kits, tmp_path), only_global=False, only_project=False)
 
-        assert shown.index("Repository subscriptions") < shown.index("Global subscriptions")
+        assert shown.index("Project subscriptions") < shown.index("Global subscriptions")
 
     def test_global_leaves_the_repository_out(self, repository: Path, home: Path, kits: Path, tmp_path: Path):
         shown = self.shown(self.inventory(repository, home, kits, tmp_path), only_global=True, only_project=False)
 
         assert "Global subscriptions" in shown
-        assert "Repository subscriptions" not in shown
+        assert "Project subscriptions" not in shown
         assert "- skill fkb" in shown and "- skill writing" not in shown
 
     def test_project_leaves_the_global_manifest_out(self, repository: Path, home: Path, kits: Path, tmp_path: Path):
         shown = self.shown(self.inventory(repository, home, kits, tmp_path), only_global=False, only_project=True)
 
-        assert "Repository subscriptions" in shown
+        assert "Project subscriptions" in shown
         assert "Global subscriptions" not in shown
 
     def test_asking_for_both_is_asking_for_neither(self):

@@ -50,6 +50,7 @@ builds a part of it or keeps it releasable.
 - [x] **[T12](#t12---the-release-gate)** - The release gate
 - [ ] **[T13](#t13---agents)** - Agents, *after the release gate*
 - [ ] **[T14](#t14---iterate-on-what-use-earns)** - Iterate on what use earns, *open-ended*
+- [ ] **[T15](#t15---one-report-shape-across-the-verbs)** - One report shape across the verbs, *`list` has landed*
 
 ## How to use it
 
@@ -1086,3 +1087,55 @@ construction: no completion date, and its first output is evidence rather than c
 
 **Leave alone.** Anything the journal has not asked for. The failure mode of an open-ended
 task is building the obvious thing.
+
+## T15 - One report shape across the verbs
+
+**Goal.** Every command's output read as one tool's, by the rules in
+[§10](DESIGN.md#what-a-report-looks-like). `akit list` is the worked example and the only verb
+that follows them so far; the rest were written one at a time and each invented its own
+indentation.
+
+**Needs.** [§10](DESIGN.md#what-a-report-looks-like) and `listing.py`, both landed.
+
+**Deliverable.** `render`, `doctor` and the four manifest-writing verbs printing headed
+sections, a mark column where there is state to show, and the global/project vocabulary, with
+`styling.py` as the one place that decides whether colour and marks are on.
+
+**Build.** In this order, because each one is more output than the last and the first two are
+where the shared pieces get found.
+
+1. **The shared pieces, out of `listing.py`.** The heading, the mark column, the padded
+   harness names and the scope vocabulary are a report's, not `list`'s. What moves is whatever
+   the second verb needs unchanged; anything only `list` wants stays where it is. `styling.py`
+   already sits at the right level and needs nothing.
+
+2. **`render`.** It already shares `SCOPE_TITLE` and `joined` with `list`, so it is the
+   cheapest to convert and the one somebody runs most often after a change. The sections are
+   written, replaced, withdrawn and pruned, each a heading rather than a bare line, and a mark
+   per file saying whether it is now on disk. `--check` stays two lines: it is read by a hook,
+   not by a person, and a hook's output should be the one sentence that failed.
+
+3. **`doctor`.** Forty-four findings printed flat is the case that hurts most, and the fix is
+   not colour: it is grouping. Findings carry a kind already, so the heading is the kind and
+   the count goes in it. The mark column is the wrong instrument here, since every finding is
+   a problem; the fix line is what each one is for, and it should be the only indented line.
+   A severity colour is worth considering and worth evidence first.
+
+4. **`add`, `remove`, `harness`, `update`.** These print a diff of the manifest and a line per
+   file touched. The diff is already the right thing and should keep its own format, since it
+   is a diff and people read those as diffs. What changes is the frame around it: which
+   manifest, named the way a report names one, and what was rendered as a consequence.
+
+5. **The help, last.** `akit <verb> --help` is argparse's shape, not ours, and the one thing
+   worth taking there is the vocabulary, so a flag's line says "the global manifest" where a
+   report would.
+
+**Done when.** A person who has read one report can read all of them, and
+`tests/test_styling.py` is still the only place that decides what a terminal takes.
+
+**Leave alone.** `--json`, which carries the whole of what was found however a report was
+asked for. The `--check` two-liner. The manifest diffs.
+
+**Open.** Whether `doctor` wants a severity colour, which wants a setup with enough findings
+of different kinds to say. Whether a mark column means anything in `update`, where the
+question is what moved rather than what is on disk.
