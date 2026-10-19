@@ -1630,3 +1630,42 @@ prefetches in a fixture, with a comment that said "`render` never fetches, so a 
 runs on has to have fetched already" - the test harness encoded the bug as a premise.
 `TestAMachineThatHasNeverRun` is now the layer that does not, and the smoke job is the same
 assertion from outside the suite.
+
+## 2026-10-19 - The unit layer wrote its render record into the developer's state directory
+
+`akit list` on this machine said every kit was unrendered, and `akit doctor` found
+forty-four things, all of them like this:
+
+```text
+/tmp/pytest-of-felix/pytest-11/test_json_is_the_same_run_as_d0/home/.agents/skills/akit/SKILL.md
+  is rendered, and no subscription and harness in scope explains it any more
+```
+
+Those paths belong to a test. They were in `~/.local/state/akit/render.json`, which is where
+this machine keeps what `akit` rendered for it, and they had replaced what was there.
+
+`tests/test_render.py::TestTheVerb` dispatches `render` in-process with `Path.cwd` and
+`Path.home` patched to a `tmp_path`. `record` does not ask `Path.home`: it asks
+`platformdirs.user_state_path`, which reads `XDG_STATE_HOME`, which nobody had redirected.
+So the render went to a fake repository and the record of it went to the real machine. The
+same hole was open for the cache and for the global manifest.
+
+CONTRIBUTING said "every test runs in a fake home", and `tests/fake_home.py` is a careful
+piece of work that makes it true - for a subprocess. The `unit` layer does not run one. The
+claim had been read as covering the suite, when what it covered was one layer of it.
+
+The fix is an autouse `confined` fixture in `tests/conftest.py` that builds the same house
+and moves this process into it, variables removed before being set so the `Path.home()`
+fallback cannot fall back onto a real directory. `UV_CACHE_DIR` is pinned to the real one on
+the way past, or every wheel the `agent` layer builds would start from an empty cache.
+
+It was verified by running the suite against the real file's checksum, with the fixture and
+without: without it, `uv run .scripts/run-tests.py unit -k test_the_verb_renders_and_reports`
+changes `~/.local/state/akit/render.json`; with it, the whole suite leaves it byte-identical.
+`tests/test_isolation.py` is the lock: four assertions that the record, the cache, the global
+manifest and `Path.home()` all land inside the test's own directory.
+
+What this cost, and what is worth writing down: the gap was not in the isolation, which was
+good, but in who it was applied to. A fixture that confines a subprocess says nothing about
+the process that spawns it, and the layer that needed it most was the one running the code
+directly.

@@ -53,7 +53,10 @@ line says why.
 **Every test runs in a fake home.** `HOME`, `USERPROFILE` and every `XDG_*` point inside the
 test's own directory, and the whole `GIT_` namespace is removed, so a bug cannot reach your
 real config, cache or state directory and a fixture commit cannot land in this repository's
-history. See `tests/fake_home.py` and `tests/git_environment.py`.
+history. That holds for the subprocess a `cli` test runs and for the process the tests
+themselves run in: `tests/fake_home.py` builds the house, the autouse `confined` fixture in
+`tests/conftest.py` moves this process into one, and `tests/test_isolation.py` asserts that
+the three directories `akit` writes to land inside it. See also `tests/git_environment.py`.
 
 ## Releases
 
