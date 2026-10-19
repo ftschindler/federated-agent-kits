@@ -142,6 +142,19 @@ class TestASubscriptionThatResolves:
         assert (found.name, found.found_as) == ("house-style", "writing")
         assert found.targets[0].path.name == "house-style"
 
+    def test_a_rename_says_what_the_source_calls_it_and_an_ordinary_name_does_not(
+        self, repository: Path, home: Path, kits: Path, tmp_path: Path
+    ):
+        manifest_at(
+            repository / ".akit.yaml",
+            f"version: 1\nskills:\n  {kits}:\n  - name: writing\n    as: house-style\n  - fkb\n",
+        )
+
+        shown = printed(survey(repository, home, tmp_path))
+
+        assert "- skill house-style (writing, from skills/writing)" in shown
+        assert "- skill fkb\n" in shown
+
     def test_a_wildcard_lists_everything_of_that_kind(self, repository: Path, home: Path, kits: Path, tmp_path: Path):
         manifest_at(repository / ".akit.yaml", f'version: 1\nskills:\n  {kits}: ["*"]\n')
 
@@ -158,7 +171,7 @@ class TestASubscriptionThatResolves:
 
         assert target.path == repository / "AGENTS.md"
         assert target.region == "prose-style"
-        assert target.described.endswith('as the "prose-style" block')
+        assert target.described.startswith('"prose-style" block in')
 
     def test_the_two_scopes_render_to_two_places(self, repository: Path, home: Path, kits: Path, tmp_path: Path):
         manifest_at(repository / ".akit.yaml", f"version: 1\nskills:\n  {kits}: [writing]\n")
@@ -346,7 +359,8 @@ class TestAnEmptyMachine:
         assert inventory.lines == ()
         assert inventory.manifests == {Scope.USER: None, Scope.PROJECT: None}
         assert "nothing subscribed here" in printed(inventory)
-        assert "no manifest found" in printed(inventory)
+        assert "Repository subscriptions (no .akit.yaml found)" in printed(inventory)
+        assert "Global subscriptions (no manifest.yaml found)" in printed(inventory)
 
     def test_a_subscription_outside_a_repository_still_resolves_against_somewhere(
         self, home: Path, kits: Path, tmp_path: Path
@@ -466,10 +480,10 @@ class TestTheReportForLinesNoPathSourceProduces:
 
         shown = self.printed(refused).splitlines()
 
-        assert "    problem: this source is not in the cache." in shown
-        assert "      Run `akit add` for it while online." in shown
+        assert "  problem: this source is not in the cache." in shown
+        assert "    Run `akit add` for it while online." in shown
 
-    def test_a_harness_with_no_machine_says_it_arrives_only_by_being_named(self):
+    def test_a_harness_with_no_machine_is_itemised_rather_than_marked(self):
         machineless = listing.HarnessLine(
             name="copilot-ci",
             summary="GitHub Copilot, in CI",
@@ -481,7 +495,25 @@ class TestTheReportForLinesNoPathSourceProduces:
             scopes=(Scope.PROJECT,),
         )
 
-        assert "arrives only by being named" in self.printed(self.line(), (machineless,))
+        shown = self.printed(self.line(), (machineless,))
+
+        assert "Harnesses with no machine" in shown
+        assert "- copilot-ci  takes skills, and is rendering for this repository's manifest" in shown
+        assert "[x]" not in shown and "[ ]" not in shown
+
+    def test_a_harness_with_no_machine_that_no_manifest_names_says_what_to_do_about_it(self):
+        machineless = listing.HarnessLine(
+            name="copilot-ci",
+            summary="GitHub Copilot, in CI",
+            known=True,
+            detected=False,
+            has_a_machine=False,
+            orders_rules=False,
+            kinds=(Kind.SKILL,),
+            scopes=(),
+        )
+
+        assert "needs listing by name in a repository manifest" in self.printed(self.line(), (machineless,))
 
     def test_a_harness_that_takes_nothing_says_nothing_rather_than_an_empty_line(self):
         declines = listing.HarnessLine(
@@ -496,6 +528,104 @@ class TestTheReportForLinesNoPathSourceProduces:
         )
 
         assert "takes nothing" in self.printed(self.line(), (declines,))
+
+
+class TestTheTwoShapesOfTheReport:
+    """One scope, two groupings: by the source a kit came from, or by its kind.
+
+    What differs is only the headings and what each kit line says beside its
+    name, so both are asserted on the same setup: two kinds from one source,
+    plus a second source, which is the smallest fixture where the two shapes
+    disagree about what goes next to what.
+    """
+
+    def inventory(self, repository: Path, home: Path, kits: Path, tmp_path: Path) -> listing.Inventory:
+        other = build(tmp_path / "other", {"skills/fkb/SKILL.md": "# fkb"})
+        manifest_at(
+            repository / ".akit.yaml",
+            f"version: 1\nskills:\n  {kits}: [writing]\n  {other}: [fkb]\nrules:\n- {kits}: prose-style\n",
+        )
+        return survey(repository, home, tmp_path)
+
+    def test_by_source_puts_the_two_kinds_of_one_source_under_one_heading(
+        self, repository: Path, home: Path, kits: Path, tmp_path: Path
+    ):
+        shown = printed(self.inventory(repository, home, kits, tmp_path))
+
+        assert f"From {kits}, unpinned:" in shown
+        assert shown.index("- skill writing") < shown.index("- rule prose-style") < shown.index("- skill fkb")
+
+    def test_by_kind_puts_every_skill_first_and_names_the_source_on_each_line(
+        self, repository: Path, home: Path, kits: Path, tmp_path: Path
+    ):
+        out = io.StringIO()
+
+        listing.text(self.inventory(repository, home, kits, tmp_path), out, shape=listing.Shape(by_kind=True))
+
+        shown = out.getvalue()
+        assert "Skills\n------" in shown and "Rules\n-----" in shown
+        assert shown.index("- writing, from") < shown.index("- fkb, from") < shown.index("- prose-style, from")
+        assert "Agents" not in shown
+
+    def test_a_line_that_failed_keeps_its_name_and_its_problem_in_both_shapes(
+        self, repository: Path, home: Path, tmp_path: Path
+    ):
+        gone = tmp_path / "gone"
+        manifest_at(repository / ".akit.yaml", f"version: 1\nskills:\n  {gone}: [missing]\n")
+        inventory = survey(repository, home, tmp_path)
+        out = io.StringIO()
+
+        listing.text(inventory, out, shape=listing.Shape(by_kind=True))
+
+        assert "- missing, from" in out.getvalue()
+        assert "problem:" in out.getvalue()
+        assert "- skill missing" in printed(inventory)
+
+
+class TestWhichScopesTheReportCovers:
+    """`--global` and `--project`, which narrow the report rather than the survey.
+
+    The repository's comes first when both are printed, because that is the one
+    the directory decides. Neither flag reaches `--json`, which carries the whole
+    inventory whatever was asked for: a model reading it is not reading a report.
+    """
+
+    def inventory(self, repository: Path, home: Path, kits: Path, tmp_path: Path) -> listing.Inventory:
+        manifest_at(repository / ".akit.yaml", f"version: 1\nskills:\n  {kits}: [writing]\n")
+        return survey(repository, home, tmp_path, user=f"version: 1\nskills:\n  {kits}: [fkb]\n")
+
+    def shown(self, inventory: listing.Inventory, **narrowed: bool) -> str:
+        out = io.StringIO()
+        listing.text(inventory, out, shape=listing.Shape(scopes=listing.scopes_from(**narrowed)))
+        return out.getvalue()
+
+    def test_both_scopes_put_the_repository_first(self, repository: Path, home: Path, kits: Path, tmp_path: Path):
+        shown = self.shown(self.inventory(repository, home, kits, tmp_path), only_global=False, only_project=False)
+
+        assert shown.index("Repository subscriptions") < shown.index("Global subscriptions")
+
+    def test_global_leaves_the_repository_out(self, repository: Path, home: Path, kits: Path, tmp_path: Path):
+        shown = self.shown(self.inventory(repository, home, kits, tmp_path), only_global=True, only_project=False)
+
+        assert "Global subscriptions" in shown
+        assert "Repository subscriptions" not in shown
+        assert "- skill fkb" in shown and "- skill writing" not in shown
+
+    def test_project_leaves_the_global_manifest_out(self, repository: Path, home: Path, kits: Path, tmp_path: Path):
+        shown = self.shown(self.inventory(repository, home, kits, tmp_path), only_global=False, only_project=True)
+
+        assert "Repository subscriptions" in shown
+        assert "Global subscriptions" not in shown
+
+    def test_asking_for_both_is_asking_for_neither(self):
+        assert listing.scopes_from(only_global=True, only_project=True) == listing.ORDERING
+
+    def test_the_harnesses_are_reported_whichever_scope_was_asked_for(
+        self, repository: Path, home: Path, kits: Path, tmp_path: Path
+    ):
+        shown = self.shown(self.inventory(repository, home, kits, tmp_path), only_global=True, only_project=False)
+
+        assert "Harnesses" in shown and "Name collisions" in shown
 
 
 class TestTheCommandItself:
@@ -522,5 +652,7 @@ class TestTheCommandItself:
     def test_the_cli_reaches_it_rather_than_saying_it_is_not_implemented(self):
         out = io.StringIO()
 
-        assert dispatch(argparse.Namespace(command="list", json=False), out) is Exit.OK
+        namespace = argparse.Namespace(command="list", json=False, by_kind=False, global_scope=False, project=False)
+
+        assert dispatch(namespace, out) is Exit.OK
         assert "Harnesses" in out.getvalue()

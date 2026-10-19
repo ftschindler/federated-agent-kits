@@ -97,8 +97,16 @@ COMMANDS: tuple[Command, ...] = (
             "exits 0 even when a line reports a problem: `akit doctor` is the command that "
             "exits non-zero on a broken setup."
         ),
-        examples=("akit list", "akit list --json"),
-        arguments=(),
+        examples=("akit list", "akit list --global --by-kind", "akit list --json"),
+        arguments=(
+            Argument(
+                ("--by-kind",),
+                "Group every skill together and then every rule, instead of by source",
+                dest="by_kind",
+            ),
+            Argument(("--global",), "Report only the global manifest's subscriptions", dest="global_scope"),
+            Argument(("--project",), "Report only this repository's subscriptions"),
+        ),
         following="akit render, to make the files on disk match what this listed",
     ),
     Command(

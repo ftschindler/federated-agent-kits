@@ -245,7 +245,11 @@ def dispatch(arguments: argparse.Namespace, out: TextIO) -> Exit:
     if arguments.command == "help":
         return show_topic(arguments.topic, arguments.json, out)
     if arguments.command == "list":
-        return listing.run(out, as_json=arguments.json)
+        shape = listing.Shape(
+            by_kind=arguments.by_kind,
+            scopes=listing.scopes_from(only_global=arguments.global_scope, only_project=arguments.project),
+        )
+        return listing.run(out, as_json=arguments.json, shape=shape)
     if arguments.command == "render":
         return render_command(arguments, out)
     if arguments.command == "doctor":

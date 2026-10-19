@@ -370,4 +370,4 @@ def test_akit_installs_its_own_skill_into_a_fresh_home(fake_home: FakeHome) -> N
     listed = fake_home.run("list")
     assert listed.returncode == Exit.OK, listed.stderr
     assert "akit" in listed.stdout
-    assert "rules akit" in listed.stdout, "the rule did not come with the skill, so the kit arrived in halves"
+    assert "- rule akit" in listed.stdout, "the rule did not come with the skill, so the kit arrived in halves"
