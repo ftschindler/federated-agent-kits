@@ -46,9 +46,24 @@ COVERED = "unit"
 #: task - `federation` and `agent` do - is an empty layer rather than a broken
 #: one, and a CI job that fails because its tests do not exist yet would be a job
 #: somebody switches off and forgets to switch back on.
+#:
+#: It is forgiven only when nothing was selected by hand. A run given a `-k` has
+#: named something it expects to exist, and the CI matrix names one agent test
+#: per job: forgiving an empty collection there would turn a renamed test into a
+#: green job that ran nothing, which is the failure this whole file is careful
+#: about elsewhere.
 NOTHING_COLLECTED = 5
 
 MARKERS = ("unit", "cli", "federation", "agent")
+
+#: The layer that talks to a live model, and the only one whose failures are not
+#: all about this repository: a session that produces nothing for ten minutes is
+#: a provider having a bad afternoon, and it has failed runs on branches that
+#: changed no Python at all. One retry, and only for that timeout - any other
+#: failure is the agent doing the wrong thing, which is the layer's whole point
+#: and must not be retried into a pass.
+RETRIED = "agent"
+RETRY = ("--reruns", "1", "--only-rerun", "OpencodeTimeoutError")
 
 
 def command_for(marker: str, extra: list[str]) -> list[str]:
@@ -58,6 +73,7 @@ def command_for(marker: str, extra: list[str]) -> list[str]:
         f"--cov-config={REPO_ROOT / 'pyproject.toml'}",
         "--cov-report=term-missing",
     ]
+    retries = ["--with", "pytest-rerunfailures"] if marker == RETRIED else []
     return [
         "uv",
         "run",
@@ -66,6 +82,7 @@ def command_for(marker: str, extra: list[str]) -> list[str]:
         "pytest",
         "--with",
         "pytest-cov",
+        *retries,
         "--with",
         str(REPO_ROOT),
         "pytest",
@@ -76,7 +93,9 @@ def command_for(marker: str, extra: list[str]) -> list[str]:
         "-m",
         marker,
         *(coverage if marker == COVERED else []),
-        *(extra or ["-v"]),
+        *(RETRY if marker == RETRIED else ()),
+        "-v",
+        *extra,
     ]
 
 
@@ -91,7 +110,7 @@ def main() -> int:
     environment = dict(os.environ)
     environment["PYTHONPATH"] = str(REPO_ROOT / "src")
     result = subprocess.run(command, cwd=REPO_ROOT, check=False, env=environment)
-    if result.returncode == NOTHING_COLLECTED:
+    if result.returncode == NOTHING_COLLECTED and not extra:
         print(f"run-tests: no tests are marked {marker!r} yet.", file=sys.stderr)
         return 0
     return result.returncode

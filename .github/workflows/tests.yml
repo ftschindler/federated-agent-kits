@@ -35,13 +35,33 @@ jobs:
     # this repository's skills into it and talks to it, which is why it is the
     # only one that needs node. It is also the only layer that can catch an
     # instruction in the skill that is wrong rather than merely untidy.
-    name: 🛠 (Tests, ${{ matrix.marker }}, ${{ matrix.os }})
+    #
+    # That layer is one job per test rather than one job for the layer. Each of
+    # its tests already builds its own agent, so splitting them duplicates the
+    # checkout and the two setup steps and nothing else, while a model that
+    # stalls on one of them now fails that one: the other two still report, and
+    # the rerun somebody asks for afterwards is five minutes rather than
+    # fourteen. The names are written out because there are three of them; the
+    # run exits non-zero if one of them stops matching a test (see
+    # `NOTHING_COLLECTED` in .scripts/run-tests.py), so a rename cannot leave a
+    # job quietly running nothing.
+    name: 🛠 (Tests, ${{ matrix.layer.marker }}${{ matrix.layer.select && format(' - {0}', matrix.layer.select) || '' }},
+      ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        marker: [unit, cli, federation, agent]
+        layer:
+        - marker: unit
+        - marker: cli
+        - marker: federation
+        - marker: agent
+          select: a_machine_with_no_manifest
+        - marker: agent
+          select: adding_a_kit
+        - marker: agent
+          select: which_files_a_render_wrote
     # Generous because the `agent` layer's duration swings with the tool path a
     # model picks. Anything past this is a problem, not a slow runner.
     timeout-minutes: 20
@@ -51,7 +71,7 @@ jobs:
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
     - name: Setup node
-      if: matrix.marker == 'agent'
+      if: matrix.layer.marker == 'agent'
       uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
       with:
         node-version: "24"
@@ -75,10 +95,11 @@ jobs:
       # pre-commit so the job says which failure it is.
       run: uv run --script .scripts/check_no_symlinks.py
 
-    - name: Run the ${{ matrix.marker }} layer
+    - name: Run the ${{ matrix.layer.marker }} layer
       # `make` is a convenience, not a dependency, and Windows runners have no
       # GNU make. The target is one line either way.
-      run: uv run .scripts/run-tests.py ${{ matrix.marker }}
+      run: uv run .scripts/run-tests.py ${{ matrix.layer.marker }} ${{ matrix.layer.select && format('-k {0}', matrix.layer.select)
+        || '' }}
 
   smoke:
     # The sentence the README makes, run rather than asserted: a repository
