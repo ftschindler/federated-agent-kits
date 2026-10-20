@@ -40,6 +40,7 @@ from federated_agent_kits.cache import Fetched, Privacy, RefKind, UnreachableErr
 from federated_agent_kits.exits import Exit, RefusalError, UsageError
 from federated_agent_kits.manifest import Kind, Manifest, Scope, Subscription
 from federated_agent_kits.reporting import (
+    MISSING,
     Column,
     counted,
     group,
@@ -157,14 +158,12 @@ class Watcher:
     def starting(self, path: Path, *, subscriptions: int, keys: int) -> None:
         """What is about to be looked at, said before the first fetch rather than after.
 
-        A manifest with nothing in it is one sentence and the end of the
-        matter. There is no loop to sit through, so there is nothing to
-        announce and no blank line to leave room for.
+        A manifest with nothing in it has no loop to sit through, so there is
+        nothing to announce here at all. That it was empty is the report's to
+        say, because it is the answer rather than a sign of progress towards
+        one.
         """
-        if self.out is None:
-            return
-        if not keys:
-            print(f"No subscriptions found in {self.style.place(str(path))}, not looking for updates.", file=self.out)
+        if self.out is None or not keys:
             return
         print(
             f"Found {counted(subscriptions, 'subscription')} under {counted(keys, 'key')} "
@@ -874,6 +873,17 @@ def _print_upstream(outcome: Outcome, out: TextIO, style: Style) -> None:
         print("", file=out)
 
 
+def _print_nothing_found(outcome: Outcome, out: TextIO, style: Style) -> None:
+    """The whole answer for a manifest with nothing in it, which is one sentence.
+
+    On `stdout` rather than with the live account, because it is what the
+    command found rather than a sign that it is still working. A person who
+    redirected the output to read later should not get an empty file.
+    """
+    where = MISSING[outcome.scope] if outcome.path is None else str(outcome.path)
+    print(f"No subscriptions found in {style.place(where)}, not looking for updates.", file=out)
+
+
 def _print_stopped(outcome: Outcome, out: TextIO, style: Style) -> None:
     """Keys whose pin stayed put because a part they name is gone from the source."""
     stopped = _stopped_notes(outcome)
@@ -914,16 +924,19 @@ def text(outcome: Outcome, out: TextIO, *, style: Style | None = None) -> None:
     than more familiar. What it does get is a heading saying what it is a diff
     of, which `diff --git a/skills/akit/VERSION` alone does not.
 
-    An `update` with no subscriptions to look at prints nothing here at all.
-    The live account already said so in one sentence, and three headed sections
-    agreeing that nothing happened is a report about the absence of a report.
-    It stays silent only while the render it ends with also did nothing, so
-    this cannot hide a withdrawal.
+    An `update` with no subscriptions to look at is one sentence and no
+    sections. Three headed sections agreeing that nothing happened is a report
+    about the absence of a report. It goes no further than that sentence only
+    while the render it ends with also did nothing, so this cannot hide a
+    withdrawal.
     """
     shown = style or Style.plain()
-    if outcome.found_nothing and outcome.rendered.quiet and not outcome.rendered.withdrawals:
-        return
-    if outcome.command == UPDATE:
+    if outcome.found_nothing:
+        _print_nothing_found(outcome, out, shown)
+        if outcome.rendered.quiet and not outcome.rendered.withdrawals:
+            return
+        print("", file=out)
+    elif outcome.command == UPDATE:
         _print_upstream(outcome, out, shown)
         _print_stopped(outcome, out, shown)
     else:

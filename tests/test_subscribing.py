@@ -604,11 +604,11 @@ class TestTheLiveAccountOfASlowCommand:
 
         assert "up to date" in said
 
-    def test_a_manifest_with_nothing_in_it_is_one_sentence_and_no_blank_lines(self, world: World):
-        """There is no loop to sit through, so there is nothing to announce or leave room for."""
+    def test_a_manifest_with_nothing_in_it_is_announced_nowhere(self, world: World):
+        """No loop to sit through is no progress to report; that it was empty is the report's."""
         said, _ = self.watched(world)
 
-        assert said == f"No subscriptions found in {world.manifest}, not looking for updates.\n"
+        assert said == ""
 
     def test_nobody_is_watching_by_default(self, world: World):
         """The default is silence, which is what `--json` and every library caller get."""
@@ -646,9 +646,11 @@ class TestWhatUpdateReports:
 
         assert "nothing moved: every pin is already at the newest commit it follows" in shown
 
-    def test_a_manifest_with_nothing_in_it_prints_no_report_at_all(self, world: World):
+    def test_a_manifest_with_nothing_in_it_is_one_sentence_and_no_sections(self, world: World):
         """Three headed sections agreeing that nothing happened is a report about no report."""
-        assert self.report(subscribing.update(world.call())) == ""
+        shown = self.report(subscribing.update(world.call()))
+
+        assert shown == f"No subscriptions found in {world.manifest}, not looking for updates.\n"
 
     def test_it_stays_silent_only_while_the_render_it_ends_with_also_did_nothing(self, world: World):
         """Silence on an empty manifest must not be able to hide a withdrawal."""
@@ -657,6 +659,7 @@ class TestWhatUpdateReports:
 
         shown = self.report(subscribing.update(world.call()))
 
+        assert shown.startswith("No subscriptions found in ")
         assert "Withdrawn" in shown
         assert "which nothing in scope explains any more" in shown
 
