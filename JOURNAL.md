@@ -1700,3 +1700,15 @@ which would have needed the same two variables. They now call one `confine` help
 Worth writing down: an environment variable that redirects a directory on one operating
 system may only redirect it *once* on another. The test that locks the isolation has to run
 on both, which is the only reason this was found at all rather than shipped.
+
+Filed separately as issue #38, from a session that met it on #37 rather than here, with a
+detail worth keeping: which test the whole Windows unit layer writes into was decided by the
+alphabet. #36 happened to ask from `test_isolation.py` first and passed; #37 added tests to
+`test_doctor.py`, which sorts earlier, and the same suite failed. A lookup that answers once
+and remembers passes every single-lookup assertion in `test_isolation.py`, because the test
+that asks first is the one that gets its own directory.
+
+So that file now also asks twice, from two houses, in one test. That is the question with no
+ordering to be lucky with, and it fails against a cache reintroduced anywhere - verified by
+putting a `functools.cache` on `record.root` and watching it fail, rather than by trusting
+that it would.
