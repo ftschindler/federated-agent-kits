@@ -1361,6 +1361,19 @@ because what they are for is the whole picture. Anything a writing verb left out
 number and a pronoun, and the file those blocks sit in is the thing somebody would open. A
 line that counts anything inside a file somebody else owns names that file.
 
+**What a command is doing goes to `stderr`; what it did goes to `stdout`.** A command whose
+slow part is a loop over the network leaves somebody watching nothing, so `akit update` says
+what it is about to look at before it looks, and names each key the moment that key answers.
+That account is timing-ordered and depends on which sources happened to be cold, so it is not
+the same bytes a pipe, a log and a pull request comment get, and it does not go where they
+look. Nothing it says is said only there: every pin that moved is in the report as well, so
+output nobody captured loses nothing.
+
+**A diff carries a heading saying what it is a diff of.** `diff --git a/skills/akit/VERSION`
+names a path inside somebody else's repository, which is not enough to know which
+subscription moved or from where. The heading is the key, the source and the two commits,
+because the key is what a pin belongs to.
+
 **None of this reaches `--json`.** The flags that narrow or regroup a report shape what a
 person reads; the data carries the whole of what was found, whatever was asked for, because a
 model reading it is not reading a report ([§11](#11-the-skill)).

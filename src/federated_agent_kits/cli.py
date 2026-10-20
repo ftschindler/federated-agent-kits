@@ -28,6 +28,7 @@ from federated_agent_kits import doctor, listing, render, subscribing
 from federated_agent_kits.commands import COMMANDS, TOPICS, TOPICS_BY_NAME, Argument, Command
 from federated_agent_kits.exits import AkitError, Exit, NotImplementedYetError
 from federated_agent_kits.manifest import Kind
+from federated_agent_kits.styling import Style
 
 #: The verbs that edit a manifest and then render. One branch rather than four,
 #: because what differs between them is their arguments and not their shape.
@@ -236,8 +237,24 @@ def writing_command(arguments: argparse.Namespace, out: TextIO) -> Exit:
     elif arguments.command == "harness":
         outcome = subscribing.harness(call, action=arguments.action, name=arguments.name)
     else:
-        outcome = subscribing.update(call, name=arguments.name)
+        outcome = subscribing.update(call, name=arguments.name, watching=watching(arguments))
     return subscribing.report(outcome, out, as_json=arguments.json)
+
+
+def watching(arguments: argparse.Namespace) -> subscribing.Watcher:
+    """Where `update` says what it is doing while it is still doing it.
+
+    `stderr`, because `stdout` is the record: the same bytes that go into a
+    pipe, a log and a pull request comment (DESIGN.md section 10). A line
+    naming the source currently being fetched is not those bytes, and nothing
+    it says is said only there.
+
+    Silence under `--json`, so that what a model reads is a document and not a
+    document with a progress log in front of it.
+    """
+    if arguments.json:
+        return subscribing.UNWATCHED
+    return subscribing.Watcher(out=sys.stderr, style=Style.of(sys.stderr))
 
 
 def dispatch(arguments: argparse.Namespace, out: TextIO) -> Exit:

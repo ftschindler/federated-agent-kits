@@ -12,11 +12,12 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import sys
 from importlib.metadata import PackageNotFoundError
 
 import pytest
 
-from federated_agent_kits import cli, commands
+from federated_agent_kits import cli, commands, subscribing
 from federated_agent_kits.cli import build_parser, dispatch, main, show_topic, version
 from federated_agent_kits.commands import COMMANDS, Command, unimplemented
 from federated_agent_kits.exits import AkitError, Exit, NotImplementedYetError, RefusalError, UsageError
@@ -171,6 +172,18 @@ class TestHelpTopics:
         with pytest.raises(SystemExit) as raised:
             parse("help", "telepathy")
         assert raised.value.code == Exit.USAGE
+
+
+class TestWhereUpdateSaysWhatItIsDoing:
+    """`stdout` is the record, so the live account of a slow command goes elsewhere."""
+
+    def test_it_goes_to_stderr_so_a_pipe_gets_the_report_and_nothing_else(self):
+        watching = cli.watching(parse("update"))
+
+        assert watching.out is sys.stderr
+
+    def test_json_is_a_document_rather_than_one_with_a_progress_log_in_front(self):
+        assert cli.watching(parse("update", "--json")) is subscribing.UNWATCHED
 
 
 class TestNotImplementedYet:
