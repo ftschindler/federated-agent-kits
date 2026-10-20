@@ -155,8 +155,16 @@ class Watcher:
     style: Style = field(default_factory=Style.plain)
 
     def starting(self, path: Path, *, subscriptions: int, keys: int) -> None:
-        """What is about to be looked at, said before the first fetch rather than after."""
+        """What is about to be looked at, said before the first fetch rather than after.
+
+        A manifest with nothing in it is one sentence and the end of the
+        matter. There is no loop to sit through, so there is nothing to
+        announce and no blank line to leave room for.
+        """
         if self.out is None:
+            return
+        if not keys:
+            print(f"No subscriptions found in {self.style.place(str(path))}, not looking for updates.", file=self.out)
             return
         print(
             f"Found {counted(subscriptions, 'subscription')} under {counted(keys, 'key')} "
@@ -170,9 +178,13 @@ class Watcher:
             return
         print(f"  {column.padded(_named(entry))}  {said}", file=self.out)
 
-    def finished(self) -> None:
-        """The blank line between the live account and the report that follows it."""
-        if self.out is not None:
+    def finished(self, *, keys: int) -> None:
+        """The blank line between the live account and the report that follows it.
+
+        Only where there was an account. Nothing was said about a manifest with
+        nothing in it, so there is nothing to separate from what comes next.
+        """
+        if self.out is not None and keys:
             print("", file=self.out)
 
 
@@ -247,6 +259,16 @@ class Outcome:
 
     moved: tuple[Movement, ...] = ()
     """Every key whose pin `update` moved, with the diff under each. Empty for the rest."""
+
+    @property
+    def found_nothing(self) -> bool:
+        """An `update` that had no key to ask: an empty manifest, or one that is not there.
+
+        `update` writes one note per key, so no notes means no keys. There is
+        nothing to say about pins that do not exist, and a report saying so in
+        three headed sections says it at more length than it is worth.
+        """
+        return self.command == UPDATE and not self.notes
 
     @property
     def exit_code(self) -> Exit:
@@ -759,7 +781,7 @@ def update(call: Call, *, name: str | None = None, watching: Watcher = UNWATCHED
         )
         if moved.diff.strip():
             diffs.append(moved.diff)
-    watching.finished()
+    watching.finished(keys=len(keys))
     return _finish(call, chosen, _Edit(UPDATE, written, notes, changed=changed, diffs=diffs, moved=movements))
 
 
@@ -891,8 +913,16 @@ def text(outcome: Outcome, out: TextIO, *, style: Style | None = None) -> None:
     wrapping one in this report's furniture would make it harder to read rather
     than more familiar. What it does get is a heading saying what it is a diff
     of, which `diff --git a/skills/akit/VERSION` alone does not.
+
+    An `update` with no subscriptions to look at prints nothing here at all.
+    The live account already said so in one sentence, and three headed sections
+    agreeing that nothing happened is a report about the absence of a report.
+    It stays silent only while the render it ends with also did nothing, so
+    this cannot hide a withdrawal.
     """
     shown = style or Style.plain()
+    if outcome.found_nothing and outcome.rendered.quiet and not outcome.rendered.withdrawals:
+        return
     if outcome.command == UPDATE:
         _print_upstream(outcome, out, shown)
         _print_stopped(outcome, out, shown)
