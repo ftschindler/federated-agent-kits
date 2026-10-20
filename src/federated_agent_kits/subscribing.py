@@ -39,7 +39,7 @@ from federated_agent_kits import manifest as manifests
 from federated_agent_kits.cache import Fetched, Privacy, RefKind, UnreachableError
 from federated_agent_kits.exits import Exit, RefusalError, UsageError
 from federated_agent_kits.manifest import Kind, Manifest, Scope, Subscription
-from federated_agent_kits.reporting import manifest_title, section
+from federated_agent_kits.reporting import manifest_title, section, wrapped
 from federated_agent_kits.sources import SourceKey
 from federated_agent_kits.styling import Style
 
@@ -627,12 +627,18 @@ def _finish(call: Call, chosen: editing.Chosen, edit: _Edit) -> Outcome:
 
     What that leaves is total from where the caller stands: exit code 3, the
     manifest it had, and nothing rendered.
+
+    **The render covers the scope that was edited and no other.** These commands
+    write one manifest, and a report about the other one answers a question
+    nobody asked: `akit add --global` has nothing to say about what this project
+    subscribes to, and saying it anyway buries the thing that did change. The
+    other scope is a whole `akit render` away for anybody who wants it.
     """
     before = _bytes_of(chosen.path) if edit.changed else None
     if edit.changed:
         manifests.write(edit.written, chosen.path)
     try:
-        rendered = render.render(call.start, call.places)
+        rendered = render.render(call.start, call.places, render.Choices(scopes=(chosen.scope,)))
     except RefusalError:
         _restore(chosen.path, before)
         raise
@@ -668,16 +674,21 @@ def text(outcome: Outcome, out: TextIO, *, style: Style | None = None) -> None:
     file that was edited and says what the edit was; the second is the ordinary
     render report, which is what a person already knows how to read.
 
-    The diff inside the first keeps its own format. It is a diff, people read
-    those as diffs, and wrapping one in this report's furniture would make it
-    harder to read rather than more familiar.
+    What the edit did is a list, written the way every other list in a report
+    is, because a reader who has just met one in the section below should not
+    have to learn a second shape for the section above it.
+
+    The diff keeps its own format. It is a diff, people read those as diffs,
+    and wrapping one in this report's furniture would make it harder to read
+    rather than more familiar.
     """
     shown = style or Style.plain()
     section(manifest_title(outcome.scope, outcome.path), out, shown)
     if outcome.created and outcome.path is not None:
         print(f"Created {shown.place(str(outcome.path))}.", file=out)
     for note in outcome.notes:
-        print(note.text, file=out)
+        said = note.text.splitlines()
+        wrapped(f"- {said[0]}", said[1:], out, indent="")
     for diff in outcome.diffs:
         print("", file=out)
         print(diff.rstrip("\n"), file=out)

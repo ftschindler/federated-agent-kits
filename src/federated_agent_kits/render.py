@@ -289,9 +289,6 @@ class Choices:
 #: The flags nobody passed: both scopes, every harness the manifests name, and
 #: no pruning. A module-level value rather than a default built per call, so
 #: "everything" is one object the whole program compares against.
-#: The flags nobody passed: both scopes, every harness the manifests name, and
-#: no pruning. A module-level value rather than a default built per call, so
-#: "everything" is one object rather than a new one on each entry.
 EVERYTHING = Choices()
 
 
@@ -1623,18 +1620,41 @@ def _print_ignored(outcome: Outcome, out: TextIO, style: Style) -> None:
     print("", file=out)
 
 
+def _shared_files(outcome: Outcome) -> tuple[Path, ...]:
+    """The files somebody else owns that this render put blocks into, in the order met.
+
+    Named rather than counted, because "left 4 rules there alone" leaves the
+    reader to work out what "there" was, and the whole point of a block is that
+    it sits in a file they also write in.
+    """
+    found: dict[Path, None] = {}
+    for entry in outcome.entries:
+        for place in entry.placements:
+            if place.region is not None:
+                found.setdefault(place.path, None)
+    return tuple(found)
+
+
+def _blocks(outcome: Outcome) -> str:
+    """What this render did inside files somebody else owns, and which files those are."""
+    if not (outcome.blocks_written or outcome.blocks_unchanged):
+        return ""
+    where = joined([str(path) for path in _shared_files(outcome)])
+    named = f" in {where}" if where else ""
+    return (
+        f" Wrote {counted(outcome.blocks_written, 'rule')}{named}, which is a file somebody else "
+        f"owns, and left {counted(outcome.blocks_unchanged, 'rule')} there alone."
+        if outcome.blocks_written
+        else f" Left {counted(outcome.blocks_unchanged, 'rule')}{named} alone, in a file somebody else owns."
+    )
+
+
 def _summary(outcome: Outcome) -> str:
     if outcome.quiet:
         return "Nothing changed: the files on disk already match the manifests."
-    blocks = (
-        f" Wrote {counted(outcome.blocks_written, 'rule')} into a file somebody else owns, and left "
-        f"{counted(outcome.blocks_unchanged, 'rule')} there alone."
-        if outcome.blocks_written or outcome.blocks_unchanged
-        else ""
-    )
     return (
         f"Wrote {counted(outcome.written, 'file')}, left {counted(outcome.unchanged, 'file')} alone as "
-        f"already correct, and deleted {counted(len(outcome.deleted), 'file')}.{blocks}"
+        f"already correct, and deleted {counted(len(outcome.deleted), 'file')}.{_blocks(outcome)}"
     )
 
 

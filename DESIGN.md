@@ -1350,6 +1350,17 @@ the line.
 harness that runs on somebody else's infrastructure is listed rather than marked, and the
 line says what decides whether it is in play: a manifest naming it.
 
+**A report covers the scope that was acted on, and no other.** The writing verbs touch one
+manifest, so `akit add --global` has nothing to say about what this project subscribes to, and
+saying it anyway buries the thing that did change under a list of things that did not. The
+reading verbs are the opposite and cover both unless `--global` or `--project` narrows them,
+because what they are for is the whole picture. Anything a writing verb left out is one
+`akit render` away.
+
+**A count that cannot be acted on names what it counted.** "Left 4 rules there alone" is a
+number and a pronoun, and the file those blocks sit in is the thing somebody would open. A
+line that counts anything inside a file somebody else owns names that file.
+
 **None of this reaches `--json`.** The flags that narrow or regroup a report shape what a
 person reads; the data carries the whole of what was found, whatever was asked for, because a
 model reading it is not reading a report ([§11](#11-the-skill)).

@@ -1118,6 +1118,22 @@ class TestAFileWeShareWithTheUser:
         assert outcome.blocks_written == 0
         assert outcome.blocks_unchanged == 1
 
+    def test_the_summary_names_the_file_it_left_our_blocks_in(
+        self, project: Path, places: render.Directories, rendered: Path, kits: Path
+    ):
+        """ "Left 1 rule there alone" leaves the reader to work out what "there" was."""
+        (kits / "rules" / "tone.md").write_text("---\ndescription: tone\n---\n\nBe plain.\n", encoding="utf-8")
+        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {kits}: [prose-style, tone]\n")
+
+        printed = self.report(render.render(project, places))
+
+        assert str(rendered) in printed.split("Summary")[1]
+
+    def report(self, outcome: render.Outcome) -> str:
+        out = io.StringIO()
+        render.text(outcome, out)
+        return out.getvalue()
+
     def test_a_changed_source_rewrites_only_our_block(
         self, project: Path, places: render.Directories, rendered: Path, kits: Path
     ):

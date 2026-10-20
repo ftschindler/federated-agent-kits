@@ -221,6 +221,49 @@ class TestAdd:
         assert (world.places.home / SKILLS / "writing" / "SKILL.md").exists()
 
 
+class TestWhichScopeTheRenderAfterAnEditCovers:
+    """One of these commands writes one manifest, so its report is about one scope.
+
+    A `--global` edit that reported on this project's subscriptions too would
+    answer a question nobody asked, and bury the thing that did change under it.
+    """
+
+    def report(self, outcome: subscribing.Outcome) -> str:
+        out = io.StringIO()
+        subscribing.text(outcome, out)
+        return out.getvalue()
+
+    def test_a_global_edit_says_nothing_about_this_project(self, world: World):
+        world.project.joinpath(".akit.yaml").write_text(
+            f"version: 1\nharnesses: [opencode]\n\nskills:\n  {world.remote}: [writing]\n", encoding="utf-8"
+        )
+
+        shown = self.report(subscribing.add(world.call(only_global=True), source=world.remote, name="writing"))
+
+        assert "Global subscriptions" in shown
+        assert "Project subscriptions" not in shown
+
+    def test_a_global_edit_touches_no_project_ignore_rules(self, world: World):
+        """The ignore block belongs to a repository, and a global edit is not about one."""
+        shown = self.report(subscribing.add(world.call(only_global=True), source=world.remote, name="writing"))
+
+        assert "Ignore rules" not in shown
+
+    def test_a_project_edit_says_nothing_about_the_global_manifest(self, world: World):
+        subscribing.add(world.call(only_global=True), source=world.remote, name="writing")
+
+        shown = self.report(subscribing.add(world.call(), source=world.remote, name="prose-style"))
+
+        assert "Project subscriptions" in shown
+        assert "Global subscriptions" not in shown
+
+    def test_what_the_edit_did_is_a_list_like_every_other_list_in_a_report(self, world: World):
+        shown = self.report(subscribing.add(world.call(), source=world.remote, name="writing"))
+
+        said = [line for line in shown.splitlines() if "Subscribed:" in line]
+        assert said and all(line.startswith("- ") for line in said)
+
+
 class TestAddWhenTheRemoteCannotBeReached:
     def test_a_cached_source_is_pinned_to_what_this_machine_has(self, world: World, monkeypatch: pytest.MonkeyPatch):
         subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
