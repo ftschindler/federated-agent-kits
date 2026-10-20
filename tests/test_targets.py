@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fake_home import confine
 from git_environment import FIXED_AUTHOR, git, local_remote
 
 from federated_agent_kits import targets
@@ -34,9 +35,7 @@ pytestmark = pytest.mark.unit
 def house(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A home nothing of the developer's is reachable from, for in-process code."""
     home = tmp_path / "home"
-    home.mkdir()
-    for variable in ("HOME", "USERPROFILE"):
-        monkeypatch.setenv(variable, str(home))
+    confine(monkeypatch, home)
     for variable in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
         monkeypatch.delenv(variable, raising=False)
     return home

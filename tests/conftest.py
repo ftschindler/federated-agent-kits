@@ -2,8 +2,9 @@
 
 The `cli` layer runs `akit` as a subprocess inside a fake home (see
 `fake_home.py`), which is what makes a bug in it unable to reach the developer's
-own config, cache or state directory. The `unit` layer imports the package
-directly and needs none of this.
+own config, cache or state directory. `confined` does the same for the process
+the tests themselves run in, so the `unit` layer, which imports the package and
+calls it in-process, cannot reach those directories either.
 
 The `agent` layer goes one further and builds a real agent (see
 `disposable_agent.py`): a pinned opencode in a redirected home, with this
@@ -15,11 +16,38 @@ run can be inspected by hand.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 from disposable_agent import REPO_SKILLS_DIR, DisposableAgent, build_disposable_agent, build_local_wheel
-from fake_home import FakeHome, build_fake_home
+from fake_home import FakeHome, build_fake_home, confine
+
+#: `uv` keeps its downloads under `XDG_CACHE_HOME` too, and redirecting that
+#: without saying where else to look would make every layer that builds a wheel
+#: start from an empty one. This is the developer's own, named explicitly, and
+#: it holds nothing of `akit`'s.
+UV_CACHE = "UV_CACHE_DIR"
+
+
+@pytest.fixture(autouse=True)
+def confined(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeHome:
+    """Put this process's own home inside the test's directory, for every test.
+
+    `fake_home` confines a subprocess, which is what the `cli` layer meets. The
+    `unit` layer imports the package and calls it here, where nothing was
+    confining anything: a test that dispatched `render` with only `Path.home`
+    patched wrote its record into the developer's real state directory, through
+    `platformdirs` reading an `XDG_STATE_HOME` nobody had redirected. It took
+    the subscriptions of the machine it ran on with it.
+
+    So the variables are redirected for the process itself, in the one place
+    every layer passes through. They are removed before being set, because a
+    test that unsets one to reach the `Path.home()` fallback must not fall back
+    onto the developer's.
+    """
+    monkeypatch.setenv(UV_CACHE, os.environ.get(UV_CACHE) or str(Path.home() / ".cache" / "uv"))
+    return confine(monkeypatch, tmp_path / "machine")
 
 
 @pytest.fixture

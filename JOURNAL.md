@@ -1630,3 +1630,85 @@ prefetches in a fixture, with a comment that said "`render` never fetches, so a 
 runs on has to have fetched already" - the test harness encoded the bug as a premise.
 `TestAMachineThatHasNeverRun` is now the layer that does not, and the smoke job is the same
 assertion from outside the suite.
+
+## 2026-10-19 - The unit layer wrote its render record into the developer's state directory
+
+`akit list` on this machine said every kit was unrendered, and `akit doctor` found
+forty-four things, all of them like this:
+
+```text
+/tmp/pytest-of-felix/pytest-11/test_json_is_the_same_run_as_d0/home/.agents/skills/akit/SKILL.md
+  is rendered, and no subscription and harness in scope explains it any more
+```
+
+Those paths belong to a test. They were in `~/.local/state/akit/render.json`, which is where
+this machine keeps what `akit` rendered for it, and they had replaced what was there.
+
+`tests/test_render.py::TestTheVerb` dispatches `render` in-process with `Path.cwd` and
+`Path.home` patched to a `tmp_path`. `record` does not ask `Path.home`: it asks
+`platformdirs.user_state_path`, which reads `XDG_STATE_HOME`, which nobody had redirected.
+So the render went to a fake repository and the record of it went to the real machine. The
+same hole was open for the cache and for the global manifest.
+
+CONTRIBUTING said "every test runs in a fake home", and `tests/fake_home.py` is a careful
+piece of work that makes it true - for a subprocess. The `unit` layer does not run one. The
+claim had been read as covering the suite, when what it covered was one layer of it.
+
+The fix is an autouse `confined` fixture in `tests/conftest.py` that builds the same house
+and moves this process into it, variables removed before being set so the `Path.home()`
+fallback cannot fall back onto a real directory. `UV_CACHE_DIR` is pinned to the real one on
+the way past, or every wheel the `agent` layer builds would start from an empty cache.
+
+It was verified by running the suite against the real file's checksum, with the fixture and
+without: without it, `uv run .scripts/run-tests.py unit -k test_the_verb_renders_and_reports`
+changes `~/.local/state/akit/render.json`; with it, the whole suite leaves it byte-identical.
+`tests/test_isolation.py` is the lock: four assertions that the record, the cache, the global
+manifest and `Path.home()` all land inside the test's own directory.
+
+What this cost, and what is worth writing down: the gap was not in the isolation, which was
+good, but in who it was applied to. A fixture that confines a subprocess says nothing about
+the process that spawns it, and the layer that needed it most was the one running the code
+directly.
+
+## 2026-10-19 - On Windows, `USERPROFILE` only redirects the home the first test asks for
+
+The `confined` fixture above went green on Linux and macOS and failed three ways on
+Windows, all of them the same way:
+
+```text
+assert WindowsPath('.../test_it_is_the_platform_cache_0/home/AppData/Local/akit')
+  .is_relative_to(WindowsPath('.../test_the_render_record_is_insi0/machine'))
+```
+
+The record landed in a fake home, which is what the fixture is for - but in *another
+test's* fake home, one that had finished running. Setting `USERPROFILE` per test is not
+enough there: on Windows `platformdirs` resolves `%APPDATA%` and `%LOCALAPPDATA%` through
+`SHGetKnownFolderPath`, and the shell answers that from a per-process cache it fills on the
+first call. The first test in the process to resolve one of those directories decides where
+every later test in it believes its home is.
+
+`platformdirs` 4.8 added `WIN_PD_OVERRIDE_APPDATA` and `WIN_PD_OVERRIDE_LOCAL_APPDATA`,
+which it reads on every call before it asks the shell. The house now sets both, they joined
+`REDIRECTED` so they are removed before being set like everything else, and the dependency
+floor moved to 4.8 because the isolation is no longer true without them.
+
+The second half of the fix is that there was more than one place doing this: six modules
+had their own autouse `house` fixture redirecting `HOME` and `USERPROFILE` by hand, each of
+which would have needed the same two variables. They now call one `confine` helper in
+`tests/fake_home.py`, so the next variable that turns out to be load-bearing is added once.
+
+Worth writing down: an environment variable that redirects a directory on one operating
+system may only redirect it *once* on another. The test that locks the isolation has to run
+on both, which is the only reason this was found at all rather than shipped.
+
+Filed separately as issue #38, from a session that met it on #37 rather than here, with a
+detail worth keeping: which test the whole Windows unit layer writes into was decided by the
+alphabet. #36 happened to ask from `test_isolation.py` first and passed; #37 added tests to
+`test_doctor.py`, which sorts earlier, and the same suite failed. A lookup that answers once
+and remembers passes every single-lookup assertion in `test_isolation.py`, because the test
+that asks first is the one that gets its own directory.
+
+So that file now also asks twice, from two houses, in one test. That is the question with no
+ordering to be lucky with, and it fails against a cache reintroduced anywhere - verified by
+putting a `functools.cache` on `record.root` and watching it fail, rather than by trusting
+that it would.

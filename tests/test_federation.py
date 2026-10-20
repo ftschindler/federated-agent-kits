@@ -23,6 +23,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from fake_home import confine
 from git_environment import outside_any_repository
 
 from federated_agent_kits import cache, discovery, sources
@@ -58,11 +59,7 @@ FIXTURE_KIT = "tests/fixtures/kit"
 @pytest.fixture(autouse=True)
 def house(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
-    home.mkdir()
-    for variable in ("HOME", "USERPROFILE"):
-        monkeypatch.setenv(variable, str(home))
-    for variable in ("XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME"):
-        monkeypatch.setenv(variable, str(home / variable.lower()))
+    confine(monkeypatch, home)
 
 
 @pytest.fixture

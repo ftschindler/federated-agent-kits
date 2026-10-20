@@ -404,6 +404,48 @@ class TestRunTests:
         assert result.returncode != 0
         assert "everything" in result.stderr
 
+    def test_only_the_live_model_layer_retries_and_only_on_its_timeout(self) -> None:
+        agent = run_tests.command_for("agent", [])
+        assert "pytest-rerunfailures" in agent
+        assert agent[agent.index("--only-rerun") + 1] == "OpencodeTimeoutError"
+        assert "--reruns" not in run_tests.command_for("cli", [])
+
+    def test_a_selection_is_passed_through(self) -> None:
+        assert run_tests.command_for("agent", ["-k", "adding_a_kit"])[-2:] == ["-k", "adding_a_kit"]
+
+    def test_an_empty_layer_passes_and_an_empty_selection_does_not(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The difference the CI matrix depends on: a layer whose tests do not
+        # exist yet is not a failure, a `-k` that matches nothing is.
+        monkeypatch.setattr(
+            run_tests.subprocess,
+            "run",
+            lambda *_a, **_k: subprocess.CompletedProcess([], run_tests.NOTHING_COLLECTED),
+        )
+        monkeypatch.setattr(sys, "argv", ["run-tests.py", "agent"])
+        assert run_tests.main() == 0
+        monkeypatch.setattr(sys, "argv", ["run-tests.py", "agent", "-k", "renamed_away"])
+        assert run_tests.main() == run_tests.NOTHING_COLLECTED
+
+
+class TestTheAgentJobsNameTestsThatExist:
+    """Each `agent` job in CI runs one test by name, and a rename would orphan it.
+
+    `run-tests.py` makes such a job fail rather than pass emptily, which is the
+    lock that matters; this is the one that says so before the push.
+    """
+
+    def test_every_selection_in_the_workflow_matches_exactly_one_test(self) -> None:
+        workflow = (REPO_ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+        selections = [line.split("select:", 1)[1].strip() for line in workflow.splitlines() if "select:" in line]
+        assert selections, "the agent layer is no longer split by test"
+        collected = (REPO_ROOT / "tests" / "test_cold_sessions.py").read_text(encoding="utf-8")
+        names = [
+            line.split("(", 1)[0].removeprefix("def ") for line in collected.splitlines() if line.startswith("def test")
+        ]
+        for selection in selections:
+            assert sum(selection in name for name in names) == 1, f"{selection} names {names}"
+        assert len(selections) == len(names)
+
 
 class TestTheSmoke:
     """The job that runs the sentence the README makes, on a runner with nothing.

@@ -265,6 +265,8 @@ class DisposableAgent:
             "XDG_DATA_HOME",
             "XDG_CACHE_HOME",
             "XDG_STATE_HOME",
+            "WIN_PD_OVERRIDE_APPDATA",
+            "WIN_PD_OVERRIDE_LOCAL_APPDATA",
         )
         if WINDOWS:
             # PowerShell, because `env VAR=... bash` is a POSIX sentence and the
@@ -328,6 +330,13 @@ def _isolated_env(home: Path, wheels: Path | None = None) -> dict[str, str]:
             "XDG_DATA_HOME": str(home / ".local" / "share"),
             "XDG_CACHE_HOME": str(home / ".cache"),
             "XDG_STATE_HOME": str(home / ".local" / "state"),
+            # Where `akit` keeps its directories on Windows, which `USERPROFILE`
+            # does not decide on its own; see `REDIRECTED` in tests/fake_home.py.
+            # They are inherited rather than absent here: the suite sets them for
+            # its own process, so an agent that did not overwrite them would run
+            # `akit` against the *test runner's* house instead of its own.
+            "WIN_PD_OVERRIDE_APPDATA": str(home / "AppData" / "Roaming"),
+            "WIN_PD_OVERRIDE_LOCAL_APPDATA": str(home / "AppData" / "Local"),
             # uv keeps its cache and its tools outside XDG on some platforms, so
             # an agent that installs `akit` would otherwise write into the
             # developer's own uv cache and leave it there after the test.
