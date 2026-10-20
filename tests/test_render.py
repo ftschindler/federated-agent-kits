@@ -777,6 +777,16 @@ class TestTheReport:
     ):
         assert "nothing subscribed here" in self.report(render.render(project, places))
 
+    def test_an_empty_scope_does_not_name_the_harnesses_it_would_have_rendered_for(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        """The next thing to do is subscribe to something, not reconsider the harness list."""
+        printed = self.report(render.render(project, places))
+
+        empty = printed.split("Global subscriptions")[1].split("Withdrawn")[0]
+        assert "nothing subscribed here" in empty
+        assert "rendering for" not in empty
+
     def test_every_withdrawal_outcome_names_the_file_and_the_edited_one_names_a_fix(
         self, project: Path, places: render.Directories, kits: Path, one_skill: Path
     ):

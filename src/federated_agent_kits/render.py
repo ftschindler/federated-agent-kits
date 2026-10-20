@@ -1681,16 +1681,24 @@ def verdict(outcome: Outcome, out: TextIO) -> None:
 
 
 def text(outcome: Outcome, out: TextIO, *, style: Style | None = None) -> None:
-    """The report a person reads: what went where, what went away, and what did not."""
+    """The report a person reads: what went where, what went away, and what did not.
+
+    A scope with nothing subscribed says that and stops. Which harnesses it
+    would have rendered for is true, and answers a question nobody is asking
+    about a scope with nothing to render: the next thing to do is subscribe to
+    something, not to reconsider the harness list.
+    """
     shown = style or Style.plain()
     for scope in ORDERING:
         if scope not in outcome.harnesses:
             continue
         section(scope_title(scope, outcome.manifests[scope]), out, shown)
-        print(f"rendering for {joined(outcome.harnesses[scope]) or 'no harness in scope'}", file=out)
         entries = outcome.of_scope(scope)
         if not entries:
             print(NOTHING, file=out)
+            print("", file=out)
+            continue
+        print(f"rendering for {joined(outcome.harnesses[scope]) or 'no harness in scope'}", file=out)
         for entry in entries:
             _print_entry(entry, out, shown)
         print("", file=out)
