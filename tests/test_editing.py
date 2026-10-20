@@ -53,7 +53,7 @@ class TestChoosingTheFile:
         (tmp_path / ".git").mkdir()
         (tmp_path / ".akit.yaml").write_text("version: 1\n", encoding="utf-8")
 
-        chosen = editing.choose(tmp_path, user_path=tmp_path / "elsewhere.yaml")
+        chosen = editing.choose(tmp_path, editing.Wanted(user_path=tmp_path / "elsewhere.yaml"))
 
         assert chosen.path == tmp_path / ".akit.yaml"
         assert chosen.scope is Scope.PROJECT
@@ -62,13 +62,25 @@ class TestChoosingTheFile:
     def test_a_repository_without_a_manifest_names_the_two_ways_in(self, tmp_path: Path):
         (tmp_path / ".git").mkdir()
 
-        with pytest.raises(UsageError, match="--project to create it"):
-            editing.choose(tmp_path, user_path=tmp_path / "elsewhere.yaml")
+        with pytest.raises(UsageError, match="--project to start one") as refused:
+            editing.choose(tmp_path, editing.Wanted(user_path=tmp_path / "elsewhere.yaml"))
+
+        assert "not the default" not in str(refused.value), "say what to do, not what this is not"
+
+    def test_a_command_that_cannot_create_one_is_not_told_to_create_one(self, tmp_path: Path):
+        """`update` moves pins that are written; a project with none has nothing to move."""
+        (tmp_path / ".git").mkdir()
+
+        chosen = editing.choose(tmp_path, editing.Wanted(user_path=tmp_path / "elsewhere.yaml", creating=False))
+
+        assert chosen.path == tmp_path / ".akit.yaml"
+        assert chosen.manifest.subscriptions == ()
+        assert not chosen.path.exists(), "choosing a file may not create it"
 
     def test_project_creates_one_because_it_was_asked_outright(self, tmp_path: Path):
         (tmp_path / ".git").mkdir()
 
-        chosen = editing.choose(tmp_path, only_project=True, user_path=tmp_path / "elsewhere.yaml")
+        chosen = editing.choose(tmp_path, editing.Wanted(only_project=True, user_path=tmp_path / "elsewhere.yaml"))
 
         assert not chosen.existed
         assert chosen.manifest.subscriptions == ()
@@ -76,26 +88,26 @@ class TestChoosingTheFile:
 
     def test_outside_a_repository_it_says_so(self, tmp_path: Path):
         with pytest.raises(UsageError, match="not inside a git repository"):
-            editing.choose(tmp_path, only_project=True, user_path=tmp_path / "elsewhere.yaml")
+            editing.choose(tmp_path, editing.Wanted(only_project=True, user_path=tmp_path / "elsewhere.yaml"))
 
     def test_global_takes_yours(self, tmp_path: Path):
         yours = tmp_path / "config" / "manifest.yaml"
 
-        chosen = editing.choose(tmp_path, only_global=True, user_path=yours)
+        chosen = editing.choose(tmp_path, editing.Wanted(only_global=True, user_path=yours))
 
         assert chosen.path == yours
         assert chosen.scope is Scope.USER
 
     def test_both_flags_at_once_is_a_question(self, tmp_path: Path):
         with pytest.raises(UsageError, match="two different files"):
-            editing.choose(tmp_path, only_global=True, only_project=True, user_path=tmp_path / "m.yaml")
+            editing.choose(tmp_path, editing.Wanted(only_global=True, only_project=True, user_path=tmp_path / "m.yaml"))
 
     def test_a_named_file_is_read_where_it_is(self, tmp_path: Path):
         named = tmp_path / "somewhere" / "akit.yaml"
         named.parent.mkdir()
         named.write_text("version: 1\n", encoding="utf-8")
 
-        chosen = editing.choose(tmp_path, named=named, user_path=tmp_path / "m.yaml")
+        chosen = editing.choose(tmp_path, editing.Wanted(named=named, user_path=tmp_path / "m.yaml"))
 
         assert chosen.path == named
         assert chosen.scope is Scope.PROJECT
@@ -103,7 +115,7 @@ class TestChoosingTheFile:
     def test_a_named_file_that_is_yours_keeps_your_scope(self, tmp_path: Path):
         yours = tmp_path / "config" / "manifest.yaml"
 
-        chosen = editing.choose(tmp_path, named=yours, user_path=yours)
+        chosen = editing.choose(tmp_path, editing.Wanted(named=yours, user_path=yours))
 
         assert chosen.scope is Scope.USER
 

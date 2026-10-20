@@ -646,6 +646,21 @@ class TestWhatUpdateReports:
 
         assert "nothing moved: every pin is already at the newest commit it follows" in shown
 
+    def test_a_project_with_no_manifest_at_all_is_the_same_one_sentence(self, world: World):
+        """There are no pins to move, which is an answer rather than a thing to be stopped over."""
+        world.manifest.unlink()
+
+        shown = self.report(subscribing.update(world.call()))
+
+        assert shown == f"No subscriptions found in {world.manifest}, not looking for updates.\n"
+
+    def test_add_still_refuses_to_create_a_project_manifest_nobody_asked_for(self, world: World):
+        """`add` is the one with something to put in a file it would be creating."""
+        world.manifest.unlink()
+
+        with pytest.raises(UsageError, match="--project to start one"):
+            subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+
     def test_a_manifest_with_nothing_in_it_is_one_sentence_and_no_sections(self, world: World):
         """Three headed sections agreeing that nothing happened is a report about no report."""
         shown = self.report(subscribing.update(world.call()))

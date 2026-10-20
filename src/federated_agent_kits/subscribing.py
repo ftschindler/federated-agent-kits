@@ -94,13 +94,16 @@ class Call:
     only_project: bool = False
     named: Path | None = None
 
-    def chosen(self) -> editing.Chosen:
+    def chosen(self, *, creating: bool = True) -> editing.Chosen:
         return editing.choose(
             self.start,
-            only_global=self.only_global,
-            only_project=self.only_project,
-            named=self.named,
-            user_path=self.places.user_manifest,
+            editing.Wanted(
+                only_global=self.only_global,
+                only_project=self.only_project,
+                named=self.named,
+                user_path=self.places.user_manifest,
+                creating=creating,
+            ),
         )
 
     @property
@@ -750,8 +753,12 @@ def update(call: Call, *, name: str | None = None, watching: Watcher = UNWATCHED
 
     `watching` is silent unless a caller asked for it, and nothing it says is
     said only there.
+
+    A project with no manifest is not an error here. There are no pins to move,
+    which this says in one sentence; it is `add` that has to refuse, because
+    `add` is the one with something to put in a file it would be creating.
     """
-    chosen = call.chosen()
+    chosen = call.chosen(creating=False)
     keys = _keys(chosen.manifest, name)
     watching.starting(chosen.path, subscriptions=len(chosen.manifest.subscriptions), keys=len(keys))
     column = Column.of([_named(entry) for entry in keys], watching.style)

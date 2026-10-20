@@ -54,43 +54,64 @@ def _read_or_blank(path: Path, scope: Scope) -> Chosen:
     return Chosen(path=path, scope=scope, manifest=found, existed=existed)
 
 
-def choose(
-    start: Path,
-    *,
-    only_global: bool = False,
-    only_project: bool = False,
-    named: Path | None = None,
-    user_path: Path | None = None,
-) -> Chosen:
-    """Which manifest this command writes to, with the refusals DESIGN.md section 6 asks for.
+@dataclass(frozen=True)
+class Wanted:
+    """Which manifest a command was pointed at, as one value rather than five flags.
 
-    The repository's is the default, and a repository without one is an error
-    naming the other two ways in rather than a quiet write to somebody's
-    personal file: a subscription that lands in the repository by accident shows
-    up in `git status` within seconds, and one that lands in your own file shows
-    up when a colleague clones and does not get it.
+    The same shape as `render.Choices` and for the same reason: they are read
+    together, and a caller that set one without considering the others is the
+    bug this groups against.
     """
-    if only_global and only_project:
+
+    only_global: bool = False
+    only_project: bool = False
+    named: Path | None = None
+    user_path: Path | None = None
+    creating: bool = True
+    """Whether this command could write a manifest that is not there yet."""
+
+
+#: Nobody named a file, which is what the four verbs get without a flag.
+ANY = Wanted()
+
+
+def choose(start: Path, wanted: Wanted = ANY) -> Chosen:
+    """Which manifest this command acts on, with the refusals DESIGN.md section 6 asks for.
+
+    The project's is what a command acts on when nobody said otherwise, and a
+    project without one is an error naming the other two ways in rather than a
+    quiet write to somebody's personal file: a subscription that lands in the
+    project by accident shows up in `git status` within seconds, and one that
+    lands in your own file shows up when a colleague clones and does not get it.
+
+    **`creating` is what that refusal is for, so a command that cannot create
+    one does not meet it.** `update` moves pins that are already written; a
+    project with no manifest has none to move, which is an answer rather than a
+    thing to be stopped over. Telling somebody to pass `--project` so the file
+    can be created would be telling them to create an empty file for a command
+    that has nothing to put in it.
+    """
+    if wanted.only_global and wanted.only_project:
         raise UsageError(
             "--global and --project ask for two different files.\n"
-            "  Name one. Without either, this writes this project's manifest."
+            "  Name one. Without either, this acts on this project's manifest."
         )
-    if named is not None:
-        scope = Scope.USER if named == (user_path or manifests.user_manifest_path()) else Scope.PROJECT
-        return _read_or_blank(named, scope)
-    if only_global:
-        return _read_or_blank(user_path or manifests.user_manifest_path(), Scope.USER)
+    yours = wanted.user_path or manifests.user_manifest_path()
+    if wanted.named is not None:
+        return _read_or_blank(wanted.named, Scope.USER if wanted.named == yours else Scope.PROJECT)
+    if wanted.only_global:
+        return _read_or_blank(yours, Scope.USER)
     root = manifests.worktree_root(start)
     if root is None:
         raise UsageError(
-            f"{start} is not inside a git repository, so there is no project manifest to write.\n"
-            "  Run this with --global to write your own, or --manifest <path> to name a file."
+            f"{start} is not inside a git repository, so there is no project manifest here.\n"
+            "  Run this with --global for the manifest on this machine, or --manifest <path> to name a file."
         )
     found = root / manifests.PROJECT_MANIFEST
-    if not found.is_file() and not only_project:
+    if not found.is_file() and not wanted.only_project and wanted.creating:
         raise UsageError(
-            f"{root} has no {manifests.PROJECT_MANIFEST}, and writing one is not the default.\n"
-            "  Run this with --project to create it, or --global to subscribe on this machine only."
+            f"{root} has no {manifests.PROJECT_MANIFEST}.\n"
+            "  Run this with --project to start one, or --global for the manifest on this machine."
         )
     return _read_or_blank(found, Scope.PROJECT)
 
@@ -338,8 +359,10 @@ def unname_harness(found: Manifest, name: str) -> Manifest:
 
 
 __all__ = [
+    "ANY",
     "Chosen",
     "Entry",
+    "Wanted",
     "blank",
     "choose",
     "name_harness",
