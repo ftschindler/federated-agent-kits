@@ -126,7 +126,7 @@ class TestWhatTheExitCodeSays:
         code, _, errors = machine.run("remove", "writing")
 
         assert code == Exit.USAGE
-        assert "--global for yours" in errors
+        assert "--global for the global manifest" in errors
 
     def test_a_repository_without_a_manifest_names_the_way_in(self, machine: Machine):
         (machine.project / ".akit.yaml").unlink()
@@ -134,7 +134,17 @@ class TestWhatTheExitCodeSays:
         code, _, errors = machine.run("add", machine.remote, "writing")
 
         assert code == Exit.USAGE
-        assert "--project to create it" in errors
+        assert "--project to start one" in errors
+        assert "not the default" not in errors, "say what to do, not what this is not"
+
+    def test_update_without_a_manifest_is_an_answer_rather_than_a_refusal(self, machine: Machine):
+        """`update` moves pins that are written, so a project with none has nothing to move."""
+        (machine.project / ".akit.yaml").unlink()
+
+        code, shown, _ = machine.run("update")
+
+        assert code == Exit.OK
+        assert shown.startswith("No subscriptions found in ")
 
 
 class TestOffline:

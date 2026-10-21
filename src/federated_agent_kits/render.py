@@ -77,11 +77,22 @@ from federated_agent_kits.adapters import Adapter
 from federated_agent_kits.adapters.adapter import SEPARATOR
 from federated_agent_kits.cache import Privacy
 from federated_agent_kits.exits import AkitError, Exit, RefusalError, UsageError
-from federated_agent_kits.listing import PLURAL, SCOPE_TITLE, joined
 from federated_agent_kits.manifest import Kind, Merged, Scope, Subscription
 from federated_agent_kits.record import Explanation, Record, Records, Region, Spot, Written
-
-INDENT = "  "
+from federated_agent_kits.reporting import (
+    INDENT,
+    NOTHING,
+    ORDERING,
+    PLURAL,
+    SINGULAR,
+    Column,
+    counted,
+    joined,
+    scope_title,
+    section,
+    wrapped,
+)
+from federated_agent_kits.styling import Style
 
 #: The kinds this build actually puts on disk. Agents are T13, and a kind that
 #: is not here is reported as waiting rather than skipped in silence: a
@@ -98,10 +109,6 @@ GONE = "gone"
 WAITING: dict[Kind, str] = {
     Kind.AGENT: "every adapter declines agents for now; they land with T13",
 }
-
-#: The count at which a noun stops needing its plural.
-ONE = 1
-
 
 #: Directories a copy never descends into. A source's skill is a directory of
 #: files, and the only thing in one that is not part of the kit is a repository.
@@ -282,9 +289,6 @@ class Choices:
 #: The flags nobody passed: both scopes, every harness the manifests name, and
 #: no pruning. A module-level value rather than a default built per call, so
 #: "everything" is one object the whole program compares against.
-#: The flags nobody passed: both scopes, every harness the manifests name, and
-#: no pruning. A module-level value rather than a default built per call, so
-#: "everything" is one object rather than a new one on each entry.
 EVERYTHING = Choices()
 
 
@@ -388,13 +392,6 @@ class _Target:
     the project anchor and the user root are the same directory and the two
     scopes land on one path (DESIGN.md section 6).
     """
-
-
-def counted(number: int, noun: str) -> str:
-    """`no files`, `1 file`, `3 files`, because a report is sentences and not a log."""
-    if number == 0:
-        return f"no {noun}s"
-    return f"{number} {noun}" if number == ONE else f"{number} {noun}s"
 
 
 def _files_of(directory: Path) -> tuple[Path, ...]:
@@ -1225,7 +1222,7 @@ def _escaping(merged: Merged, root: Path | None) -> None:
         f"{committed} is committed, and names a path outside {root}:\n"
         f"{listed}\n"
         f"{INDENT}Nothing was written. Those paths exist on this machine and on no other, so a colleague "
-        f"cloning this repository gets a render that fails.\n"
+        f"cloning this project gets a render that fails.\n"
         f"{INDENT}Subscribe to them in your own manifest instead: `akit remove <name>` then "
         f"`akit add <path> <name> --global`."
     )
@@ -1507,35 +1504,57 @@ def _record_after(before: Record, writes: dict[Spot, _Target], scope: Scope, kep
     return Record(path=before.path, written=tuple(entries.values()))
 
 
-def _print_entry(entry: Entry, out: TextIO) -> None:
+def _placed(place: Placement) -> str:
+    """What one placement did, said the way the summary says it."""
+    if place.region is not None:
+        did = "wrote" if place.written else "already up to date:"
+        return f'{did} the "{place.region}" block in {place.path}'
+    did = (
+        f"wrote {counted(place.written, 'file')}"
+        if place.written
+        else f"already up to date, {counted(place.unchanged, 'file')}"
+    )
+    return f"{did} in {place.path}"
+
+
+def _print_entry(entry: Entry, out: TextIO, style: Style) -> None:
+    """One kit, and under it the column of harnesses that now hold it.
+
+    The same two levels `list` prints, so a kit line reads the same whether you
+    asked what you subscribe to or what a render did about it. An entry that
+    put nothing on disk has no harness to mark, and says why instead: a mark is
+    a claim about a file, and there is no file to claim.
+    """
     subscription = entry.subscription
-    named = f' as "{entry.name}"' if subscription.rename else ""
-    print(f"{INDENT}{subscription.kind} {entry.found_as}{named}, from {subscription.source}", file=out)
+    named = f' as "{style.kit(entry.name)}"' if subscription.rename else ""
+    print(
+        f"- {SINGULAR[subscription.kind]} {style.kit(entry.found_as)}{named}, from {style.source(subscription.source)}",
+        file=out,
+    )
     if entry.waiting is not None:
-        print(f"{INDENT * 2}not rendered: {entry.waiting}", file=out)
+        print(f"{INDENT}not rendered: {entry.waiting}", file=out)
         return
     if entry.problem is not None:
-        reported = entry.problem.splitlines()
-        print(f"{INDENT * 2}problem: {reported[0]}", file=out)
-        for rest in reported[1:]:
-            print(f"{INDENT * 3}{rest}", file=out)
+        wrapped(f"problem: {entry.problem.splitlines()[0]}", entry.problem.splitlines()[1:], out)
     if not entry.placements and entry.problem is None:
-        print(f"{INDENT * 2}no harness in this scope takes {PLURAL[subscription.kind]}", file=out)
+        print(f"{INDENT}no harness in this scope takes {PLURAL[subscription.kind]}", file=out)
+    column = Column.of((joined(place.harnesses) for place in entry.placements), style, indent=INDENT)
     for place in entry.placements:
-        if place.region is not None:
-            did = "wrote" if place.written else "already up to date:"
-            where = f'the "{place.region}" block in {place.path}'
-        else:
-            did = (
-                f"wrote {counted(place.written, 'file')}"
-                if place.written
-                else f"already up to date, {counted(place.unchanged, 'file')}"
-            )
-            where = f"in {place.path}"
-        print(f"{INDENT * 2}{did} {where}, for {joined(place.harnesses)}", file=out)
+        column.marked(joined(place.harnesses), style.place(_placed(place)), out, present=True)
 
 
-def _print_replacements(outcome: Outcome, out: TextIO) -> None:
+def _print_unknown(outcome: Outcome, out: TextIO, style: Style) -> None:
+    """Harness names a manifest asked for that this build has no adapter for."""
+    if not outcome.unknown:
+        return
+    section("Unknown harnesses", out, style)
+    for name in outcome.unknown:
+        print(f'- a manifest names "{style.harness(name)}", and no adapter answers to it', file=out)
+        print(f"{INDENT}fix: run `akit list` to see the harnesses this build knows", file=out)
+    print("", file=out)
+
+
+def _print_replacements(outcome: Outcome, out: TextIO, style: Style) -> None:
     """Name every rendered copy whose hand edit this render wrote over.
 
     Printed before the withdrawals and the summary, because it is the one thing
@@ -1543,34 +1562,100 @@ def _print_replacements(outcome: Outcome, out: TextIO) -> None:
     """
     if not outcome.replaced:
         return
-    print("Replaced, because the source decides what a rendered copy holds", file=out)
+    section("Replaced", out, style)
+    print("The source decides what a rendered copy holds, so these went back to holding it.", file=out)
     for path, region in outcome.replaced:
         where = str(path) if region is None else f'the "{region}" block in {path}'
-        print(f"{INDENT}{where} had been edited since it was rendered, and now holds its source again", file=out)
-    print(
-        f"{INDENT * 2}fix: to keep a change, make it in the source, or subscribe to a kit of your own",
-        file=out,
-    )
+        print(f"- {style.place(where)} had been edited since it was rendered", file=out)
+    print(f"{INDENT}fix: to keep a change, make it in the source, or subscribe to a kit of your own", file=out)
     print("", file=out)
 
 
-def _print_withdrawals(outcome: Outcome, out: TextIO) -> None:
-    print("Withdrawn", file=out)
+def _print_withdrawals(outcome: Outcome, out: TextIO, style: Style) -> None:
+    """What this render took away, which is a different question from what it wrote.
+
+    No mark column here, and that is deliberate. A mark says whether a thing is
+    on disk, and a withdrawal that worked leaves nothing on disk: marking one
+    would paint the successful case red and the failed one green.
+    """
+    section("Withdrawn", out, style)
     if outcome.suspended is not None:
-        print(f"{INDENT}nothing: {outcome.suspended}", file=out)
+        print(f"nothing: {outcome.suspended}", file=out)
     elif not outcome.withdrawals:
-        print(f"{INDENT}nothing: every rendered file is still explained", file=out)
+        print("nothing: every rendered file is still explained", file=out)
     for entry in outcome.withdrawals:
         if entry.action == DELETED:
-            print(f"{INDENT}deleted {entry.described}, which nothing in scope explains any more", file=out)
+            print(f"- deleted {style.place(entry.described)}, which nothing in scope explains any more", file=out)
         elif entry.action == GONE:
-            print(f"{INDENT}{entry.described} was already gone, and is no longer recorded", file=out)
+            print(f"- {style.place(entry.described)} was already gone, and is no longer recorded", file=out)
         else:
-            print(f"{INDENT}left {entry.described} alone: it has been edited since it was rendered", file=out)
-            print(f"{INDENT * 2}fix: run `akit doctor`, which says what to do with it", file=out)
-    for path in outcome.pruned:
-        print(f"{INDENT}pruned {path}, which nothing explains and no record claims", file=out)
+            print(f"- left {style.place(entry.described)} alone: it has been edited since it was rendered", file=out)
+            print(f"{INDENT}fix: run `akit doctor`, which says what to do with it", file=out)
     print("", file=out)
+
+
+def _print_pruned(outcome: Outcome, out: TextIO, style: Style) -> None:
+    """Files under a rendered directory that no record ever claimed.
+
+    Its own section rather than a tail on the withdrawals, because a withdrawal
+    is something this tool put there and took back, and this is something it
+    found in a place it owns and did not recognise.
+    """
+    if not outcome.pruned:
+        return
+    section("Pruned", out, style)
+    for path in outcome.pruned:
+        print(f"- {style.place(str(path))}, which nothing explains and no record claims", file=out)
+    print("", file=out)
+
+
+def _print_ignored(outcome: Outcome, out: TextIO, style: Style) -> None:
+    if not outcome.ignored:
+        return
+    section("Ignore rules", out, style)
+    for root, listed, changed in outcome.ignored:
+        state = "now lists" if changed else "already listed"
+        where = style.place(str(root / ignore.GITIGNORE))
+        print(f"- {where} {state} {joined(listed) or 'nothing of ours'}", file=out)
+    print("", file=out)
+
+
+def _shared_files(outcome: Outcome) -> tuple[Path, ...]:
+    """The files somebody else owns that this render put blocks into, in the order met.
+
+    Named rather than counted, because "left 4 rules there alone" leaves the
+    reader to work out what "there" was, and the whole point of a block is that
+    it sits in a file they also write in.
+    """
+    found: dict[Path, None] = {}
+    for entry in outcome.entries:
+        for place in entry.placements:
+            if place.region is not None:
+                found.setdefault(place.path, None)
+    return tuple(found)
+
+
+def _blocks(outcome: Outcome) -> str:
+    """What this render did inside files somebody else owns, and which files those are."""
+    if not (outcome.blocks_written or outcome.blocks_unchanged):
+        return ""
+    where = joined([str(path) for path in _shared_files(outcome)])
+    named = f" in {where}" if where else ""
+    return (
+        f" Wrote {counted(outcome.blocks_written, 'rule')}{named}, which is a file somebody else "
+        f"owns, and left {counted(outcome.blocks_unchanged, 'rule')} there alone."
+        if outcome.blocks_written
+        else f" Left {counted(outcome.blocks_unchanged, 'rule')}{named} alone, in a file somebody else owns."
+    )
+
+
+def _summary(outcome: Outcome) -> str:
+    if outcome.quiet:
+        return "Nothing changed: the files on disk already match the manifests."
+    return (
+        f"Wrote {counted(outcome.written, 'file')}, left {counted(outcome.unchanged, 'file')} alone as "
+        f"already correct, and deleted {counted(len(outcome.deleted), 'file')}.{_blocks(outcome)}"
+    )
 
 
 def verdict(outcome: Outcome, out: TextIO) -> None:
@@ -1583,58 +1668,47 @@ def verdict(outcome: Outcome, out: TextIO) -> None:
     harnesses = joined(outcome.harnesses.get(Scope.PROJECT, ()))
     if not harnesses:
         offered = joined([adapter.name for adapter in adapters.machineless(adapters.ADAPTERS)])
-        print("Nothing to check: this repository names no harness whose renders it commits.", file=out)
+        print("Nothing to check: this project names no harness whose renders it commits.", file=out)
         print(f"{INDENT}`akit harness add <name>` with one of {offered} is what commits rendered kits.", file=out)
         return
     if not outcome.stale:
-        print(f"Up to date: what this repository commits for {harnesses} matches its manifest.", file=out)
+        print(f"Up to date: what this project commits for {harnesses} matches its manifest.", file=out)
         return
-    print(f"Out of date: what this repository commits for {harnesses} does not match its manifest.", file=out)
+    print(f"Out of date: what this project commits for {harnesses} does not match its manifest.", file=out)
     for reason in outcome.stale:
         print(f"{INDENT}{reason}", file=out)
     print(f"{INDENT}fix: run `akit render` and commit what it writes.", file=out)
 
 
-def text(outcome: Outcome, out: TextIO) -> None:
-    """The report a person reads: what went where, what went away, and what did not."""
-    for scope in Scope:
+def text(outcome: Outcome, out: TextIO, *, style: Style | None = None) -> None:
+    """The report a person reads: what went where, what went away, and what did not.
+
+    A scope with nothing subscribed says that and stops. Which harnesses it
+    would have rendered for is true, and answers a question nobody is asking
+    about a scope with nothing to render: the next thing to do is subscribe to
+    something, not to reconsider the harness list.
+    """
+    shown = style or Style.plain()
+    for scope in ORDERING:
         if scope not in outcome.harnesses:
             continue
-        path = outcome.manifests[scope]
-        where = str(path) if path is not None else "no manifest found"
-        harnesses = joined(outcome.harnesses[scope]) or "no harness in scope"
-        print(f"{SCOPE_TITLE[scope]} ({where}), rendering for {harnesses}", file=out)
+        section(scope_title(scope, outcome.manifests[scope]), out, shown)
         entries = outcome.of_scope(scope)
         if not entries:
-            print(f"{INDENT}nothing subscribed here", file=out)
+            print(NOTHING, file=out)
+            print("", file=out)
+            continue
+        print(f"rendering for {joined(outcome.harnesses[scope]) or 'no harness in scope'}", file=out)
         for entry in entries:
-            _print_entry(entry, out)
+            _print_entry(entry, out, shown)
         print("", file=out)
-    for name in outcome.unknown:
-        print(f'A manifest names the harness "{name}", and no adapter answers to it.', file=out)
-        print(f"{INDENT}fix: run `akit list` to see the harnesses this build knows", file=out)
-    _print_replacements(outcome, out)
-    _print_withdrawals(outcome, out)
-    for root, listed, changed in outcome.ignored:
-        state = "now lists" if changed else "already listed"
-        print(
-            f"Ignore rules\n{INDENT}{root / ignore.GITIGNORE} {state} {joined(listed) or 'nothing of ours'}", file=out
-        )
-        print("", file=out)
-    if outcome.quiet:
-        print("Nothing changed: the files on disk already match the manifests.", file=out)
-    else:
-        blocks = (
-            f" Wrote {counted(outcome.blocks_written, 'rule')} into a file somebody else owns, and left "
-            f"{counted(outcome.blocks_unchanged, 'rule')} there alone."
-            if outcome.blocks_written or outcome.blocks_unchanged
-            else ""
-        )
-        print(
-            f"Wrote {counted(outcome.written, 'file')}, left {counted(outcome.unchanged, 'file')} alone as "
-            f"already correct, and deleted {counted(len(outcome.deleted), 'file')}.{blocks}",
-            file=out,
-        )
+    _print_unknown(outcome, out, shown)
+    _print_replacements(outcome, out, shown)
+    _print_withdrawals(outcome, out, shown)
+    _print_pruned(outcome, out, shown)
+    _print_ignored(outcome, out, shown)
+    section("Summary", out, shown)
+    print(_summary(outcome), file=out)
 
 
 def payload(outcome: Outcome) -> dict[str, Any]:
@@ -1710,7 +1784,7 @@ def run(
     if as_json:
         print(json.dumps(payload(outcome), indent=2), file=out)
     else:
-        text(outcome, out)
+        text(outcome, out, style=Style.of(out))
     return outcome.exit_code
 
 
@@ -1770,7 +1844,6 @@ __all__ = [
     "Plan",
     "Withdrawal",
     "check",
-    "counted",
     "escaping",
     "ignore_block",
     "payload",

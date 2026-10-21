@@ -43,10 +43,37 @@ from federated_agent_kits import adapters, cache, ignore, manifest, record, rend
 from federated_agent_kits.adapters import Adapter
 from federated_agent_kits.adapters.adapter import SEPARATOR
 from federated_agent_kits.exits import AkitError, Exit, RefusalError
-from federated_agent_kits.listing import SCOPE_NAMED, joined
 from federated_agent_kits.manifest import Merged, Scope
+from federated_agent_kits.reporting import INDENT, SCOPE_NAMED, group, joined, section, wrapped
+from federated_agent_kits.styling import Style
 
-INDENT = "  "
+#: The heading each check's findings group under, by the stable id the finding
+#: carries. Forty-four findings printed flat is the case this command hurts
+#: most in, and the fix is grouping rather than colour: a kind read once is a
+#: kind skipped forty-three times.
+#:
+#: `check` is a slug a script matches on, so it is deliberately not a heading.
+#: This is the one place the two are tied together, which also means a new
+#: check cannot reach the report without being given a name a person reads.
+TITLE: dict[str, str] = {
+    "unreadable": "Files this build cannot read",
+    "collision": "Two kits wanting one name",
+    "subscription": "Subscriptions that do not resolve",
+    "unknown-harness": "Harness names no adapter answers to",
+    "harness-left-out": "Harnesses installed here and not rendered for",
+    "harness-not-here": "Harnesses rendered for and not installed here",
+    "edited": "Rendered copies edited by hand",
+    "unexplained": "Rendered copies nothing explains any more",
+    "orphan": "Renders no record knows about",
+    "abandoned-record": "Records of a project with no manifest",
+    "dangling-pointer": "Harness configuration pointing nowhere",
+    "escaping-path": "Committed manifests naming somewhere off this machine",
+    "ignore-block": "Ignore rules that have drifted",
+    "ignored-and-committed": "Ignored directories git is tracking anyway",
+    "refused": "Renders that were refused",
+    "committed-render": "Committed renders that could not be checked",
+    "stale": "Committed renders that are out of date",
+}
 
 
 @dataclass(frozen=True)
@@ -265,7 +292,7 @@ def _abandoned_record(standing: Standing) -> list[Finding]:
     return [
         Finding(
             check="abandoned-record",
-            what=f"{kept} says this repository was rendered into, and it has no {manifest.PROJECT_MANIFEST} any more",
+            what=f"{kept} says this project was rendered into, and it has no {manifest.PROJECT_MANIFEST} any more",
             fix="run `akit render`, which withdraws what nothing explains and takes the record with it",
         )
     ]
@@ -333,7 +360,7 @@ def _escaping_paths(standing: Standing) -> list[Finding]:
     return [
         Finding(
             check="escaping-path",
-            what=f"this repository's committed manifest names {source}, which is outside {standing.root}",
+            what=f"this project's committed manifest names {source}, which is outside {standing.root}",
             fix=(
                 f"run `akit remove <name>` for it, then `akit add {source} <name> --global`: "
                 f"that path exists on this machine and on no other"
@@ -446,7 +473,7 @@ def _ignored(standing: Standing) -> list[Finding]:
             found.append(
                 Finding(
                     check="ignore-block",
-                    what=f"the akit block in {root / ignore.GITIGNORE} does not list what this repository renders",
+                    what=f"the akit block in {root / ignore.GITIGNORE} does not list what this project renders",
                     fix="run `akit render`, which rewrites that block whole",
                 )
             )
@@ -456,7 +483,7 @@ def _ignored(standing: Standing) -> list[Finding]:
                 what=f"{root / ignore.GITIGNORE} ignores {relative}, and git is tracking files in it",
                 fix=(
                     f"run `git rm -r --cached {relative}` and commit that, or `akit harness add <name>` "
-                    f"if this repository means to commit them"
+                    f"if this project means to commit them"
                 ),
             )
             for relative in listed
@@ -512,14 +539,14 @@ def _committed_render(standing: Standing) -> list[Finding]:
         return [
             Finding(
                 check="committed-render",
-                what=f"what this repository commits for {listed} could not be checked: {error}",
+                what=f"what this project commits for {listed} could not be checked: {error}",
                 fix="run `akit render --check` on its own to see the whole of it",
             )
         ]
     return [
         Finding(
             check="stale",
-            what=f"what this repository commits for {listed} is out of date: {reason.strip()}",
+            what=f"what this project commits for {listed} is out of date: {reason.strip()}",
             fix="run `akit render` and commit what it writes",
         )
         for reason in outcome.stale
@@ -586,24 +613,50 @@ def examine(start: Path, places: render.Directories) -> Report:
     )
 
 
-def text(report: Report, out: TextIO) -> None:
-    """The report a person reads: what is wrong, and under each one what to do."""
-    print(f"Checked the setup in {report.where}", file=out)
+def _grouped(findings: tuple[Finding, ...]) -> dict[str, list[Finding]]:
+    """The findings by their kind, in the order the checks ran rather than alphabetically.
+
+    `CHECKS` runs unreadable first and stale last, which is roughly the order
+    somebody has to fix them in: a manifest that will not parse makes every
+    later heading a guess.
+    """
+    kinds: dict[str, list[Finding]] = {}
+    for finding in findings:
+        kinds.setdefault(finding.check, []).append(finding)
+    return kinds
+
+
+def text(report: Report, out: TextIO, *, style: Style | None = None) -> None:
+    """The report a person reads: what is wrong, by kind, and under each one what to do.
+
+    One section, grouped. The mark column every other report has is the wrong
+    instrument here, because a mark distinguishes things and every finding is
+    the same kind of thing: a problem. What distinguishes them is the fix, so
+    that is the only indented line.
+
+    And where a whole group shares one fix, it is printed once under the group
+    rather than under every finding in it. Three identical `fix:` lines under
+    one heading are three readings of the same sentence; flat, nobody could
+    tell they were the same, which is what the grouping is for.
+    """
+    shown = style or Style.plain()
+    print(f"Checked the setup in {shown.place(str(report.where))}", file=out)
     print("", file=out)
     if report.healthy:
         print("Nothing to report: the manifests, the records and the files on disk agree.", file=out)
         return
-    print(f"Found {_counted(len(report.findings))}", file=out)
-    for finding in report.findings:
-        reported = finding.what.splitlines()
-        print(f"{INDENT}{reported[0]}", file=out)
-        for rest in reported[1:]:
-            print(f"{INDENT * 2}{rest.strip()}", file=out)
-        print(f"{INDENT * 2}fix: {finding.fix}", file=out)
-
-
-def _counted(number: int) -> str:
-    return "1 thing" if number == 1 else f"{number} things"
+    section(f"Findings ({len(report.findings)})", out, shown)
+    for kind, found in _grouped(report.findings).items():
+        group(f"{TITLE[kind]} ({len(found)})", out, shown)
+        shared = {finding.fix for finding in found}
+        for finding in found:
+            reported = finding.what.splitlines()
+            wrapped(reported[0], (line.strip() for line in reported[1:]), out, indent="")
+            if len(shared) > 1:
+                print(f"{INDENT}fix: {finding.fix}", file=out)
+        if len(shared) == 1:
+            print(f"{INDENT}fix: {found[0].fix}", file=out)
+        print("", file=out)
 
 
 def payload(report: Report) -> dict[str, Any]:
@@ -621,7 +674,7 @@ def run(out: TextIO, *, as_json: bool, start: Path | None = None, home: Path | N
     if as_json:
         print(json.dumps(payload(report), indent=2), file=out)
     else:
-        text(report, out)
+        text(report, out, style=Style.of(out))
     return report.exit_code
 
 

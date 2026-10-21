@@ -1712,3 +1712,72 @@ So that file now also asks twice, from two houses, in one test. That is the ques
 ordering to be lucky with, and it fails against a cache reintroduced anywhere - verified by
 putting a `functools.cache` on `record.root` and watching it fail, rather than by trusting
 that it would.
+
+## 2026-10-19 - One report shape across the verbs, and the two things it exposed
+
+T15 moved the heading, the mark column and the scope vocabulary out of `listing.py` into a
+new `reporting.py`, and put `render`, `doctor` and the four manifest-writing verbs onto them.
+Two things only became visible once the shapes were side by side.
+
+**A dash is two columns and a mark is three.** `list` prints harnesses with no machine under
+their own `-` heading, as `- copilot-ci  takes skills`, directly under a block of
+`[x] opencode  ...` lines sharing the same name column. The names lined up and the text did
+not, by exactly the two characters the dash is short. Nobody had noticed because nothing
+asserted it; `tests/test_reporting.py` now does, and the dash is padded to the three columns
+`styling.MARKS` are. The old snapshot in `tests/test_list_command.py` moved by two spaces.
+
+**Grouping made a repeated fix line into visible noise.** `doctor` on a stale repository
+prints three `stale` findings, and flat they were three sentences each with its own
+`fix: run akit render and commit what it writes`. Under one heading they are three readings
+of one sentence, so a group whose findings share a fix prints it once. Flat, nobody could
+tell they were the same, which is the argument for grouping rather than for colour.
+
+Two decisions went the other way and are worth recording as refusals. `doctor` gets no
+severity colour: `Finding` has no severity field, and adding one means classifying all
+seventeen checks, which is a design change section 10 does not ask for. And the withdrawal
+and pruning sections of `akit render` get no mark column, because a mark says whether a thing
+is on disk and a withdrawal that worked leaves nothing there: marking one paints the
+successful case red.
+
+Verified by running all six verbs against a throwaway source and project, with `NO_COLOR` and
+with `FORCE_COLOR`, rather than from the snapshots alone. `akit render --check` is still the
+two lines a hook reads.
+
+## 2026-10-19 - `akit update` had nothing to show for the slowest thing it does
+
+Running `akit update --global` from a real checkout printed six lines about six sources, all
+at once, after every fetch had finished. The command does three things: read the manifest,
+which is local and instant; fetch once per key, which is the network; render, which is local
+again. Only the first and last of those had ever been visible, and the middle one is the only
+one anybody waits for.
+
+So the count is announced before the loop and each key reports the moment it answers. That
+needed a channel, because every verb here computes an `Outcome` and then prints it, which is
+what makes `--json` and the text carry the same thing.
+
+The channel is `stderr`, and the argument is section 10's own: the same bytes go into a pipe,
+a log and a pull request comment. A line naming whichever source is currently cold is not
+those bytes. What keeps it honest is that nothing it says is said only there, so output
+nobody captured loses nothing. `Watcher(out=None)` is the default and what `--json` gets, and
+a test hands it a buffer rather than caring which file descriptor anything went to.
+
+Three things the rewrite settled that reading the old output had not made obvious.
+
+**The first section was not a summary of the manifest, it was a report of what the command
+did to it**, one line per source key. The section below it was per kit. Two units of account
+with near-identical headings, which is why the two halves read as unlike each other. The
+manifest section is now gone from `update`: what moved is the record, and the keys that were
+already current are ephemeral.
+
+**A diff with no heading does not say what it is a diff of.** `diff --git
+a/skills/akit/VERSION` names a path inside somebody else's repository. It is now a group
+heading with the key, the source and both commits above each one.
+
+**A pin can move while nothing you subscribe to changes.** Giving those a heading with no
+diff under it reads as something missing, and on a `*` subscription following an active
+branch most of them would be empty, so they are one trailing line instead.
+
+The unit is the key and not the kit, which is worth writing down because the opposite is
+tempting: a reader wants a diff per kit. A pin belongs to a key, a key holding three kits
+moves for all three or for none, and one diff over the three is the change that pin actually
+names. Per kit would also be one `git diff` per name rather than one per key.

@@ -30,19 +30,21 @@ from federated_agent_kits import adapters, cache, discovery, manifest, record, s
 from federated_agent_kits.adapters import Adapter
 from federated_agent_kits.exits import AkitError, Exit
 from federated_agent_kits.manifest import Kind, Merged, Scope, Subscription
-
-#: What each scope is called in a sentence, since "user" and "project" are our
-#: words for it and not anybody else's.
-SCOPE_TITLE: dict[Scope, str] = {
-    Scope.USER: "Your subscriptions",
-    Scope.PROJECT: "This repository's subscriptions",
-}
-
-#: Plurals for the three kinds, for a line that reads like English.
-PLURAL: dict[Kind, str] = {Kind.SKILL: "skills", Kind.RULE: "rules", Kind.AGENT: "agents"}
-
-#: How a scope is named inside a sentence, as opposed to as a heading.
-SCOPE_NAMED: dict[Scope, str] = {Scope.USER: "your manifest", Scope.PROJECT: "this repository"}
+from federated_agent_kits.reporting import (
+    INDENT,
+    NOTHING,
+    ORDERING,
+    PLURAL,
+    SCOPE_NAMED,
+    SINGULAR,
+    Column,
+    group,
+    joined,
+    scope_title,
+    section,
+    wrapped,
+)
+from federated_agent_kits.styling import Style
 
 #: What `list` says about a harness and the order of its rules. Two rules can
 #: contradict each other and the manifest decides which wins, but only as far as
@@ -51,23 +53,18 @@ SCOPE_NAMED: dict[Scope, str] = {Scope.USER: "your manifest", Scope.PROJECT: "th
 #: on one (DESIGN.md section 7). Nobody should have to learn which from
 #: behaviour.
 ORDER: dict[bool, str] = {
-    True: "reads rules in the order your manifest lists them",
+    True: "reads rules in the order the manifest lists them",
     False: "promises no order between rules, so two that contradict are a coin toss",
 }
 
-NOTHING = "  nothing subscribed here"
-INDENT = "  "
+#: What a machineless harness is told to do instead of being detected.
+NAMING = "needs listing by name in a project's manifest"
 
-#: The length at which a list stops needing an "and" in it.
-ONE = 1
+#: The headings `--by-kind` puts the three groups under, which only `list` has.
+TITLE: dict[Kind, str] = {Kind.SKILL: "Skills", Kind.RULE: "Rules", Kind.AGENT: "Agents"}
 
-
-def joined(items: Iterable[str]) -> str:
-    """`a`, `a and b`, `a, b and c`. Empty is the caller's problem, not this one's."""
-    listed = list(items)
-    if len(listed) <= ONE:
-        return "".join(listed)
-    return f"{', '.join(listed[:-1])} and {listed[-1]}"
+#: How much of a commit is worth reading. The whole of one is in `--json`.
+SHORT = 7
 
 
 @dataclass(frozen=True)
@@ -85,7 +82,7 @@ class Target:
         """How this reads in a sentence, since a block is not a path."""
         if self.region is None:
             return str(self.path)
-        return f'{self.path}, as the "{self.region}" block'
+        return f'"{self.region}" block in {self.path}'
 
 
 @dataclass(frozen=True)
@@ -144,6 +141,18 @@ class Collision:
     kind: Kind
     name: str
     wanted_by: tuple[Subscription, ...]
+
+
+@dataclass(frozen=True)
+class Shape:
+    """What the reader asked the report to look like, as opposed to what it says."""
+
+    by_kind: bool = False
+    scopes: tuple[Scope, ...] = ORDERING
+
+
+#: The whole report, which is what somebody who passed no flag asked for.
+WHOLE = Shape()
 
 
 @dataclass(frozen=True)
@@ -315,77 +324,157 @@ def survey(
 
 def _pin(line: Line) -> str:
     if line.subscription.pin is not None:
-        return f", pinned to {line.subscription.pin}"
+        return f", pinned to {line.subscription.pin[:SHORT]}"
     if line.commit is not None:
-        return f", at {line.commit}"
+        return f", at {line.commit[:SHORT]}"
     return ", unpinned"
 
 
-def _print_line(line: Line, out: TextIO) -> None:
-    subscription = line.subscription
-    named = f' as "{subscription.rename}"' if subscription.rename else ""
-    print(f"{INDENT}{subscription.kind} {subscription.name}{named}, from {subscription.source}{_pin(line)}", file=out)
-    if line.where is not None:
-        print(f"{INDENT * 2}read from {line.where}", file=out)
-    if line.problem is not None:
-        reported = line.problem.splitlines()
-        print(f"{INDENT * 2}problem: {reported[0]}", file=out)
-        for rest in reported[1:]:
-            print(f"{INDENT * 3}{rest}", file=out)
-    for part in line.found:
-        renamed = f" (found as {part.found_as})" if part.found_as != part.name else ""
-        print(f"{INDENT * 2}{part.name}{renamed}, at {part.relative} in the source", file=out)
-        if not part.targets:
-            print(f"{INDENT * 3}no harness in this scope takes {PLURAL[subscription.kind]}", file=out)
-        for target in part.targets:
-            state = "rendered" if target.rendered else "not rendered"
-            print(f"{INDENT * 3}{target.harness}: {target.described} ({state})", file=out)
+def _origin(line: Line) -> tuple[str, str, str]:
+    """What two subscriptions have to share to be printed under one heading."""
+    return (line.subscription.source, _pin(line), "" if line.where is None else str(line.where))
 
 
-def _print_harness(entry: HarnessLine, out: TextIO) -> None:
+def _grouped(lines: Iterable[Line]) -> dict[tuple[str, str, str], list[Line]]:
+    """The lines of one scope, by the source they came from, in the manifest's order."""
+    groups: dict[tuple[str, str, str], list[Line]] = {}
+    for line in lines:
+        groups.setdefault(_origin(line), []).append(line)
+    return groups
+
+
+def _print_targets(part: Found, kind: Kind, out: TextIO, style: Style) -> None:
+    """One column of marks, one harness each, and where that harness takes it."""
+    if not part.targets:
+        print(f"{INDENT}no harness in this scope takes {PLURAL[kind]}", file=out)
+        return
+    column = Column.of((target.harness for target in part.targets), style, indent=INDENT)
+    for target in part.targets:
+        stale = "" if target.rendered else " (not rendered)"
+        column.marked(target.harness, f"{style.place(target.described)}{stale}", out, present=target.rendered)
+
+
+def _print_problem(line: Line, out: TextIO) -> None:
+    if line.problem is None:
+        return
+    reported = line.problem.splitlines()
+    wrapped(f"problem: {reported[0]}", reported[1:], out)
+
+
+def _part_suffix(part: Found, style: Style) -> str:
+    """Where a part came from, said only when the name on disk is not the source's."""
+    if part.found_as == part.name:
+        return ""
+    return f" ({part.found_as}, from {style.place(part.relative)})"
+
+
+def _print_by_source(lines: tuple[Line, ...], out: TextIO, style: Style) -> None:
+    """The default shape: one heading per source, and its kits under it."""
+    for (source, pin, where), together in _grouped(lines).items():
+        print(f"From {style.source(source)}{pin}:", file=out)
+        if where:
+            print(f"{INDENT}read from {style.place(where)}", file=out)
+        for line in together:
+            kind = line.subscription.kind
+            for part in line.found:
+                print(f"- {SINGULAR[kind]} {style.kit(part.name)}{_part_suffix(part, style)}", file=out)
+                _print_targets(part, kind, out, style)
+            if not line.found:
+                print(f"- {SINGULAR[kind]} {style.kit(line.subscription.name)}", file=out)
+                _print_problem(line, out)
+        print("", file=out)
+
+
+def _print_by_kind(lines: tuple[Line, ...], out: TextIO, style: Style) -> None:
+    """`--by-kind`: every skill, then every rule, each saying where it came from."""
+    for kind in Kind:
+        of_kind = [line for line in lines if line.subscription.kind is kind]
+        if not of_kind:
+            continue
+        group(TITLE[kind], out, style)
+        for line in of_kind:
+            origin = f"from {style.source(line.subscription.source)}{_pin(line)}"
+            for part in line.found:
+                print(f"- {style.kit(part.name)}{_part_suffix(part, style)}, {origin}", file=out)
+                _print_targets(part, kind, out, style)
+            if not line.found:
+                print(f"- {style.kit(line.subscription.name)}, {origin}", file=out)
+                _print_problem(line, out)
+        print("", file=out)
+
+
+def _print_harness(entry: HarnessLine, column: Column, out: TextIO) -> None:
+    """One harness this machine either has or does not, with its mark."""
     if not entry.known:
-        print(f"{INDENT}{entry.name}: {entry.summary}", file=out)
+        column.marked(entry.name, entry.summary, out, present=False)
         print(f"{INDENT * 2}named by {joined(SCOPE_NAMED[scope] for scope in entry.scopes)}", file=out)
         return
-    if not entry.has_a_machine:
-        presence = "has no machine, so it arrives only by being named"
-    else:
-        presence = "detected on this machine" if entry.detected else "not detected on this machine"
-    takes = joined(PLURAL[kind] for kind in entry.kinds) or "nothing"
-    rendering = (
-        f"rendering for {joined(SCOPE_NAMED[scope] for scope in entry.scopes)}"
-        if entry.scopes
-        else "in no manifest's harness list"
-    )
-    print(f"{INDENT}{entry.name}: {presence}", file=out)
-    print(f"{INDENT * 2}takes {takes}, and is {rendering}", file=out)
+    column.marked(entry.name, _presence(entry), out, present=entry.detected)
+    print(f"{INDENT * 2}takes {_takes(entry)}, and {_rendering(entry)}", file=out)
     if Kind.RULE in entry.kinds:
         print(f"{INDENT * 2}{ORDER[entry.orders_rules]}", file=out)
 
 
-def text(inventory: Inventory, out: TextIO) -> None:
+def _presence(entry: HarnessLine) -> str:
+    return "detected on this machine" if entry.detected else "not detected on this machine"
+
+
+def _takes(entry: HarnessLine) -> str:
+    return joined(PLURAL[kind] for kind in entry.kinds) or "nothing"
+
+
+def _rendering(entry: HarnessLine) -> str:
+    if not entry.scopes:
+        return "is in no manifest's harness list"
+    return f"is rendering for {joined(SCOPE_NAMED[scope] for scope in entry.scopes)}"
+
+
+def _print_machineless(entry: HarnessLine, column: Column, out: TextIO) -> None:
+    """One harness with nothing to detect, so no mark and nothing to be absent from.
+
+    A mark here would be a claim about this machine, and a harness that runs on
+    somebody else's has none to make. What decides whether it is in play is a
+    manifest naming it, which is what the line says instead.
+    """
+    whether = _rendering(entry) if entry.scopes else NAMING
+    column.listed(entry.name, f"takes {_takes(entry)}, and {whether}", out)
+
+
+def _print_harnesses(inventory: Inventory, out: TextIO, style: Style) -> None:
+    machineless = [entry for entry in inventory.harnesses if entry.known and not entry.has_a_machine]
+    on_this_machine = [entry for entry in inventory.harnesses if entry.has_a_machine or not entry.known]
+    column = Column.of((entry.name for entry in inventory.harnesses), style)
+    section("Harnesses", out, style)
+    for entry in on_this_machine:
+        _print_harness(entry, column, out)
+    if machineless:
+        print("", file=out)
+        group("Harnesses with no machine", out, style)
+        for entry in machineless:
+            _print_machineless(entry, column, out)
+    print("", file=out)
+
+
+def text(inventory: Inventory, out: TextIO, *, shape: Shape = WHOLE, style: Style | None = None) -> None:
     """The report a person reads: grouped by scope, and silent about nothing."""
-    for scope in Scope:
-        path = inventory.manifests[scope]
-        where = str(path) if path is not None else "no manifest found"
-        print(f"{SCOPE_TITLE[scope]} ({where})", file=out)
+    shown = style or Style.plain()
+    for scope in shape.scopes:
+        section(scope_title(scope, inventory.manifests[scope]), out, shown)
         lines = inventory.of_scope(scope)
         if not lines:
-            print(NOTHING, file=out)
-        for line in lines:
-            _print_line(line, out)
-        print("", file=out)
-    print("Harnesses", file=out)
-    for entry in inventory.harnesses:
-        _print_harness(entry, out)
-    print("", file=out)
-    print("Name collisions", file=out)
+            print(f"{NOTHING}\n", file=out)
+        elif shape.by_kind:
+            _print_by_kind(lines, out, shown)
+        else:
+            _print_by_source(lines, out, shown)
+    _print_harnesses(inventory, out, shown)
+    section("Name collisions", out, shown)
     if not inventory.collisions:
-        print(f"{INDENT}none", file=out)
+        print("none", file=out)
     for collision in inventory.collisions:
-        wanted = joined(f"{entry.source} ({SCOPE_NAMED[entry.scope]})" for entry in collision.wanted_by)
-        print(f'{INDENT}{collision.kind} "{collision.name}" is wanted by {wanted}', file=out)
-        print(f"{INDENT * 2}fix: subscribe to one of them with `--as <other-name>`", file=out)
+        wanted = joined(f"{shown.source(entry.source)} ({SCOPE_NAMED[entry.scope]})" for entry in collision.wanted_by)
+        print(f'{collision.kind} "{shown.kit(collision.name)}" is wanted by {wanted}', file=out)
+        print(f"{INDENT}fix: subscribe to one of them with `--as <other-name>`", file=out)
 
 
 def payload(inventory: Inventory) -> dict[str, Any]:
@@ -449,7 +538,16 @@ def payload(inventory: Inventory) -> dict[str, Any]:
     }
 
 
-def run(out: TextIO, *, as_json: bool, start: Path | None = None, home: Path | None = None) -> Exit:
+def scopes_from(*, only_global: bool, only_project: bool) -> tuple[Scope, ...]:
+    """Which sections the report prints, from the two flags that narrow it."""
+    if only_global == only_project:
+        return ORDERING
+    return (Scope.USER,) if only_global else (Scope.PROJECT,)
+
+
+def run(
+    out: TextIO, *, as_json: bool, shape: Shape = WHOLE, start: Path | None = None, home: Path | None = None
+) -> Exit:
     """`akit list`. Always succeeds: a failure is a line, not an exit code.
 
     `doctor` is the command that exits non-zero on a broken setup. This one is
@@ -460,8 +558,21 @@ def run(out: TextIO, *, as_json: bool, start: Path | None = None, home: Path | N
     if as_json:
         print(json.dumps(payload(inventory), indent=2), file=out)
     else:
-        text(inventory, out)
+        text(inventory, out, shape=shape, style=Style.of(out))
     return Exit.OK
 
 
-__all__ = ["Collision", "Found", "HarnessLine", "Inventory", "Line", "Target", "payload", "run", "survey", "text"]
+__all__ = [
+    "Collision",
+    "Found",
+    "HarnessLine",
+    "Inventory",
+    "Line",
+    "Shape",
+    "Target",
+    "payload",
+    "run",
+    "scopes_from",
+    "survey",
+    "text",
+]

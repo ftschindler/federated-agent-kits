@@ -221,6 +221,49 @@ class TestAdd:
         assert (world.places.home / SKILLS / "writing" / "SKILL.md").exists()
 
 
+class TestWhichScopeTheRenderAfterAnEditCovers:
+    """One of these commands writes one manifest, so its report is about one scope.
+
+    A `--global` edit that reported on this project's subscriptions too would
+    answer a question nobody asked, and bury the thing that did change under it.
+    """
+
+    def report(self, outcome: subscribing.Outcome) -> str:
+        out = io.StringIO()
+        subscribing.text(outcome, out)
+        return out.getvalue()
+
+    def test_a_global_edit_says_nothing_about_this_project(self, world: World):
+        world.project.joinpath(".akit.yaml").write_text(
+            f"version: 1\nharnesses: [opencode]\n\nskills:\n  {world.remote}: [writing]\n", encoding="utf-8"
+        )
+
+        shown = self.report(subscribing.add(world.call(only_global=True), source=world.remote, name="writing"))
+
+        assert "Global subscriptions" in shown
+        assert "Project subscriptions" not in shown
+
+    def test_a_global_edit_touches_no_project_ignore_rules(self, world: World):
+        """The ignore block belongs to a repository, and a global edit is not about one."""
+        shown = self.report(subscribing.add(world.call(only_global=True), source=world.remote, name="writing"))
+
+        assert "Ignore rules" not in shown
+
+    def test_a_project_edit_says_nothing_about_the_global_manifest(self, world: World):
+        subscribing.add(world.call(only_global=True), source=world.remote, name="writing")
+
+        shown = self.report(subscribing.add(world.call(), source=world.remote, name="prose-style"))
+
+        assert "Project subscriptions" in shown
+        assert "Global subscriptions" not in shown
+
+    def test_what_the_edit_did_is_a_list_like_every_other_list_in_a_report(self, world: World):
+        shown = self.report(subscribing.add(world.call(), source=world.remote, name="writing"))
+
+        said = [line for line in shown.splitlines() if "Subscribed:" in line]
+        assert said and all(line.startswith("- ") for line in said)
+
+
 class TestAddWhenTheRemoteCannotBeReached:
     def test_a_cached_source_is_pinned_to_what_this_machine_has(self, world: World, monkeypatch: pytest.MonkeyPatch):
         subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
@@ -276,7 +319,7 @@ class TestRemove:
         subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
         subscribing.add(world.call(only_global=True), source=world.remote, name="writing", kind=Kind.SKILL)
 
-        with pytest.raises(AmbiguityError, match="--global for yours"):
+        with pytest.raises(AmbiguityError, match="--global for the global manifest"):
             subscribing.remove(world.call(), name="writing")
 
     def test_naming_the_file_settles_it(self, world: World):
@@ -491,7 +534,8 @@ class TestWhatTheyPrint:
         subscribing.report(outcome, out, as_json=False)
 
         printed = out.getvalue()
-        assert "moves from" in printed
+        assert "Changed upstream" in printed
+        assert f"skills from {world.remote}," in printed, "the diff says what it is a diff of"
         assert "# writing, revised" in printed
         assert "wrote 1 file" in printed
 
@@ -514,6 +558,155 @@ class TestWhatTheyPrint:
         subscribing.report(outcome, out, as_json=False)
 
         assert "Created " in out.getvalue()
+
+
+class TestTheLiveAccountOfASlowCommand:
+    """`update` fetches once per key, so a person sits through a loop with nothing to see.
+
+    What they see has to arrive before the fetching rather than after it, which
+    is the only reason it is a second channel at all.
+    """
+
+    def watched(self, world: World, **flags: object) -> tuple[str, subscribing.Outcome]:
+        watching = io.StringIO()
+        outcome = subscribing.update(world.call(**flags), watching=subscribing.Watcher(out=watching))
+        return watching.getvalue(), outcome
+
+    def test_what_is_about_to_be_looked_at_is_said_before_anything_is_fetched(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+
+        said, _ = self.watched(world)
+
+        assert said.startswith("Found 1 subscription under 1 key in ")
+        assert str(world.manifest) in said.splitlines()[0]
+
+    def test_every_key_reports_the_moment_it_answers(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+        subscribing.add(world.call(), source=world.remote, name="prose-style", kind=Kind.RULE)
+
+        said, _ = self.watched(world)
+
+        assert "Found 2 subscriptions under 2 keys" in said
+        assert len([line for line in said.splitlines() if line.startswith("  ")]) == 2
+
+    def test_a_key_that_moved_says_where_it_moved_to(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+        head = world.commit({"skills/writing/SKILL.md": "# writing, revised\n"})
+
+        said, _ = self.watched(world)
+
+        assert f"moved to {head[:9]}" in said
+
+    def test_a_key_already_at_the_newest_commit_says_so_in_three_words(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+
+        said, _ = self.watched(world)
+
+        assert "up to date" in said
+
+    def test_a_manifest_with_nothing_in_it_is_announced_nowhere(self, world: World):
+        """No loop to sit through is no progress to report; that it was empty is the report's."""
+        said, _ = self.watched(world)
+
+        assert said == ""
+
+    def test_nobody_is_watching_by_default(self, world: World):
+        """The default is silence, which is what `--json` and every library caller get."""
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+        watching = io.StringIO()
+
+        subscribing.update(world.call())
+
+        assert watching.getvalue() == ""
+        assert subscribing.UNWATCHED.out is None
+
+    def test_what_it_says_is_never_the_only_place_a_moved_pin_appears(self, world: World):
+        """Output that was never captured has to lose nothing, or it is a second report."""
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+        world.commit({"skills/writing/SKILL.md": "# writing, revised\n"})
+
+        _, outcome = self.watched(world)
+
+        out = io.StringIO()
+        subscribing.text(outcome, out)
+        assert [movement.source for movement in outcome.moved] == [world.remote]
+        assert f"skills from {world.remote}," in out.getvalue()
+
+
+class TestWhatUpdateReports:
+    def report(self, outcome: subscribing.Outcome) -> str:
+        out = io.StringIO()
+        subscribing.text(outcome, out)
+        return out.getvalue()
+
+    def test_a_run_where_no_pin_moved_says_so_rather_than_printing_a_heading(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+
+        shown = self.report(subscribing.update(world.call()))
+
+        assert "nothing moved: every pin is already at the newest commit it follows" in shown
+
+    def test_a_project_with_no_manifest_at_all_is_the_same_one_sentence(self, world: World):
+        """There are no pins to move, which is an answer rather than a thing to be stopped over."""
+        world.manifest.unlink()
+
+        shown = self.report(subscribing.update(world.call()))
+
+        assert shown == f"No subscriptions found in {world.manifest}, not looking for updates.\n"
+
+    def test_add_still_refuses_to_create_a_project_manifest_nobody_asked_for(self, world: World):
+        """`add` is the one with something to put in a file it would be creating."""
+        world.manifest.unlink()
+
+        with pytest.raises(UsageError, match="--project to start one"):
+            subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+
+    def test_a_manifest_with_nothing_in_it_is_one_sentence_and_no_sections(self, world: World):
+        """Three headed sections agreeing that nothing happened is a report about no report."""
+        shown = self.report(subscribing.update(world.call()))
+
+        assert shown == f"No subscriptions found in {world.manifest}, not looking for updates.\n"
+
+    def test_it_stays_silent_only_while_the_render_it_ends_with_also_did_nothing(self, world: World):
+        """Silence on an empty manifest must not be able to hide a withdrawal."""
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+        world.manifest.write_text("version: 1\n", encoding="utf-8")
+
+        shown = self.report(subscribing.update(world.call()))
+
+        assert shown.startswith("No subscriptions found in ")
+        assert "Withdrawn" in shown
+        assert "which nothing in scope explains any more" in shown
+
+    def test_a_diff_carries_a_heading_saying_what_it_is_a_diff_of(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+        was = subscriptions(world.manifest)["skills/writing"]
+        assert was is not None, "`add` pins a remote, which is what makes a move visible"
+        head = world.commit({"skills/writing/SKILL.md": "# writing, revised\n"})
+
+        shown = self.report(subscribing.update(world.call()))
+
+        assert f"skills from {world.remote}, {was[:9]} to {head[:9]}" in shown
+        assert shown.index(f"skills from {world.remote}") < shown.index("# writing, revised")
+
+    def test_a_pin_that_moved_over_nothing_you_subscribe_to_is_one_trailing_line(self, world: World):
+        """A heading with no diff under it reads as something missing."""
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+        world.commit({"README.md": "# nothing you subscribe to\n"})
+
+        shown = self.report(subscribing.update(world.call()))
+
+        assert "Moved without changing anything you subscribe to: skills from " in shown
+        assert "diff --git" not in shown
+
+    def test_a_key_stopped_by_a_part_gone_upstream_gets_its_own_section(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+        world.commit({"skills/writing/SKILL.md": None})
+
+        shown = self.report(subscribing.update(world.call()))
+
+        assert "Stopped" in shown
+        assert "akit remove writing" in shown
 
 
 class TestTheFetchingOnlyTheseCommandsDo:

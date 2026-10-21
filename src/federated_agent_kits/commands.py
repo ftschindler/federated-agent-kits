@@ -79,8 +79,8 @@ class Command:
 
 
 SCOPE_FLAGS: tuple[Argument, ...] = (
-    Argument(("--global",), "Act on your own manifest instead of this repository's", dest="global_scope"),
-    Argument(("--project",), "Act on this repository's manifest, which is the default"),
+    Argument(("--global",), "Act on the global manifest instead of this project's", dest="global_scope"),
+    Argument(("--project",), "Act on this project's manifest, which is the default"),
     Argument(("--manifest",), "Act on the manifest at this path, instead of finding one", metavar="PATH"),
 )
 
@@ -97,8 +97,16 @@ COMMANDS: tuple[Command, ...] = (
             "exits 0 even when a line reports a problem: `akit doctor` is the command that "
             "exits non-zero on a broken setup."
         ),
-        examples=("akit list", "akit list --json"),
-        arguments=(),
+        examples=("akit list", "akit list --global --by-kind", "akit list --json"),
+        arguments=(
+            Argument(
+                ("--by-kind",),
+                "Group every skill together and then every rule, instead of by source",
+                dest="by_kind",
+            ),
+            Argument(("--global",), "Report only the global manifest's subscriptions", dest="global_scope"),
+            Argument(("--project",), "Report only this project's subscriptions"),
+        ),
         following="akit render, to make the files on disk match what this listed",
     ),
     Command(
@@ -179,7 +187,7 @@ COMMANDS: tuple[Command, ...] = (
             "still match, so anything you wrote or edited yourself survives, and a block "
             "inside your `AGENTS.md` is taken out without the file around it being touched. "
             "It fetches nothing, which is why a render on a train is yesterday's render. "
-            "`--check` is the exception: it writes nothing, judges only what this repository "
+            "`--check` is the exception: it writes nothing, judges only what this project "
             "commits for the harnesses it names that have no machine, and fetches the pinned "
             "commits a fresh checkout has no cache for."
         ),
@@ -187,7 +195,7 @@ COMMANDS: tuple[Command, ...] = (
         arguments=(
             Argument(
                 ("--check",),
-                "Write nothing and exit non-zero if what this repository commits is out of date",
+                "Write nothing and exit non-zero if what this project commits is out of date",
                 action="store_true",
             ),
             Argument(
@@ -208,9 +216,11 @@ COMMANDS: tuple[Command, ...] = (
                 action="append",
             ),
             Argument(
-                ("--global",), "Only your own subscriptions, rendered to machine-level directories", dest="global_scope"
+                ("--global",),
+                "Only the global manifest's subscriptions, rendered to machine-level directories",
+                dest="global_scope",
             ),
-            Argument(("--project",), "Only this repository's subscriptions, rendered inside it"),
+            Argument(("--project",), "Only this project's subscriptions, rendered inside it"),
         ),
         following="akit doctor, if anything it reported looked wrong",
     ),
@@ -293,18 +303,19 @@ TOPICS: tuple[Topic, ...] = (
         summary="The file you edit, and the two places it lives",
         body=(
             "A manifest says what you subscribed to and nothing about where a source is on\n"
-            "this disk. There are two of them, in one format. Yours lives in your platform's\n"
-            "config directory and says what is true of you on this machine. A project one,\n"
-            "`.akit.yaml` beside a repository's `.git`, says what that repository expects, and\n"
-            "is committed. The project one adds to yours; neither overrules the other, because\n"
-            "each renders into its own scope and the two never write to the same place.\n"
+            "this disk. There are two of them, in one format. The global one lives in your\n"
+            "platform's config directory and says what is true of you on this machine. The\n"
+            "project one, `.akit.yaml` beside a repository's `.git`, says what that project\n"
+            "expects, and is committed. The project one adds to the global one; neither\n"
+            "overrules the other, because each renders into its own scope and the two never\n"
+            "write to the same place.\n"
             "\n"
             "So a name used in both is not a contest, it is two copies in two directories, and\n"
             "`akit list` and `akit doctor` report it rather than picking a winner. The fix is\n"
             "`as:`, which renders a kit under a different name. Rules are the one kind with an\n"
-            "order: they are a list rather than a mapping, yours are read before a\n"
-            "repository's, and that order is what decides which of two contradicting rules\n"
-            "wins.\n"
+            "order: they are a list rather than a mapping, the global manifest's are read\n"
+            "before a project's, and that order is what decides which of two contradicting\n"
+            "rules wins.\n"
             "\n"
             "Each entry is a source key mapped to the kits you want from it, and a key may\n"
             "carry a `#<commit>` pin. The file is yours: comments, key order and layout\n"

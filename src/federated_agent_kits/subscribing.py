@@ -39,7 +39,18 @@ from federated_agent_kits import manifest as manifests
 from federated_agent_kits.cache import Fetched, Privacy, RefKind, UnreachableError
 from federated_agent_kits.exits import Exit, RefusalError, UsageError
 from federated_agent_kits.manifest import Kind, Manifest, Scope, Subscription
+from federated_agent_kits.reporting import (
+    MISSING,
+    Column,
+    counted,
+    group,
+    joined,
+    manifest_title,
+    section,
+    wrapped,
+)
 from federated_agent_kits.sources import SourceKey
+from federated_agent_kits.styling import Style
 
 #: A pin somebody typed that is already an answer. Checked rather than asked
 #: about, because a commit cannot move and the remote has nothing to add.
@@ -83,13 +94,16 @@ class Call:
     only_project: bool = False
     named: Path | None = None
 
-    def chosen(self) -> editing.Chosen:
+    def chosen(self, *, creating: bool = True) -> editing.Chosen:
         return editing.choose(
             self.start,
-            only_global=self.only_global,
-            only_project=self.only_project,
-            named=self.named,
-            user_path=self.places.user_manifest,
+            editing.Wanted(
+                only_global=self.only_global,
+                only_project=self.only_project,
+                named=self.named,
+                user_path=self.places.user_manifest,
+                creating=creating,
+            ),
         )
 
     @property
@@ -106,6 +120,119 @@ class Note:
     data: dict[str, Any] = field(default_factory=dict)
 
 
+#: How much of a commit a person reads, which is what every other sentence in
+#: this file already shows. The whole of one is in `--json` and in the manifest.
+SHORT = 9
+
+#: The verb whose report is about what moved rather than about a line it wrote.
+UPDATE = "update"
+
+#: What the live account says about one key, by the status its note carries.
+#: Short, because this is read while it scrolls past rather than afterwards.
+PROGRESS: dict[str, str] = {
+    "path": "a path, read as it is on disk",
+    "unchanged": "up to date",
+    "stopped": "stopped, see below",
+}
+
+
+@dataclass(frozen=True)
+class Watcher:
+    """Where the live account of a slow command goes while it is still running.
+
+    `akit update` fetches once per key, so the time it takes is a loop a person
+    is sitting through with nothing to look at. This is what they look at.
+
+    **It is a second channel, not a second report.** What it says goes to
+    `stderr`, because `stdout` is the record: the same bytes that go into a
+    pipe, a log and a pull request comment ([DESIGN.md] section 10), and a line
+    whose content depends on which sources happened to be cold is not those
+    bytes. Nothing here is the only place a fact appears; every pin that moved
+    is in the report as well, so output that was never captured loses nothing.
+
+    `out` of `None` is silence, which is what `--json` and every caller that
+    did not ask for this get. Handing it a buffer is how a test reads it
+    without caring which file descriptor it went to.
+    """
+
+    out: TextIO | None = None
+    style: Style = field(default_factory=Style.plain)
+
+    def starting(self, path: Path, *, subscriptions: int, keys: int) -> None:
+        """What is about to be looked at, said before the first fetch rather than after.
+
+        A manifest with nothing in it has no loop to sit through, so there is
+        nothing to announce here at all. That it was empty is the report's to
+        say, because it is the answer rather than a sign of progress towards
+        one.
+        """
+        if self.out is None or not keys:
+            return
+        print(
+            f"Found {counted(subscriptions, 'subscription')} under {counted(keys, 'key')} "
+            f"in {self.style.place(str(path))}, looking for updates\n",
+            file=self.out,
+        )
+
+    def resolved(self, entry: _Key, said: str, column: Column) -> None:
+        """One key, the moment it answered."""
+        if self.out is None:
+            return
+        print(f"  {column.padded(_named(entry))}  {said}", file=self.out)
+
+    def finished(self, *, keys: int) -> None:
+        """The blank line between the live account and the report that follows it.
+
+        Only where there was an account. Nothing was said about a manifest with
+        nothing in it, so there is nothing to separate from what comes next.
+        """
+        if self.out is not None and keys:
+            print("", file=self.out)
+
+
+#: Nobody is watching, which is the default and what `--json` gets.
+UNWATCHED = Watcher()
+
+
+def _named(entry: _Key) -> str:
+    """How one key reads in the live account: its kind, then the source it names."""
+    return f"{entry.kind.value:<{_KIND_WIDTH}}  {entry.source}"
+
+
+#: Wide enough for `skills`, which is the longest of the three kinds.
+_KIND_WIDTH = 6
+
+
+@dataclass(frozen=True)
+class Movement:
+    """One key whose pin moved, and what moved under it.
+
+    The unit is the key rather than the kit, because a pin belongs to a key: a
+    key holding three kits moves for all three or for none of them, and one
+    diff over the three is the change that pin actually names.
+    """
+
+    kind: Kind
+    source: str
+    was: str | None
+    """The commit it was pinned to, or `None` for a key that carried no pin."""
+
+    now: str
+    ref: str
+    diff: str
+    """Empty when the pin moved and nothing under it that you subscribe to did."""
+
+    @property
+    def changed(self) -> bool:
+        return bool(self.diff.strip())
+
+    @property
+    def heading(self) -> str:
+        """What the diff below it is a diff of, which a bare `diff --git` does not say."""
+        was = "an unpinned key" if self.was is None else self.was[:SHORT]
+        return f"{self.kind.value} from {self.source}, {was} to {self.now[:SHORT]}"
+
+
 @dataclass(frozen=True)
 class _Edit:
     """One manifest edit, before it is written and rendered."""
@@ -115,6 +242,7 @@ class _Edit:
     notes: list[Note] = field(default_factory=list)
     changed: bool = False
     diffs: list[str] = field(default_factory=list)
+    moved: list[Movement] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -123,12 +251,26 @@ class Outcome:
 
     command: str
     path: Path | None
+    scope: Scope
     created: bool
     notes: tuple[Note, ...]
     rendered: render.Outcome
     changed: bool
     diffs: tuple[str, ...] = ()
     """What `update` found between the old commit and the new one, per key that moved."""
+
+    moved: tuple[Movement, ...] = ()
+    """Every key whose pin `update` moved, with the diff under each. Empty for the rest."""
+
+    @property
+    def found_nothing(self) -> bool:
+        """An `update` that had no key to ask: an empty manifest, or one that is not there.
+
+        `update` writes one note per key, so no notes means no keys. There is
+        nothing to say about pins that do not exist, and a report saying so in
+        three headed sections says it at more length than it is worth.
+        """
+        return self.command == UPDATE and not self.notes
 
     @property
     def exit_code(self) -> Exit:
@@ -338,7 +480,7 @@ def _in_one_file(found: Sequence[Subscription], name: str, *, scoped: bool) -> t
     if len({entry.scope for entry in found}) > ONE and not scoped:
         raise AmbiguityError(
             f"`{name}` is subscribed in both manifests, and dropping the wrong one would change "
-            "what everybody else gets.\n  Name the file: --global for yours, --project for this repository's."
+            "what everybody else gets.\n  Name the file: --global for the global manifest, --project for this project's."
         )
     return tuple(found)
 
@@ -592,23 +734,61 @@ def _update_key(entry: _Key, places: render.Directories, anchor: Path) -> _Moved
     )
 
 
-def update(call: Call, *, name: str | None = None) -> Outcome:
-    """Fetch, move the pins that may move, and print what changed under each one."""
-    chosen = call.chosen()
+def _said(moved: _Moved) -> str:
+    """The one phrase the live account gets for a key, from the status it answered with."""
+    status = str(moved.note.data.get("status", ""))
+    if status == "moved" and moved.pin is not None:
+        return f"moved to {moved.pin[:SHORT]}"
+    return PROGRESS.get(status, status)
+
+
+def update(call: Call, *, name: str | None = None, watching: Watcher = UNWATCHED) -> Outcome:
+    """Fetch, move the pins that may move, and say what changed under each one.
+
+    Three things happen here and the slow one is in the middle. Reading the
+    manifest is local and instant; fetching is one network round trip per key;
+    rendering is local again. So the count is announced before the loop rather
+    than after it, and each key reports the moment it answers, because a person
+    waiting on six fetches should be able to see which one they are waiting on.
+
+    `watching` is silent unless a caller asked for it, and nothing it says is
+    said only there.
+
+    A project with no manifest is not an error here. There are no pins to move,
+    which this says in one sentence; it is `add` that has to refuse, because
+    `add` is the one with something to put in a file it would be creating.
+    """
+    chosen = call.chosen(creating=False)
+    keys = _keys(chosen.manifest, name)
+    watching.starting(chosen.path, subscriptions=len(chosen.manifest.subscriptions), keys=len(keys))
+    column = Column.of([_named(entry) for entry in keys], watching.style)
     written = chosen.manifest
     notes: list[Note] = []
     diffs: list[str] = []
+    movements: list[Movement] = []
     changed = False
-    for entry in _keys(chosen.manifest, name):
+    for entry in keys:
         moved = _update_key(entry, call.places, _anchor(chosen.scope, call.start, call.places.home))
+        watching.resolved(entry, _said(moved), column)
         notes.append(moved.note)
         if moved.pin is None:
             continue
         written = editing.repin(written, kind=entry.kind, key=entry.key, pin=moved.pin, comment=moved.comment)
         changed = True
+        movements.append(
+            Movement(
+                kind=entry.kind,
+                source=entry.source,
+                was=entry.pin,
+                now=moved.pin,
+                ref=str(moved.note.data.get("ref", "")),
+                diff=moved.diff,
+            )
+        )
         if moved.diff.strip():
             diffs.append(moved.diff)
-    return _finish(call, chosen, _Edit("update", written, notes, changed=changed, diffs=diffs))
+    watching.finished(keys=len(keys))
+    return _finish(call, chosen, _Edit(UPDATE, written, notes, changed=changed, diffs=diffs, moved=movements))
 
 
 def _finish(call: Call, chosen: editing.Chosen, edit: _Edit) -> Outcome:
@@ -624,23 +804,31 @@ def _finish(call: Call, chosen: editing.Chosen, edit: _Edit) -> Outcome:
 
     What that leaves is total from where the caller stands: exit code 3, the
     manifest it had, and nothing rendered.
+
+    **The render covers the scope that was edited and no other.** These commands
+    write one manifest, and a report about the other one answers a question
+    nobody asked: `akit add --global` has nothing to say about what this project
+    subscribes to, and saying it anyway buries the thing that did change. The
+    other scope is a whole `akit render` away for anybody who wants it.
     """
     before = _bytes_of(chosen.path) if edit.changed else None
     if edit.changed:
         manifests.write(edit.written, chosen.path)
     try:
-        rendered = render.render(call.start, call.places)
+        rendered = render.render(call.start, call.places, render.Choices(scopes=(chosen.scope,)))
     except RefusalError:
         _restore(chosen.path, before)
         raise
     return Outcome(
         command=edit.command,
         path=chosen.path,
+        scope=chosen.scope,
         created=edit.changed and not chosen.existed,
         notes=tuple(edit.notes),
         rendered=rendered,
         changed=edit.changed,
         diffs=tuple(edit.diffs),
+        moved=tuple(edit.moved),
     )
 
 
@@ -657,27 +845,133 @@ def _restore(path: Path, before: bytes | None) -> None:
         path.write_bytes(before)
 
 
-def text(outcome: Outcome, out: TextIO) -> None:
-    """What happened, in sentences, with the render that followed underneath it."""
-    if outcome.created and outcome.path is not None:
-        print(f"Created {outcome.path}.", file=out)
-    for note in outcome.notes:
-        print(note.text, file=out)
-    for diff in outcome.diffs:
+def _stopped_notes(outcome: Outcome) -> tuple[Note, ...]:
+    """The keys that found a part gone upstream, which is the one thing `update` cannot decide."""
+    return tuple(note for note in outcome.notes if note.data.get("status") == "stopped")
+
+
+def _print_upstream(outcome: Outcome, out: TextIO, style: Style) -> None:
+    """Every pin that moved, and under each one the diff that pin names.
+
+    One group per key rather than per kit, because a pin belongs to a key: a
+    key holding three kits moves for all three or for none, and the diff over
+    the three is the change that pin actually is.
+
+    A key that moved while nothing under it that you subscribe to changed gets
+    a trailing line rather than a heading of its own. A heading with nothing
+    beneath it reads as something missing, and on a `*` subscription following
+    an active branch most of them would be empty.
+    """
+    section("Changed upstream", out, style)
+    if not outcome.moved:
+        print("nothing moved: every pin is already at the newest commit it follows", file=out)
         print("", file=out)
-        print(diff.rstrip("\n"), file=out)
+        return
+    for movement in outcome.moved:
+        if not movement.changed:
+            continue
+        group(movement.heading, out, style)
+        print(movement.diff.rstrip("\n"), file=out)
+        print("", file=out)
+    quiet = [movement for movement in outcome.moved if not movement.changed]
+    if quiet:
+        moved = joined([f"{movement.kind.value} from {movement.source}" for movement in quiet])
+        print(f"Moved without changing anything you subscribe to: {moved}.", file=out)
+        print("", file=out)
+
+
+def _print_nothing_found(outcome: Outcome, out: TextIO, style: Style) -> None:
+    """The whole answer for a manifest with nothing in it, which is one sentence.
+
+    On `stdout` rather than with the live account, because it is what the
+    command found rather than a sign that it is still working. A person who
+    redirected the output to read later should not get an empty file.
+    """
+    where = MISSING[outcome.scope] if outcome.path is None else str(outcome.path)
+    print(f"No subscriptions found in {style.place(where)}, not looking for updates.", file=out)
+
+
+def _print_stopped(outcome: Outcome, out: TextIO, style: Style) -> None:
+    """Keys whose pin stayed put because a part they name is gone from the source."""
+    stopped = _stopped_notes(outcome)
+    if not stopped:
+        return
+    section("Stopped", out, style)
+    for note in stopped:
+        said = note.text.splitlines()
+        wrapped(f"- {said[0]}", said[1:], out, indent="")
     print("", file=out)
-    render.text(outcome.rendered, out)
+
+
+def _print_edit(outcome: Outcome, out: TextIO, style: Style) -> None:
+    """What a manifest-writing command did to the file it was pointed at."""
+    section(manifest_title(outcome.scope, outcome.path), out, style)
+    if outcome.created and outcome.path is not None:
+        print(f"Created {style.place(str(outcome.path))}.", file=out)
+    for note in outcome.notes:
+        said = note.text.splitlines()
+        wrapped(f"- {said[0]}", said[1:], out, indent="")
+    print("", file=out)
+
+
+def text(outcome: Outcome, out: TextIO, *, style: Style | None = None) -> None:
+    """What happened to the manifest, and under it the render that followed.
+
+    Two shapes, because `update` and the other three answer different
+    questions. `add`, `remove` and `harness` change one line and say which;
+    `update` asks every key whether it may move and reports what came back, so
+    its sections are what moved and what the move contained.
+
+    What either of them says is a list, written the way every other list in a
+    report is, because a reader who has just met one in the section below
+    should not have to learn a second shape for the section above it.
+
+    A diff keeps its own format. It is a diff, people read those as diffs, and
+    wrapping one in this report's furniture would make it harder to read rather
+    than more familiar. What it does get is a heading saying what it is a diff
+    of, which `diff --git a/skills/akit/VERSION` alone does not.
+
+    An `update` with no subscriptions to look at is one sentence and no
+    sections. Three headed sections agreeing that nothing happened is a report
+    about the absence of a report. It goes no further than that sentence only
+    while the render it ends with also did nothing, so this cannot hide a
+    withdrawal.
+    """
+    shown = style or Style.plain()
+    if outcome.found_nothing:
+        _print_nothing_found(outcome, out, shown)
+        if outcome.rendered.quiet and not outcome.rendered.withdrawals:
+            return
+        print("", file=out)
+    elif outcome.command == UPDATE:
+        _print_upstream(outcome, out, shown)
+        _print_stopped(outcome, out, shown)
+    else:
+        _print_edit(outcome, out, shown)
+    render.text(outcome.rendered, out, style=shown)
 
 
 def payload(outcome: Outcome) -> dict[str, Any]:
     return {
         "command": outcome.command,
         "manifest": None if outcome.path is None else str(outcome.path),
+        "scope": str(outcome.scope),
         "created": outcome.created,
         "changed": outcome.changed,
         "notes": [{"said": note.text, **note.data} for note in outcome.notes],
         "diffs": list(outcome.diffs),
+        "moved": [
+            {
+                "kind": str(movement.kind),
+                "source": movement.source,
+                "from": movement.was,
+                "to": movement.now,
+                "ref": movement.ref,
+                "changed": movement.changed,
+                "diff": movement.diff,
+            }
+            for movement in outcome.moved
+        ],
         "render": render.payload(outcome.rendered),
     }
 
@@ -687,7 +981,7 @@ def report(outcome: Outcome, out: TextIO, *, as_json: bool) -> Exit:
     if as_json:
         print(json.dumps(payload(outcome), indent=2), file=out)
     else:
-        text(outcome, out)
+        text(outcome, out, style=Style.of(out))
     return outcome.exit_code
 
 

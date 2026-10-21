@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from federated_agent_kits import adapters, ignore, privacy, record, render
+from federated_agent_kits import adapters, ignore, privacy, record, render, reporting
 from federated_agent_kits.adapters.adapter import Adapter, Destination, RuleShape
 from federated_agent_kits.cache import Privacy
 from federated_agent_kits.cli import build_parser, dispatch
@@ -761,7 +761,7 @@ class TestTheReport:
 
     @pytest.mark.parametrize(("number", "expected"), [(0, "no files"), (1, "1 file"), (2, "2 files")])
     def test_a_count_is_written_as_english_rather_than_as_a_log_line(self, number: int, expected: str):
-        assert render.counted(number, "file") == expected
+        assert reporting.counted(number, "file") == expected
 
     def test_a_no_op_says_it_was_a_no_op(self, project: Path, places: render.Directories, one_skill: Path):
         render.render(project, places)
@@ -776,6 +776,16 @@ class TestTheReport:
         self, project: Path, places: render.Directories, one_skill: Path
     ):
         assert "nothing subscribed here" in self.report(render.render(project, places))
+
+    def test_an_empty_scope_does_not_name_the_harnesses_it_would_have_rendered_for(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        """The next thing to do is subscribe to something, not reconsider the harness list."""
+        printed = self.report(render.render(project, places))
+
+        empty = printed.split("Global subscriptions")[1].split("Withdrawn")[0]
+        assert "nothing subscribed here" in empty
+        assert "rendering for" not in empty
 
     def test_every_withdrawal_outcome_names_the_file_and_the_edited_one_names_a_fix(
         self, project: Path, places: render.Directories, kits: Path, one_skill: Path
@@ -848,6 +858,11 @@ class TestTheReport:
         subscribe(project / ".akit.yaml", f"version: 1\nharnesses: []\n\nskills:\n  {kits}: [writing]\n")
 
         assert "no harness in scope" in self.report(render.render(project, places))
+
+    def test_a_render_with_no_ignore_block_to_keep_says_nothing_about_ignore_rules(self):
+        outcome = render.Outcome(manifests={}, harnesses={}, entries=())
+
+        assert "Ignore rules" not in self.report(outcome)
 
     def test_the_ignore_line_says_whether_the_file_changed(
         self, project: Path, places: render.Directories, one_skill: Path
@@ -1112,6 +1127,22 @@ class TestAFileWeShareWithTheUser:
         assert outcome.quiet
         assert outcome.blocks_written == 0
         assert outcome.blocks_unchanged == 1
+
+    def test_the_summary_names_the_file_it_left_our_blocks_in(
+        self, project: Path, places: render.Directories, rendered: Path, kits: Path
+    ):
+        """ "Left 1 rule there alone" leaves the reader to work out what "there" was."""
+        (kits / "rules" / "tone.md").write_text("---\ndescription: tone\n---\n\nBe plain.\n", encoding="utf-8")
+        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {kits}: [prose-style, tone]\n")
+
+        printed = self.report(render.render(project, places))
+
+        assert str(rendered) in printed.split("Summary")[1]
+
+    def report(self, outcome: render.Outcome) -> str:
+        out = io.StringIO()
+        render.text(outcome, out)
+        return out.getvalue()
 
     def test_a_changed_source_rewrites_only_our_block(
         self, project: Path, places: render.Directories, rendered: Path, kits: Path

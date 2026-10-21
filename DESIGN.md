@@ -186,7 +186,7 @@ what is in the clone.
 
 So an adapter declares which it is. A harness with a machine is detected and gets files
 rendered on demand and ignored by git. A harness without one cannot be detected by anything
-running on your laptop, so it is named in the repository's manifest, and its files are
+running on your laptop, so it is named in the project's manifest, and its files are
 committed because for it the repository is the delivery mechanism
 ([§6](#6-the-manifest)).
 
@@ -489,7 +489,7 @@ computes.
 
 ### Naming the harnesses, when detection is not enough
 
-A repository's manifest may carry one more key, and most never do:
+A project's manifest may carry one more key, and most never do:
 
 ```yaml
 version: 1
@@ -555,12 +555,13 @@ about one person's disk and is never committed. Keeping the two apart means the 
 colleague has to read is one file, and everything generated sits in a directory they never
 open.
 
-**Which file a subscription is in is what decides its scope.** Yours renders everywhere.
-A repository's renders inside that repository. There is no `scope:` key, because there is no
-third answer.
+**Which file a subscription is in is what decides its scope.** The global manifest renders
+everywhere. A project's renders inside that project. There is no `scope:` key, because there
+is no third answer, and those two words are what the flags and every report call them
+([§10](#what-a-report-looks-like)).
 
-The project file adds to yours rather than replacing it. Your subscriptions do not stop being
-true because you changed directory.
+The project file adds to the global one rather than replacing it. Your subscriptions do not
+stop being true because you changed directory.
 
 **Neither file overrules the other, because they almost never write to the same place.**
 Yours renders into the machine-level harness directories and a repository's renders inside
@@ -610,13 +611,13 @@ repository, because it stops at the first worktree root, and it cannot reach the
 manifest, which is in the config directory and never on that path.
 
 **Reading uses both, always.** `render`, `list` and `doctor` work from the two together, with
-each subscription acting on its own scope: yours on the machine-level harness directories, a
-repository's inside that repository ([§10](#10-commands)).
+each subscription acting on its own scope: the global manifest's on the machine-level harness
+directories, a project's inside that project ([§10](#10-commands)).
 
 **Writing picks one, and gets asked.** `add`, `remove` and `akit harness` write a manifest,
-`render` never does, and the flags are git's: `--global` for yours, `--project` for the
-repository's. The same two flags narrow the reading commands when you want one scope rather
-than both.
+`render` never does, and the flags are git's: `--global` for the global manifest, `--project`
+for this project's. The same two flags narrow the reading commands when you want one scope
+rather than both.
 
 **With neither flag, the repository's wins.** A repository with no `.akit.yaml` is an error
 naming `--global`, rather than a quiet write to your personal file.
@@ -722,7 +723,7 @@ and belongs in a committed file. The case it is for is a repository that ships k
 its own code: `.` as the key, a `skills/` directory holding what an agent needs in order to
 work on *this* project.
 
-An absolute path only ever makes sense in your own manifest, since nobody else's disk looks
+An absolute path only ever makes sense in the global manifest, since nobody else's disk looks
 like yours.
 
 **A committed manifest may only name a path that stays inside the repository.** `.` and
@@ -836,8 +837,8 @@ harnesses.
 about a source key, learned while cloning ([§8](#8-keeping-the-employers-kits-in)) and true
 however many repositories subscribe to it, so it lives beside the records in the state
 directory with a file of its own. Copying it into every repository's record would store one
-fact once per project, and putting it in yours alone would make one record the odd one that
-also carries machine state.
+fact once per project, and putting it in the global one alone would make one record the odd
+one that also carries machine state.
 
 A record is a cache of facts about this disk, so deleting one costs one `akit render` and
 nothing else. One thing does not come back: a file rendered before its record was deleted is
@@ -1277,7 +1278,7 @@ the flag stays, and `uv tool install federated-agent-kits` is what the daily use
 
 ```text
 akit list                    # what you subscribed to, and where it is
-akit add <source> <name>     # register a subscription, then render it; --global for yours
+akit add <source> <name>     # register a subscription, then render it; --global for global
 akit remove <name>           # drop a subscription, and the files it rendered
 akit harness add <name>      # render for a harness by name, and commit what it reads
 akit harness remove <name>   # stop, and withdraw what it rendered
@@ -1313,6 +1314,70 @@ Three kinds of file are involved throughout, all described in [§6](#6-the-manif
 directory and one inside each repository rendered into, say what was written under that root,
 with a hash per copy.
 
+### What a report looks like
+
+Every command prints to somebody standing at a terminal, and the same bytes go into a pipe,
+a log and a pull request comment. One set of rules covers all of it, so a person learns the
+shape once and a second verb does not get to invent its own.
+
+**The two scopes are called global and project, everywhere.** Those are the words the flags
+use, so the heading over a block of subscriptions is `Global subscriptions` or `Project
+subscriptions`, the flags that narrow a report to one of them are `--global` and `--project`,
+and a sentence about one says "the global manifest" or "this project's manifest". A report
+that said "yours" was wrong about the other half anyway: a project's subscriptions render
+onto your machine too, and what the two differ in is which file the subscription is in.
+
+**The project comes first.** It is the one the directory you are standing in decides, and the
+one a colleague cloning the repository also gets.
+
+**A heading is a line with a rule under it, and a blank line after.** `=` under the sections
+of a report, `-` under a group inside one. The rule is as long as the heading it is under,
+which is the only thing it is for.
+
+**State is a column of marks, not a word at the end of a line.** A mark says whether the
+thing described is on disk, so a block of them is read down rather than across. The two
+shapes are three columns wide each, so the column aligns either way.
+
+**Colour and marks are decided once, from the stream being written to.** `NO_COLOR` wins over
+everything, `FORCE_COLOR` turns it on where detection cannot, `TERM=dumb` and a pipe turn it
+off. Marks follow colour and then ask the encoding, because a console that cannot encode a
+tick would raise on the first one, and the fallback is `[x]` and `[ ]`. Within a line, the
+kit's name, the harness's id and the source's id are what carry colour, because those are
+what somebody scans for; a path is dimmed, since it is what they read once they have found
+the line.
+
+**A mark is a claim about this machine, so a thing with no machine does not get one.** A
+harness that runs on somebody else's infrastructure is listed rather than marked, and the
+line says what decides whether it is in play: a manifest naming it.
+
+**A report covers the scope that was acted on, and no other.** The writing verbs touch one
+manifest, so `akit add --global` has nothing to say about what this project subscribes to, and
+saying it anyway buries the thing that did change under a list of things that did not. The
+reading verbs are the opposite and cover both unless `--global` or `--project` narrows them,
+because what they are for is the whole picture. Anything a writing verb left out is one
+`akit render` away.
+
+**A count that cannot be acted on names what it counted.** "Left 4 rules there alone" is a
+number and a pronoun, and the file those blocks sit in is the thing somebody would open. A
+line that counts anything inside a file somebody else owns names that file.
+
+**What a command is doing goes to `stderr`; what it did goes to `stdout`.** A command whose
+slow part is a loop over the network leaves somebody watching nothing, so `akit update` says
+what it is about to look at before it looks, and names each key the moment that key answers.
+That account is timing-ordered and depends on which sources happened to be cold, so it is not
+the same bytes a pipe, a log and a pull request comment get, and it does not go where they
+look. Nothing it says is said only there: every pin that moved is in the report as well, so
+output nobody captured loses nothing.
+
+**A diff carries a heading saying what it is a diff of.** `diff --git a/skills/akit/VERSION`
+names a path inside somebody else's repository, which is not enough to know which
+subscription moved or from where. The heading is the key, the source and the two commits,
+because the key is what a pin belongs to.
+
+**None of this reaches `--json`.** The flags that narrow or regroup a report shape what a
+person reads; the data carries the whole of what was found, whatever was asked for, because a
+model reading it is not reading a report ([§11](#11-the-skill)).
+
 ### `list`
 
 **Shows what is subscribed and what state it is in.** Reads the manifests, the render record
@@ -1321,6 +1386,19 @@ and the disk; writes nothing and fetches nothing.
 Per subscription it prints the source, the commit it is pinned to, the parts found there,
 and where each part was rendered. A subscription that was never rendered says so, and so
 does one whose source is missing from the cache.
+
+**Kits group under the source they came from.** One heading per source and pin, and under it
+one line per kit with a column of marks saying which harness has it on disk. That is the
+shape the manifest has, so the report and the file it reports on can be read against each
+other. `--by-kind` is the other grouping, every skill and then every rule, each line naming
+its own source, which is the one to reach for when the question is about a kind rather than
+about a source.
+
+**A kit says what the source calls it only where that differs**, which is where `as:` renamed
+it. Everything a subscription has in common with its neighbours is in the heading above them.
+
+**`--global` and `--project` narrow the report to one scope.** Both scopes at once is the
+honest default and is also a lot to read when the question is about one of them.
 
 Failures are reported per line rather than stopping the command, because this is what you run
 when something is already wrong.
@@ -1338,7 +1416,7 @@ A call does four things, in order:
 2. **Checks the kit is really there**, by the walk in [§5](#5-sources). A typo fails here,
    with a list of what the source does hold, rather than becoming a skill that silently never
    loads.
-3. **Writes one line** into the repository's manifest, or into yours with `--global`
+3. **Writes one line** into this project's manifest, or into the global one with `--global`
    ([§6](#6-the-manifest)). The line carries the commit; the comment after it carries the tag
    or branch you asked for.
 4. **Renders**, so the kit is usable when the command returns.
@@ -1496,10 +1574,10 @@ files, and `--no-harness` on a bad day would otherwise be a delete command. With
 on purpose is `akit harness remove`.
 
 **A subscription renders into its own scope and no other.** Yours go to the machine-level
-harness directories, the same ones whatever directory you are standing in. A repository's go
-inside that repository. So running this in a repository writes in two places, and the
-repository receives only what its own `.akit.yaml` asked for. Nothing personal of yours ends
-up in somebody's project.
+harness directories, the same ones whatever directory you are standing in. A project's go
+inside that project. So running this in a repository writes in two places, and the project
+receives only what its own `.akit.yaml` asked for. Nothing personal of yours ends up in
+somebody's project.
 
 It does both by default because a kit you are writing is usually a global one, and you are
 usually inside some repository while writing it. A render that skipped your own subscriptions
