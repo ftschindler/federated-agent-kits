@@ -62,6 +62,18 @@ source fails before the manifest is touched, listing what the source does hold, 
 spelling to correct rather than a mess to clean up. `*` in place of a name subscribes to every
 kit the source holds.
 
+**To see that listing before choosing a name, ask for it.** `akit discover <source>` names
+every kit a source holds, by kind, and writes no manifest:
+
+```sh
+uvx --from federated-agent-kits akit discover ftschindler/federated-agent-kits
+```
+
+It is the one read-only command that fetches, and that is deliberate: it clones the source
+into the same cache everything else reads, so the `akit add` you run next needs no network.
+`--verbose` adds what each kit says it is for, and `--json` carries the path each one sits at
+inside the repository.
+
 **The `--from` is not decoration.** The distribution is `federated-agent-kits` and the command
 inside it is `akit`. `uvx` reads its first argument as a distribution, so naming only the
 command asks PyPI for a project called `akit`, which belongs to somebody else. If you run this
@@ -157,6 +169,7 @@ wrote, so anything you changed by hand survives and gets named rather than overw
 ## The commands
 
 ```text
+akit discover <source>     list what a source holds, without subscribing to any of it
 akit add <source> <name>   subscribe to one kit, and render it
 akit remove <name>         drop one subscription, and delete what it rendered
 akit update                fetch, move the pins, and show the diff

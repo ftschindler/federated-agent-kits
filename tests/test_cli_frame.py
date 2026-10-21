@@ -259,6 +259,7 @@ class TestNotImplementedYet:
     def test_the_verbs_that_work_are_exactly_the_ones_whose_tasks_landed(self) -> None:
         assert [command.name for command in COMMANDS if command.implemented] == [
             "list",
+            "discover",
             "add",
             "remove",
             "harness",

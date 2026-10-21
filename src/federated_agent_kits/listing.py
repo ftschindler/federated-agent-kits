@@ -32,6 +32,7 @@ from federated_agent_kits.exits import AkitError, Exit
 from federated_agent_kits.manifest import Kind, Merged, Scope, Subscription
 from federated_agent_kits.reporting import (
     INDENT,
+    KIND_TITLE,
     NOTHING,
     ORDERING,
     PLURAL,
@@ -60,9 +61,6 @@ ORDER: dict[bool, str] = {
 
 #: What a machineless harness is told to do instead of being detected.
 NAMING = "needs listing by name in a project's manifest"
-
-#: The headings `--by-kind` puts the three groups under, which only `list` has.
-TITLE: dict[Kind, str] = {Kind.SKILL: "Skills", Kind.RULE: "Rules", Kind.AGENT: "Agents"}
 
 
 @dataclass(frozen=True)
@@ -389,7 +387,7 @@ def _print_by_kind(lines: tuple[Line, ...], out: TextIO, style: Style) -> None:
         of_kind = [line for line in lines if line.subscription.kind is kind]
         if not of_kind:
             continue
-        group(TITLE[kind], out, style)
+        group(KIND_TITLE[kind], out, style)
         for line in of_kind:
             origin = f"from {style.source(line.subscription.source)}{_pin(line)}"
             for part in line.found:

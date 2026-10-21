@@ -12,11 +12,12 @@ withdraw what they dropped and write nothing else: a subtractive command that
 caught the whole manifest up in passing could write more files than it took
 away, which is what `render.WITHDRAWING` exists to stop.
 
-**Only two commands fetch, and both are here.** `add` clones a source this
-machine does not have, and `update` asks a source it does have what moved
-(DESIGN.md section 10). Everything else in this package works from the cache, so
-a render on a train produces what it produced yesterday, and that property is
-kept by these two being the only places `cache.refresh` is called.
+**The two commands that fetch and also write are both here.** `add` clones a
+source this machine does not have, and `update` asks a source it does have what
+moved (DESIGN.md section 10). Both do it through `discovering.fetch`, which is
+also what `akit discover` uses, so a source arrives in the cache the same way
+whichever of the three asked for it. Everything else in this package works from
+the cache, so a render on a train produces what it produced yesterday.
 
 **`update` edits a pin and never a name.** A part that disappeared upstream stops
 that key, leaves the pin where it was, and names the three ways out. Dropping the
@@ -33,16 +34,14 @@ was meant, so each is reported with the flag that settles it.
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
 
-from federated_agent_kits import adapters, cache, discovery, editing, privacy, render, sources
+from federated_agent_kits import adapters, cache, discovering, discovery, editing, render, sources
 from federated_agent_kits import manifest as manifests
-from federated_agent_kits.cache import Fetched, Privacy, RefKind, UnreachableError
+from federated_agent_kits.cache import Fetched
 from federated_agent_kits.exits import Exit, RefusalError, UsageError
 from federated_agent_kits.manifest import Kind, Manifest, Scope, Subscription
 from federated_agent_kits.reporting import (
@@ -59,10 +58,6 @@ from federated_agent_kits.reporting import (
 )
 from federated_agent_kits.sources import SourceKey
 from federated_agent_kits.styling import Style
-
-#: A pin somebody typed that is already an answer. Checked rather than asked
-#: about, because a commit cannot move and the remote has nothing to add.
-COMMIT = re.compile(r"[0-9a-f]{7,40}")
 
 #: The kinds a kit can be, in the order `add` looks for an unqualified name in.
 SEARCHED: tuple[Kind, ...] = tuple(Kind)
@@ -306,95 +301,6 @@ def _parts(root: Path, kind: Kind, name: str, *, rendered: Iterable[Path] = ()) 
     )
 
 
-def _offered(root: Path) -> dict[Kind, tuple[str, ...]]:
-    """Every part the source holds, by kind, which is what a typo gets told."""
-    found: dict[Kind, tuple[str, ...]] = {}
-    for kind in SEARCHED:
-        names = tuple(
-            sorted(
-                {part.name for part in discovery.parts(root, kind, extra_directories=adapters.source_directories(kind))}
-            )
-        )
-        if names:
-            found[kind] = names
-    return found
-
-
-def _described(offered: dict[Kind, tuple[str, ...]]) -> str:
-    if not offered:
-        return "  That source holds no skills, rules or agents at all."
-    lines = [f"  It holds {kind.value}: {', '.join(names)}" for kind, names in offered.items()]
-    return "\n".join(lines)
-
-
-def _resolve_for_add(
-    key: SourceKey,
-    ref: str | None,
-    *,
-    anchor: Path,
-    cache_root: Path | None,
-    state_root: Path | None,
-) -> tuple[Path, str | None, str | None]:
-    """The source as a directory, the commit to pin to, and what the comment says.
-
-    A path source has no pin and no comment. A commit somebody typed is already
-    an answer and is only fetched. Anything else is a name on the other end, so
-    the remote is asked what it points at now, and a machine that cannot reach it
-    but already holds a clone pins to what it has rather than failing: `add` of a
-    cached source works offline (DESIGN.md section 10).
-
-    **Whatever the fetch learned about how private the source is, is written
-    down here.** It is only observable while cloning, and the command that
-    refuses to commit a private kit runs long afterwards and on a different day
-    (DESIGN.md section 8). A fetch that classified nothing, because the cache
-    already held the source, leaves what was already known.
-    """
-    if not key.is_remote:
-        if ref is not None:
-            raise UsageError(
-                f"{key.raw}#{ref}: a path source has no commit to pin.\n"
-                "  Drop the `#`, or subscribe to the repository rather than to the directory."
-            )
-        return cache.resolve(key, anchor=anchor, cache_root=cache_root).root, None, None
-    if ref is not None and COMMIT.fullmatch(ref):
-        resolved = cache.resolve(key, pin=ref, anchor=anchor, cache_root=cache_root)
-        _classified(key, resolved.privacy, state_root)
-        return resolved.root, ref, None
-    try:
-        fetched = cache.refresh(key, ref=ref, cache_root=cache_root)
-    except UnreachableError:
-        resolved = cache.resolve(key, anchor=anchor, cache_root=cache_root, offline=True)
-        return resolved.root, resolved.commit, "frozen: the commit this machine already had"
-    _classified(key, fetched.privacy, state_root)
-    return fetched.root, fetched.commit, _frozen(fetched)
-
-
-def _classified(key: SourceKey, found: Privacy | None, state_root: Path | None) -> None:
-    """Remember what this fetch turned out to need, or leave what was known.
-
-    `None` means this resolution never went near the network, so it learned
-    nothing and has nothing to say. Writing it as a classification would turn a
-    silence into an answer, and the answer it would turn into is the guess
-    DESIGN.md section 8 forbids.
-    """
-    if found is None:
-        return
-    privacy.save({**privacy.load(state_root), key.raw: found}, state_root)
-
-
-def _frozen(fetched: Fetched) -> str:
-    """The comment beside a pin: what it followed, and when for the thing that moves.
-
-    A tag does not move, so dating one would say something untrue about it. A
-    branch does, so the date is the only part of the comment that tells a reader
-    how old the pin is. Nothing parses either, which is the only safe thing to do
-    with a comment.
-    """
-    if fetched.kind is RefKind.TAG:
-        return f"frozen: {fetched.ref}"
-    return f"frozen: {fetched.ref}, {datetime.now(tz=UTC).date().isoformat()}"
-
-
 def _kinds_holding(root: Path, name: str, wanted: Kind | None) -> tuple[Kind, ...]:
     if wanted is not None:
         return (wanted,) if _parts(root, wanted, name) else ()
@@ -427,13 +333,14 @@ def add(call: Call, *, source: str, name: str, rename: str | None = None, kind: 
     raw, ref = manifests.split_pin(source)
     key = sources.parse(raw)
     anchor = _anchor(chosen.scope, call.start, call.places.home)
-    root, pin, comment = _resolve_for_add(
-        key, ref, anchor=anchor, cache_root=call.places.cache, state_root=call.places.state
-    )
+    found = discovering.fetch(key, ref, anchor=anchor, cache_root=call.places.cache, state_root=call.places.state)
+    root, pin, comment = found.root, found.commit, found.comment
     holding = _kinds_holding(root, name, kind)
     if not holding:
         wanted = "" if kind is None else f", as a {SINGULAR[kind]}"
-        raise UsageError(f"{raw} holds no kit called `{name}`{wanted}.\n{_described(_offered(root))}")
+        raise UsageError(
+            f"{raw} holds no kit called `{name}`{wanted}.\n{discovering.described(discovering.offers(root))}"
+        )
     written = chosen.manifest
     notes: list[Note] = []
     changed = False
@@ -805,7 +712,7 @@ def _update_key(entry: _Key, places: render.Directories, anchor: Path) -> _Moved
         )
     before = _before(entry, places, anchor)
     fetched = cache.refresh(key, ref=key.ref, cache_root=places.cache)
-    _classified(key, fetched.privacy, places.state)
+    discovering.classify(key, fetched.privacy, places.state)
     if fetched.commit == entry.pin:
         return _unmoved(
             entry,
@@ -844,7 +751,7 @@ def _update_key(entry: _Key, places: render.Directories, anchor: Path) -> _Moved
             },
         ),
         pin=fetched.commit,
-        comment=_frozen(fetched),
+        comment=discovering.frozen_comment(fetched),
         diff=diff,
     )
 

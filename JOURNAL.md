@@ -1878,3 +1878,38 @@ withdrawn from a file somebody else owns, which is the count every other sentenc
 report is careful to split. It now says "Deleted 2 rules and wrote nothing", and the sentence
 after it carries what a render would still write, which is the thing the reporter of #28
 actually wanted to have been told before the writes happened rather than during them.
+
+## 2026-10-21 - the listing you could only reach by lying
+
+[#39](https://github.com/ftschindler/federated-agent-kits/issues/39) is a report about a
+command that was missing rather than one that was wrong. Asked which kits a repository held,
+the way to find out was to run `akit add <source> __nope__` and read the refusal, which names
+every kit the source does hold, by kind. That is the right answer. It was reachable only by
+typing a name on purpose that was not there.
+
+`akit discover <source>` asks it honestly, and the listing moved rather than being written
+twice: `discovering.py` builds it, `add` imports it for its refusal, and the two cannot drift.
+
+**It fetches, and that is the point.** A read-only command going near a remote looks like the
+thing DESIGN.md section 10 is careful about, until you ask when the question gets asked:
+about a repository somebody just linked you, which by definition is not in the cache. So it
+clones into the same cache `add` and `render` read, at the same location, recording what the
+clone learned about whether the source needed credentials. Afterwards the `add` that usually
+follows is a manifest edit and nothing else, and `akit list` - which never fetches - can
+answer about that source. The cli test asserts exactly that, because it is the half of the
+behaviour that cannot be seen in-process.
+
+Three things the issue asked to settle, settled:
+
+**It names the commit it listed**, so an answer can be quoted somewhere durable, and the
+branch or tag it followed is printed beside it.
+
+**`--verbose` prints the `description` from the part's own frontmatter.** A name is enough to
+pick a kit from a source you trust and not enough to choose between two of the same name in
+different sources. A header this build cannot read is a part with no description rather than
+an error: `discover` says what a source holds, and a malformed header is the render's problem
+to report, in the words of the kit it refused.
+
+**`--json` carries the path each part sits at inside the source.** The reported case had its
+skills under `plugins/travel-hacking-toolkit/skills/`, found by the walk and said by nothing,
+and that path is the field that answers whether a plain `owner/repo` shorthand is enough.

@@ -80,6 +80,11 @@ MISSING: dict[Scope, str] = {Scope.USER: "no manifest.yaml found", Scope.PROJECT
 #: Plurals for the three kinds, for a line that reads like English.
 PLURAL: dict[Kind, str] = {Kind.SKILL: "skills", Kind.RULE: "rules", Kind.AGENT: "agents"}
 
+#: The heading each kind gets where a report groups by kind, which `akit list
+#: --by-kind` and `akit discover` both do. One pair of words rather than one
+#: per verb, so the two reports read as the same report of different things.
+KIND_TITLE: dict[Kind, str] = {Kind.SKILL: "Skills", Kind.RULE: "Rules", Kind.AGENT: "Agents"}
+
 #: And the singulars, because a line naming one kit names one kind.
 SINGULAR: dict[Kind, str] = {Kind.SKILL: "skill", Kind.RULE: "rule", Kind.AGENT: "agent"}
 
@@ -196,6 +201,7 @@ def wrapped(first: str, rest: Iterable[str], out: TextIO, *, indent: str = INDEN
 __all__ = [
     "GROUP",
     "INDENT",
+    "KIND_TITLE",
     "MISSING",
     "NOTHING",
     "ONE",

@@ -88,6 +88,7 @@ Then pick the command by what the person asked for:
 
 | They asked for | Command |
 | --- | --- |
+| to know what is in a repository before taking anything from it | `akit discover <source>` |
 | a kit they do not have yet | `akit add <source> <name>` |
 | a kit under a different name, because two sources ship one name | `akit add <source> <name> --as <other>` |
 | a kit gone, and the files it wrote gone with it | `akit remove <name>` |
@@ -115,6 +116,14 @@ command that takes one thing away cannot put fifteen others on disk in passing.
 If the manifest was behind, they say how far behind in their last line; `akit
 render` is what catches it up, and running it is a decision for the person
 rather than a side effect of the removal.
+
+**Run `akit discover <source>` before subscribing to a source nobody here has used.** It
+lists what the repository holds, by kind, writes nothing, and leaves the source
+in the cache for the `akit add` that follows. It is what answers "which of these
+do I want" without a subscription being made to find out: `--verbose` adds the
+line each kit says about itself, and `--json` carries the path each one sits at
+inside the repository, which is what says whether a plain `owner/repo` is enough
+to reach it.
 
 **A `*` has to be quoted.** `akit remove --kind rule '*'` is a subscription to
 every rule a source holds; without the quotes the shell replaces it with the

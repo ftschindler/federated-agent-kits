@@ -110,6 +110,30 @@ COMMANDS: tuple[Command, ...] = (
         following="akit render, to make the files on disk match what this listed",
     ),
     Command(
+        name="discover",
+        summary="Show what one source holds, without subscribing to any of it",
+        writes=(
+            "Writes no manifest, renders nothing and deletes nothing. It fetches, which "
+            "`akit render --check` is the only other read-only command to do: a source this "
+            "machine does not have is cloned "
+            "into the same cache `akit add` and `akit render` read, so the subscription you "
+            "make next needs no network and works offline. What the clone learned about "
+            "whether the source needs credentials is written down, because that is only "
+            "observable while fetching. It never edits a manifest and never writes into a "
+            "harness's directories, so a source somebody just linked you is safe to look at."
+        ),
+        examples=(
+            "akit discover ftschindler/federated-knowledge-skills",
+            "akit discover borski/travel-hacking-toolkit --kind skill --verbose",
+            "akit discover github.com/acme/kits --json",
+        ),
+        arguments=(
+            Argument(("source",), "The repository to look inside, as a shorthand, a URL or a path"),
+            Argument(("--kind",), "Only list this kind of part", choices=("skill", "rule", "agent")),
+        ),
+        following="akit add, to subscribe to one of the kits it listed",
+    ),
+    Command(
         name="add",
         summary="Subscribe to one kit from one source, and render it",
         writes=(
@@ -358,9 +382,11 @@ TOPICS: tuple[Topic, ...] = (
             "A remote source is cloned into your platform's cache directory, shallow, the\n"
             "first time anything needs it, and every spelling of one repository shares that\n"
             "one entry. A pin is checked out there, and a commit the shallow clone does not\n"
-            "hold is fetched when it is asked for. Only `akit add` and `akit update` fetch:\n"
-            "everything else works from the cache, so a command run offline either answers\n"
-            "from what this machine already has or says which source it was missing.\n"
+            "hold is fetched when it is asked for. `akit add`, `akit update` and `akit\n"
+            "discover` are what fetch, and `akit render` clones a source the manifest pins\n"
+            "that this machine has never seen. Everything else works from the cache, so a\n"
+            "command run offline either answers from what this machine already has or says\n"
+            "which source it was missing.\n"
             "\n"
             "A path source is read where it is and is never cloned, cached or pinned, which is\n"
             "what makes it the right key for a kit you are writing. A relative one resolves\n"
