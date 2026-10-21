@@ -106,8 +106,20 @@ Two flags decide where a change lands, and getting them right matters.
 repository, for everybody who clones it, and is the default. Ask which one they
 meant when the request does not say.
 
-Nothing needs an editor. Every command writes the manifest for you, and `akit`
-renders afterwards, so there is no second step to remember.
+Nothing needs an editor. Every command writes the manifest for you, and the
+additive ones render afterwards, so there is no second step to remember.
+
+**The two subtractive commands are the exception, deliberately.** `akit remove`
+and `akit harness remove` delete what they dropped and write nothing else, so a
+command that takes one thing away cannot put fifteen others on disk in passing.
+If the manifest was behind, they say how far behind in their last line; `akit
+render` is what catches it up, and running it is a decision for the person
+rather than a side effect of the removal.
+
+**A `*` has to be quoted.** `akit remove --kind rule '*'` is a subscription to
+every rule a source holds; without the quotes the shell replaces it with the
+contents of the current directory before `akit` sees anything. The same applies
+to `akit add <source> '*'`.
 
 ## A new release is out
 

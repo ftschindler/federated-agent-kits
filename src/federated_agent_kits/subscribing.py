@@ -1,10 +1,16 @@
 """The four commands that write a manifest: `add`, `remove`, `update`, `harness`.
 
 One shape between them. Each one decides which manifest it is editing, makes one
-edit, writes the file back, and renders, so that the kit is usable when the
-command returns rather than after a second command somebody has to know about.
-Nobody has to hold the manifest format in their head, which is the whole point
-of these four existing at all.
+edit, writes the file back, and makes the disk agree with that edit, so that the
+kit is usable - or gone - when the command returns rather than after a second
+command somebody has to know about. Nobody has to hold the manifest format in
+their head, which is the whole point of these four existing at all.
+
+**Agreeing with the edit is not the same as rendering.** `add`, `harness add`
+and `update` write what they subscribed to. `remove` and `harness remove`
+withdraw what they dropped and write nothing else: a subtractive command that
+caught the whole manifest up in passing could write more files than it took
+away, which is what `render.WITHDRAWING` exists to stop.
 
 **Only two commands fetch, and both are here.** `add` clones a source this
 machine does not have, and `update` asks a source it does have what moved
@@ -41,6 +47,8 @@ from federated_agent_kits.exits import Exit, RefusalError, UsageError
 from federated_agent_kits.manifest import Kind, Manifest, Scope, Subscription
 from federated_agent_kits.reporting import (
     MISSING,
+    PLURAL,
+    SHORT,
     Column,
     counted,
     group,
@@ -119,10 +127,6 @@ class Note:
     text: str
     data: dict[str, Any] = field(default_factory=dict)
 
-
-#: How much of a commit a person reads, which is what every other sentence in
-#: this file already shows. The whole of one is in `--json` and in the manifest.
-SHORT = 9
 
 #: The verb whose report is about what moved rather than about a line it wrote.
 UPDATE = "update"
@@ -243,6 +247,13 @@ class _Edit:
     changed: bool = False
     diffs: list[str] = field(default_factory=list)
     moved: list[Movement] = field(default_factory=list)
+    withdrawing: bool = False
+    """Whether what follows this edit takes files away rather than making them match.
+
+    True for the two subtractive verbs and nothing else. `add` and `harness
+    add` end with a render because the kit they just subscribed to has to exist
+    when the command returns; `remove` has nothing to make exist.
+    """
 
 
 @dataclass(frozen=True)
@@ -433,7 +444,7 @@ def add(call: Call, *, source: str, name: str, rename: str | None = None, kind: 
             notes.append(
                 Note(
                     f"Already subscribed: {SINGULAR[holds]} `{rendered}` from {raw}, "
-                    f"at {existing.pin[:9] if existing.pin else 'the path it is read from'}.",
+                    f"at {existing.pin[:SHORT] if existing.pin else 'the path it is read from'}.",
                     {"kind": str(holds), "name": rendered, "status": "unchanged"},
                 )
             )
@@ -455,7 +466,7 @@ def add(call: Call, *, source: str, name: str, rename: str | None = None, kind: 
             ),
         )
         changed = True
-        where = f" at {pin[:9]}" if pin is not None else ""
+        where = f" at {pin[:SHORT]}" if pin is not None else ""
         notes.append(
             Note(
                 f"Subscribed: {SINGULAR[holds]} `{rendered}` from {raw}{where}.",
@@ -485,8 +496,116 @@ def _in_one_file(found: Sequence[Subscription], name: str, *, scoped: bool) -> t
     return tuple(found)
 
 
+def _scope_flag(call: Call, scope: Scope) -> str:
+    """The flag that points `remove` at one file, spelled the way the caller did.
+
+    A caller who named a file gets that file back, because `--global` would be
+    a different command on a machine where both exist. Everybody else gets the
+    flag for the scope the subscription is actually in, which is what makes a
+    printed invocation runnable rather than illustrative.
+    """
+    if call.named is not None:
+        return f"--manifest {call.named}"
+    return "--global" if scope is Scope.USER else "--project"
+
+
+def _covers(call: Call, chosen: editing.Chosen, entry: Subscription) -> tuple[str, ...]:
+    """Which parts one subscription renders, read from the cache and never fetched.
+
+    Only a `"*"` has an answer worth printing: every other subscription renders
+    the one name it already says. A cache that cannot answer returns nothing,
+    and the sentence built from this says less rather than guessing.
+    """
+    if not entry.is_wildcard:
+        return (entry.rendered_name,)
+    key = sources.parse(entry.source)
+    anchor = _anchor(entry.scope, call.start, call.places.home)
+    try:
+        resolved = cache.resolve(key, pin=entry.pin, anchor=anchor, cache_root=call.places.cache, offline=True)
+    except cache.CacheError:
+        return ()
+    return tuple(sorted({part.name for part in _parts(resolved.root, entry.kind, discovery.WILDCARD)}))
+
+
+def _invocation(call: Call, entry: Subscription) -> str:
+    """The command that drops one subscription, as it would be typed into a shell.
+
+    `--kind` only where the name needs it. A name is a kit, so `akit remove
+    writing` is meant to take the skill and the rule that came in together; a
+    `"*"` is one subscription per kind under one name, and there the kind is
+    the only thing telling two lines apart.
+
+    The quotes around a `"*"` are not decoration. No interactive shell passes
+    one through unquoted, and an example without them is a line that expands to
+    the current directory on its way to argparse.
+    """
+    kind = f" --kind {SINGULAR[entry.kind]}" if entry.is_wildcard else ""
+    name = f"'{entry.rendered_name}'" if entry.is_wildcard else entry.rendered_name
+    return f"akit remove {_scope_flag(call, entry.scope)}{kind} {name}"
+
+
+def _what_it_drops(entry: Subscription, covered: Sequence[str]) -> str:
+    if not entry.is_wildcard:
+        return f"the {SINGULAR[entry.kind]} from {entry.source}"
+    every = f"every {SINGULAR[entry.kind]} from {entry.source}"
+    return f"{every}: {', '.join(covered)}" if covered else every
+
+
+def _offer(call: Call, chosen: editing.Chosen, pool: Sequence[Subscription]) -> list[str]:
+    """Every subscription that can be removed, and the line that removes it.
+
+    Printed rather than pointed at. The message this replaces sent a reader to
+    `akit list`, which is where the name they just typed came from, so doing
+    what it said produced the same name and the same refusal. What was missing
+    was never the list of parts; it was which lines of the manifest are the
+    removable things, and those are not the same set.
+
+    Grouped by the command rather than by the line, because a name is a kit: a
+    skill and the rule that makes a model reach for it are two lines and one
+    `akit remove`, and printing that command twice would suggest running it
+    twice.
+    """
+    lines: list[str] = []
+    grouped: dict[str, list[Subscription]] = {}
+    for entry in pool:
+        grouped.setdefault(_invocation(call, entry), []).append(entry)
+    for invocation, entries in grouped.items():
+        lines.append(f"    {invocation}")
+        lines.append(
+            f"      drops {joined([_what_it_drops(entry, _covers(call, chosen, entry)) for entry in entries])}"
+        )
+    return lines
+
+
+def _not_subscribed(call: Call, chosen: editing.Chosen, pool: Sequence[Subscription], name: str) -> UsageError:
+    """What `remove` says about a name it cannot act on, which is three things.
+
+    That the name is not a subscription; where it came from if a `"*"` is what
+    puts it on disk, because that is the one case where `akit list` printed it
+    and this refuses it; and what this manifest does hold, as commands.
+    """
+    where = f" in {chosen.path}" if call.scoped else ""
+    said = [f"nothing is subscribed under the name `{name}`{where}."]
+    for entry in pool:
+        if entry.is_wildcard and name in _covers(call, chosen, entry):
+            said.append(
+                f"  It is one of the {PLURAL[entry.kind]} the subscription `*` from {entry.source} renders, "
+                f"and that line is what can be dropped. Dropping it takes the others with it."
+            )
+    if pool:
+        said.append("  What this manifest holds, and what drops each:")
+        said.extend(_offer(call, chosen, pool))
+    else:
+        said.append("  This manifest subscribes to nothing at all.")
+    return UsageError("\n".join(said))
+
+
 def remove(call: Call, *, name: str, kind: Kind | None = None) -> Outcome:
-    """Drop what one name subscribes to, and withdraw what it rendered."""
+    """Drop what one name subscribes to, and withdraw what it rendered.
+
+    Withdraw, and nothing else. What the rest of the manifest would render is
+    counted and named rather than written, which `_finish` is about.
+    """
     chosen = call.chosen()
     pool = (
         chosen.manifest.subscriptions
@@ -495,11 +614,7 @@ def remove(call: Call, *, name: str, kind: Kind | None = None) -> Outcome:
     )
     found = _candidates(pool, name, kind)
     if not found:
-        where = f" in {chosen.path}" if call.scoped else ""
-        raise UsageError(
-            f"nothing is subscribed under the name `{name}`{where}.\n"
-            "  Run `akit list` to see what is, and check the name it is rendered under."
-        )
+        raise _not_subscribed(call, chosen, pool, name)
     written = chosen.manifest
     notes: list[Note] = []
     for wanted in _in_one_file(found, name, scoped=call.scoped):
@@ -510,7 +625,7 @@ def remove(call: Call, *, name: str, kind: Kind | None = None) -> Outcome:
                 {"kind": str(wanted.kind), "name": name, "source": wanted.source, "status": "removed"},
             )
         )
-    return _finish(call, chosen, _Edit("remove", written, notes, changed=True))
+    return _finish(call, chosen, _Edit("remove", written, notes, changed=True, withdrawing=True))
 
 
 def harness(call: Call, *, action: str, name: str) -> Outcome:
@@ -555,7 +670,7 @@ def harness(call: Call, *, action: str, name: str) -> Outcome:
         f"Dropped: {name} is no longer rendered for, and what it rendered is withdrawn.",
         {"harness": name, "status": "removed"},
     )
-    return _finish(call, chosen, _Edit("harness", written, [note], changed=True))
+    return _finish(call, chosen, _Edit("harness", written, [note], changed=True, withdrawing=True))
 
 
 @dataclass(frozen=True)
@@ -656,7 +771,7 @@ def _stopped(entry: _Key, fetched: Fetched, missing: Sequence[str]) -> _Moved:
     return _Moved(
         note=Note(
             f"{entry.kind.value}: {entry.source} has no {SINGULAR[entry.kind]} called "
-            f"{', '.join(missing)} at {fetched.commit[:9]}, so its pin stays at {(entry.pin or '')[:9]}.\n"
+            f"{', '.join(missing)} at {fetched.commit[:SHORT]}, so its pin stays at {(entry.pin or '')[:SHORT]}.\n"
             f"  Upstream deleted it or renamed it, and the two want opposite things. Three ways out:\n"
             f"    akit remove {missing[0]}            # it is gone\n"
             f"    akit add {entry.source} <new-name>  # it was renamed\n"
@@ -707,9 +822,9 @@ def _update_key(entry: _Key, places: render.Directories, anchor: Path) -> _Moved
     diff = ""
     if entry.pin is not None:
         diff = cache.difference(key, entry.pin, fetched.commit, _diff_paths(key, every), cache_root=places.cache)
-    was = "an unpinned key" if entry.pin is None else entry.pin[:9]
+    was = "an unpinned key" if entry.pin is None else entry.pin[:SHORT]
     said = [
-        f"{entry.kind.value}: {entry.source} moves from {was} to {fetched.commit[:9]}, following {fetched.ref}.",
+        f"{entry.kind.value}: {entry.source} moves from {was} to {fetched.commit[:SHORT]}, following {fetched.ref}.",
         *(f"  {moved}" for moved in _moved_parts(before, after)),
         *(f"  gone upstream: {gone}" for gone in _vanished(entry, before, fetched.root)),
     ]
@@ -792,7 +907,17 @@ def update(call: Call, *, name: str | None = None, watching: Watcher = UNWATCHED
 
 
 def _finish(call: Call, chosen: editing.Chosen, edit: _Edit) -> Outcome:
-    """Write the manifest if it changed, then render, which every one of these ends with.
+    """Write the manifest if it changed, then render or withdraw, as the verb asks.
+
+    **The two additive verbs render and the two subtractive ones do not.** A
+    kit you just subscribed to has to be on disk when `add` returns, or the
+    command has told you about a file that is not there. A kit you just dropped
+    has to be off disk for the same reason, and that is a withdrawal, which is
+    the half of a render that deletes. Making `remove` perform the other half
+    as well meant a command that reads as subtractive catching the whole
+    manifest up in passing, writing files no previous command had written, into
+    directories the removal had nothing to do with (DESIGN.md section 10). What
+    it does instead is count them and name `akit render`.
 
     **A refusal puts the manifest back.** `add` and `harness add` are the two
     commands that can create a leak, and the render that follows them is what
@@ -815,7 +940,12 @@ def _finish(call: Call, chosen: editing.Chosen, edit: _Edit) -> Outcome:
     if edit.changed:
         manifests.write(edit.written, chosen.path)
     try:
-        rendered = render.render(call.start, call.places, render.Choices(scopes=(chosen.scope,)))
+        rendered = render.render(
+            call.start,
+            call.places,
+            render.Choices(scopes=(chosen.scope,)),
+            render.WITHDRAWING if edit.withdrawing else render.RENDERING,
+        )
     except RefusalError:
         _restore(chosen.path, before)
         raise
@@ -936,6 +1066,11 @@ def text(outcome: Outcome, out: TextIO, *, style: Style | None = None) -> None:
     about the absence of a report. It goes no further than that sentence only
     while the render it ends with also did nothing, so this cannot hide a
     withdrawal.
+
+    **The file is named once.** The section above says which manifest was
+    edited, and the one below used to repeat the same path under a different
+    heading, which reads as two reports about two files until you compare the
+    characters. The second heading stays and its path goes.
     """
     shown = style or Style.plain()
     if outcome.found_nothing:
@@ -948,7 +1083,7 @@ def text(outcome: Outcome, out: TextIO, *, style: Style | None = None) -> None:
         _print_stopped(outcome, out, shown)
     else:
         _print_edit(outcome, out, shown)
-    render.text(outcome.rendered, out, style=shown)
+    render.text(outcome.rendered, out, style=shown, naming=False)
 
 
 def payload(outcome: Outcome) -> dict[str, Any]:

@@ -84,8 +84,10 @@ from federated_agent_kits.record import Explanation, Record, Records, Region, Sp
 from federated_agent_kits.reporting import (
     INDENT,
     NOTHING,
+    ONE,
     ORDERING,
     PLURAL,
+    SCOPE_TITLE,
     SINGULAR,
     Column,
     counted,
@@ -210,6 +212,19 @@ class Outcome:
 
     checking: bool = False
     """Whether this was `--check`, which reports a verdict rather than a diary."""
+
+    withdrawing: bool = False
+    """Whether this was a `remove`, which took files away and wrote none."""
+
+    outstanding: int = 0
+    """Files a render would write that this pass did not, because it was a withdrawal.
+
+    The manifest being behind its disk is worth knowing and is not `remove`'s to
+    fix, so it is counted here and named in the summary with the command that
+    does fix it. Zero on every other pass, where what would be written was.
+    """
+
+    outstanding_blocks: int = 0
 
     unexplained: tuple[Path, ...] = ()
     """Committed files nothing in the manifest accounts for, which only `--check` looks for."""
@@ -365,6 +380,22 @@ class Mode:
     have no machine, so its verdict reads the same in every clone.
     """
 
+    withdrawing: bool = False
+    """Whether this pass takes files away and writes none, which is what `remove` is.
+
+    The walk is the ordinary one: every remaining subscription is planned, so
+    the record's candidate list is as trustworthy as it is in a full render and
+    withdrawal decides what it decides. What changes is everything after the
+    decision. No planned spot is filled, no block is refreshed, and the record
+    keeps the digests it already had, minus what went.
+
+    It exists because `remove` reads as subtractive and was not. A manifest
+    behind its disk would be caught up in passing, so dropping one subscription
+    could write more files than it withdrew, into places no previous command had
+    touched (DESIGN.md section 10). Counting those and naming the command that
+    performs them is this pass's other half.
+    """
+
 
 #: An ordinary render: writing, reporting what it did, and fetching a source
 #: the cache has never seen at the commit its pin already names.
@@ -380,6 +411,11 @@ CHECKING = Mode(offline=False, writing=False, checking=True)
 #: sentence in both commands. A clone is an act, so this pass declines it and
 #: reports a source the cache lacks instead.
 INSPECTING = Mode(writing=False)
+
+#: What `akit remove` and `akit harness remove` walk with: deletions carried
+#: out, nothing written, and the files the manifest is now behind on counted
+#: rather than brought up to date.
+WITHDRAWING = Mode(offline=False, withdrawing=True)
 
 #: The half of the world `--check` looks at. Your own subscriptions render to
 #: machine-level directories that no repository commits, so they cannot go
@@ -943,7 +979,12 @@ def _replaced(before: Mapping[Scope, Record], writes: Mapping[Spot, _Target]) ->
 
 
 def _perform(
-    entries: list[Entry], writes: dict[Spot, _Target], removals: Iterable[Region], *, writing: bool = True
+    entries: list[Entry],
+    writes: dict[Spot, _Target],
+    removals: Iterable[Region],
+    *,
+    writing: bool = True,
+    withdrawing: bool = False,
 ) -> tuple[list[Entry], dict[Spot, bool]]:
     """Fill every planned spot whose bytes are not already there, and count both.
 
@@ -958,17 +999,20 @@ def _perform(
 
     `writing=False` performs the comparison and skips the write, which is the
     whole of `--check`: what it wants to know is which spots *would* have
-    changed, and that is the number this counts either way.
+    changed, and that is the number this counts either way. `withdrawing` is
+    the same suspension for the same reason, on a pass that is writing: a
+    `remove` deletes what it was asked to and counts the rest rather than
+    performing it.
     """
     done: dict[Spot, bool] = {}
     for (target, region), planned in writes.items():
         if region is not None:
             continue
         done[(target, region)] = record.digest_of(target) != planned.digest
-        if done[(target, region)] and writing:
+        if done[(target, region)] and writing and not withdrawing:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(planned.data)
-    done.update(_weave(writes, removals, writing=writing))
+    done.update(_weave(writes, removals, writing=writing, withdrawing=withdrawing))
     counted: list[Entry] = []
     for entry in entries:
         placements = tuple(
@@ -996,7 +1040,9 @@ def _perform(
     return counted, done
 
 
-def _weave(writes: dict[Spot, _Target], removals: Iterable[Region], *, writing: bool = True) -> dict[Spot, bool]:
+def _weave(
+    writes: dict[Spot, _Target], removals: Iterable[Region], *, writing: bool = True, withdrawing: bool = False
+) -> dict[Spot, bool]:
     """Rewrite every file we share, once each, and say which blocks changed.
 
     A host file is somebody's prose and may not exist yet. It is created when a
@@ -1008,6 +1054,12 @@ def _weave(writes: dict[Spot, _Target], removals: Iterable[Region], *, writing: 
     the thing rules have that skills do not, so swapping two rules in a manifest
     rewrites this file while every block in it keeps its bytes, and counting
     bytes alone would report that render as having changed nothing.
+
+    **A withdrawal takes its blocks out and refreshes none.** The rewrite is
+    given no planned blocks at all, so every slot it is not removing is copied
+    through exactly as it stands: a `remove` cannot update the rule beside the
+    one it dropped. What those blocks *would* have become is still counted, by
+    the same comparison every other pass makes.
     """
     hosts: dict[Path, list[rules.Block]] = {}
     for (path, region), planned in writes.items():
@@ -1026,7 +1078,7 @@ def _weave(writes: dict[Spot, _Target], removals: Iterable[Region], *, writing: 
         for index, block in enumerate(blocks):
             moved = index >= len(was) or was[index] != block.id
             done[(path, block.id)] = moved or standing.get(block.id) != block.body
-        after = rules.weave(before, blocks, remove=taken.get(path, set()))
+        after = rules.weave(before, [] if withdrawing else blocks, remove=taken.get(path, set()))
         if after != before and writing:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(after, encoding="utf-8", newline="\n")
@@ -1534,7 +1586,7 @@ def render(
     parameter rather than as a call to `input` somewhere in here: a render is
     run from hooks and from tests, and neither has anybody to answer.
     """
-    writing, checking = mode.writing, mode.checking
+    writing, checking, withdrawing = mode.writing, mode.checking, mode.withdrawing
     prepared = plan(start, places, choices, mode)
     merged, walk, writes = prepared.merged, prepared.walk, prepared.writes
     before, files, chosen = dict(prepared.before), prepared.files, prepared.chosen
@@ -1552,12 +1604,16 @@ def render(
         withdrawals, kept, removals = _withdraw(
             before, writes, choices.scopes, _directories(adapters.ADAPTERS, walk, choices.scopes)
         )
-    replaced = _replaced(before, writes)
-    entries, done = _perform(list(prepared.entries), writes, removals, writing=writing)
+    replaced = _replaced(before, writes) if not withdrawing else ()
+    entries, done = _perform(list(prepared.entries), writes, removals, writing=writing, withdrawing=withdrawing)
     standing: set[Path] = set()
     keeps_a_record = False
     for scope, path in files.items():
-        after = _record_after(before[scope], writes, scope, kept.get(scope, ()))
+        after = (
+            _record_unchanged(before[scope], writes, kept.get(scope, ()))
+            if withdrawing
+            else _record_after(before[scope], writes, scope, kept.get(scope, ()))
+        )
         if writing:
             record.save(after, path)
         if scope is Scope.PROJECT:
@@ -1568,18 +1624,23 @@ def render(
     pruned = tuple(candidates) if agreed else ()
     for path in pruned:
         _remove(path)
+    files_done = {spot: changed for spot, changed in done.items() if spot[1] is None}
+    blocks_done = {spot: changed for spot, changed in done.items() if spot[1] is not None}
     return Outcome(
         checking=checking,
+        withdrawing=withdrawing,
         manifests={
             Scope.USER: merged.user.path if merged.user else None,
             Scope.PROJECT: merged.project.path if merged.project else None,
         },
         harnesses={scope: tuple(adapter.name for adapter in chosen.get(scope, ())) for scope in choices.scopes},
         entries=tuple(entries),
-        written=sum(1 for spot, changed in done.items() if changed and spot[1] is None),
-        unchanged=sum(1 for spot, changed in done.items() if not changed and spot[1] is None),
-        blocks_written=sum(1 for spot, changed in done.items() if changed and spot[1] is not None),
-        blocks_unchanged=sum(1 for spot, changed in done.items() if not changed and spot[1] is not None),
+        written=0 if withdrawing else sum(1 for changed in files_done.values() if changed),
+        unchanged=sum(1 for changed in files_done.values() if not changed),
+        blocks_written=0 if withdrawing else sum(1 for changed in blocks_done.values() if changed),
+        blocks_unchanged=sum(1 for changed in blocks_done.values() if not changed),
+        outstanding=sum(1 for changed in files_done.values() if changed) if withdrawing else 0,
+        outstanding_blocks=sum(1 for changed in blocks_done.values() if changed) if withdrawing else 0,
         withdrawals=tuple(withdrawals),
         replaced=replaced,
         pruned=pruned,
@@ -1628,6 +1689,26 @@ def _record_after(before: Record, writes: dict[Spot, _Target], scope: Scope, kep
         for spot, planned in writes.items()
         if scope in planned.scopes
     }
+    for entry in kept:
+        entries.setdefault(entry.spot, entry)
+    return Record(path=before.path, written=tuple(entries.values()))
+
+
+def _record_unchanged(before: Record, writes: dict[Spot, _Target], kept: Iterable[Written]) -> Record:
+    """One root's record after a withdrawal: what it said, minus what went.
+
+    The record is a claim about bytes on disk, so a pass that wrote none may not
+    adopt the digests it planned. Doing so would make every file the manifest is
+    behind on look hand-edited to the next render, and a hand-edited file is
+    kept and reported rather than refreshed: one `remove` would freeze the rest
+    of the setup in place.
+
+    What stays is therefore the entries this withdrawal did not take, in two
+    groups: the spots something still explains, which are untouched on disk and
+    keep the digest they had, and `kept`, which withdrawal has already decided
+    about.
+    """
+    entries = {entry.spot: entry for entry in before.written if entry.spot in writes}
     for entry in kept:
         entries.setdefault(entry.spot, entry)
     return Record(path=before.path, written=tuple(entries.values()))
@@ -1795,7 +1876,43 @@ def _blocks(outcome: Outcome) -> str:
     )
 
 
+def _outstanding(outcome: Outcome) -> str:
+    """What a withdrawal left for `akit render`, counted rather than carried out.
+
+    The count is the point. "Run `akit render`" on its own asks somebody to
+    decide blind, and the thing they would be deciding about is how much of
+    their setup the manifest is behind on - which is exactly what this pass
+    measured on its way past.
+    """
+    behind = []
+    if outcome.outstanding:
+        behind.append(counted(outcome.outstanding, "file"))
+    if outcome.outstanding_blocks:
+        behind.append(counted(outcome.outstanding_blocks, "rule"))
+    if not behind:
+        return "The rest of this manifest is already rendered."
+    verb = "is" if len(behind) == ONE else "are"
+    return f"{joined(behind).capitalize()} elsewhere in this manifest {verb} out of date, which `akit render` writes."
+
+
+def _withdrawal_summary(outcome: Outcome) -> str:
+    """What a `remove` did, which is deletions and a count of what it did not do.
+
+    Files and blocks are counted apart for the reason they are counted apart
+    everywhere else: a rule withdrawn from `AGENTS.md` deleted no file, and
+    saying it did would have somebody looking for a file that is still there
+    with everything else in it intact.
+    """
+    gone = [entry for entry in outcome.deleted if entry.region is None]
+    blocks = [entry for entry in outcome.deleted if entry.region is not None]
+    took = [counted(len(gone), "file")] if gone or not blocks else []
+    took += [counted(len(blocks), "rule")] if blocks else []
+    return f"Deleted {joined(took)} and wrote nothing. {_outstanding(outcome)}"
+
+
 def _summary(outcome: Outcome) -> str:
+    if outcome.withdrawing:
+        return _withdrawal_summary(outcome)
     if outcome.quiet:
         return "Nothing changed: the files on disk already match the manifests."
     return (
@@ -1826,19 +1943,35 @@ def verdict(outcome: Outcome, out: TextIO) -> None:
     print(f"{INDENT}fix: run `akit render` and commit what it writes.", file=out)
 
 
-def text(outcome: Outcome, out: TextIO, *, style: Style | None = None) -> None:
+def text(outcome: Outcome, out: TextIO, *, style: Style | None = None, naming: bool = True) -> None:
     """The report a person reads: what went where, what went away, and what did not.
 
     A scope with nothing subscribed says that and stops. Which harnesses it
     would have rendered for is true, and answers a question nobody is asking
     about a scope with nothing to render: the next thing to do is subscribe to
     something, not to reconsider the harness list.
+
+    `naming` is false where the report above this one already named the file.
+    `akit add` printed one heading about the manifest it edited and then a
+    second naming the same path, which reads as two reports about two things
+    until you count the characters. The second heading stays, because what it
+    is about genuinely differs; the path does not.
+
+    **A withdrawal prints neither.** It wrote nothing, so a list of every kit
+    and where it landed would be a list of what some other command did, and the
+    one thing it did do - take files away - would be below it.
     """
     shown = style or Style.plain()
+    if outcome.withdrawing:
+        _print_withdrawals(outcome, out, shown)
+        _print_ignored(outcome, out, shown)
+        section("Summary", out, shown)
+        print(_summary(outcome), file=out)
+        return
     for scope in ORDERING:
         if scope not in outcome.harnesses:
             continue
-        section(scope_title(scope, outcome.manifests[scope]), out, shown)
+        section(scope_title(scope, outcome.manifests[scope]) if naming else SCOPE_TITLE[scope], out, shown)
         entries = outcome.of_scope(scope)
         if not entries:
             print(NOTHING, file=out)
@@ -1899,6 +2032,8 @@ def payload(outcome: Outcome) -> dict[str, Any]:
         ],
         "unexplained": [str(path) for path in outcome.unexplained],
         "withdrawal_suspended": outcome.suspended,
+        "withdrawing": outcome.withdrawing,
+        "outstanding": {"files": outcome.outstanding, "rules": outcome.outstanding_blocks},
         "changed_nothing": outcome.quiet,
         "stale": list(outcome.stale),
     }

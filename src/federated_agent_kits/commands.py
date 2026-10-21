@@ -117,11 +117,13 @@ COMMANDS: tuple[Command, ...] = (
             "renders. It clones the source into the cache if this machine does not have it "
             "yet. It never edits a manifest it was not pointed at, and it writes nothing at "
             "all if the kit is not in the source: a typo fails before the manifest is "
-            "touched, listing what the source does hold."
+            "touched, listing what the source does hold. Quote the `*`, or your shell will "
+            "replace it with the contents of the directory you are standing in."
         ),
         examples=(
             "akit add ftschindler/federated-knowledge-skills fkb",
             "akit add --global github.com/acme/kits writing --as house-style",
+            "akit add --global github.com/acme/kits '*' --kind rule",
         ),
         arguments=(
             Argument(("source",), "The repository the kit lives in, as a shorthand, a URL or a path"),
@@ -137,14 +139,19 @@ COMMANDS: tuple[Command, ...] = (
         summary="Drop one subscription, and withdraw the files it rendered",
         writes=(
             "Removes one line from a manifest and deletes the files the render record says "
-            "that subscription explains. A rendered copy you edited by hand is left alone "
-            "and named. A file not in the record is never touched, so a skill you wrote "
-            "yourself survives. It refuses rather than guessing when both manifests "
-            "subscribe to the name."
+            "that subscription explains. It writes nothing: what the rest of the manifest "
+            "would render is counted and left to `akit render`. A rendered copy you edited "
+            "by hand is left alone and named. A file not in the record is never touched, so "
+            "a skill you wrote yourself survives. It refuses rather than guessing when both "
+            "manifests subscribe to the name, and a name it cannot drop is answered with "
+            "the invocation for every one it can."
         ),
-        examples=("akit remove writing", "akit remove --global fkb"),
+        examples=("akit remove writing", "akit remove --global fkb", "akit remove --global --kind rule '*'"),
         arguments=(
-            Argument(("name",), "The subscription to drop, by the name it is rendered under"),
+            Argument(
+                ("name",),
+                'The subscription to drop, by the name the manifest gives it, quoting a "*"',
+            ),
             Argument(
                 ("--kind",),
                 "Only drop a subscription of this kind, for a name used by two",
@@ -152,7 +159,7 @@ COMMANDS: tuple[Command, ...] = (
             ),
             *SCOPE_FLAGS,
         ),
-        following="akit doctor, to check nothing was left behind",
+        following="akit render, to bring the rest of the manifest up to date on disk",
     ),
     Command(
         name="harness",

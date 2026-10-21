@@ -14,6 +14,7 @@ import io
 import json
 import sys
 from importlib.metadata import PackageNotFoundError
+from pathlib import Path
 
 import pytest
 
@@ -132,6 +133,42 @@ class TestParsing:
 
     def test_an_optional_positional_may_be_omitted(self) -> None:
         assert parse("update").name is None
+
+    def test_leftover_arguments_are_a_usage_error_that_names_them(self, capsys: pytest.CaptureFixture[str]) -> None:
+        assert main(["remove", "writing", "--kind", "rule", "nonsense"]) == Exit.USAGE
+        assert "unrecognized arguments: nonsense" in capsys.readouterr().err
+
+    def test_a_shell_eaten_glob_says_so_and_says_to_quote_it(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        for name in ("Desktop", "Documents", "Downloads"):
+            (tmp_path / name).mkdir()
+        monkeypatch.chdir(tmp_path)
+
+        assert main(["remove", "--global", "--kind", "rule", "Desktop", "Documents", "Downloads"]) == Exit.USAGE
+
+        said = capsys.readouterr().err
+        assert "your shell expanded a `*`" in said
+        assert "'*'" in said
+
+    def test_one_stray_word_is_a_typo_rather_than_a_glob(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (tmp_path / "Desktop").mkdir()
+        monkeypatch.chdir(tmp_path)
+
+        assert main(["remove", "--global", "writing", "Desktop"]) == Exit.USAGE
+
+        assert "your shell expanded" not in capsys.readouterr().err
+
+    def test_words_that_are_not_files_here_are_not_a_glob_either(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        assert main(["remove", "--global", "writing", "prose-style", "fkb"]) == Exit.USAGE
+
+        assert "your shell expanded" not in capsys.readouterr().err
 
     def test_global_does_not_shadow_the_builtin(self) -> None:
         # `--global` cannot be an attribute name, so it is spelled `global_scope`

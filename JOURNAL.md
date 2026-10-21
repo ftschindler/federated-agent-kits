@@ -1848,3 +1848,33 @@ the refusal wrote whenever that fix names a command, and falls back otherwise.
 [T14](IMPLEMENTATION.md#t14---iterate-on-what-use-earns) is for. No test would have thought to
 make a render target a symlink, because nobody writing the renderer imagines somebody having
 got there first.
+
+## 2026-10-21 - `remove` wrote fifteen files, and the record nearly lied about them
+
+[#28](https://github.com/ftschindler/federated-agent-kits/issues/28) is the report: dropping
+an `agents` glob that had rendered nothing wrote fifteen files, five of them rules injected
+into a `~/.config/opencode/AGENTS.md` that went from absent to 294 lines. None of it came from
+the removed line. It came from `_finish` ending every manifest-writing verb with a full
+render, so a manifest that had drifted was caught up by whichever command ran next - and the
+command that ran next was the one that reads as subtractive.
+
+The fix is a fourth `render.Mode`, and the interesting part was not the withdrawal.
+
+**The record is a claim about bytes, and a pass that writes none may not restate it.**
+`_record_after` builds the next record from the planned spots, with the digest each spot was
+planned to have. That is exactly right after a render and a lie after a withdrawal: the files
+the manifest is behind on were never written, so recording the planned digest means the next
+render compares the digest it stored against what is actually on disk, finds a difference, and
+concludes somebody edited the file by hand. A hand-edited file is kept and reported rather
+than refreshed. One `remove` would have frozen the rest of the setup in place, and nothing
+about the symptom would have pointed back at the removal.
+
+`_record_unchanged` is the answer, and the test that holds it is
+`test_the_record_keeps_the_digests_it_had_rather_than_the_ones_it_planned`: edit a rendered
+file, remove something else, render, and the edit must still be reported as replaced.
+
+**Running it by hand found the last line.** The summary said "Deleted 2 files" for two rules
+withdrawn from a file somebody else owns, which is the count every other sentence in the
+report is careful to split. It now says "Deleted 2 rules and wrote nothing", and the sentence
+after it carries what a render would still write, which is the thing the reporter of #28
+actually wanted to have been told before the writes happened rather than during them.

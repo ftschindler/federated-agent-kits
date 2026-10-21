@@ -36,6 +36,7 @@ from federated_agent_kits.reporting import (
     ORDERING,
     PLURAL,
     SCOPE_NAMED,
+    SHORT,
     SINGULAR,
     Column,
     group,
@@ -62,9 +63,6 @@ NAMING = "needs listing by name in a project's manifest"
 
 #: The headings `--by-kind` puts the three groups under, which only `list` has.
 TITLE: dict[Kind, str] = {Kind.SKILL: "Skills", Kind.RULE: "Rules", Kind.AGENT: "Agents"}
-
-#: How much of a commit is worth reading. The whole of one is in `--json`.
-SHORT = 7
 
 
 @dataclass(frozen=True)

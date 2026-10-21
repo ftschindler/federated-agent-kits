@@ -49,6 +49,16 @@ OPENCODE_VERSION = "1.18.25"
 # a 300s cap on a CI runner. A genuinely stuck run is caught by the job timeout.
 AGENT_RUN_TIMEOUT = 600
 
+# Every `subprocess` call below passes `encoding="utf-8", errors="replace"`, and
+# getting that wrong is silent on Linux and fatal on Windows. `text=True` alone
+# decodes with `locale.getpreferredencoding(False)`, which is `cp1252` on a
+# Windows runner; opencode, npm and uv all emit UTF-8, so one byte outside
+# cp1252 anywhere in a 40KB transcript raises mid-stream and takes the
+# transcript with it. `replace` rather than `strict` because this is a harness:
+# a byte it cannot decode should cost one character of a diagnostic, not the
+# diagnostic. They are written out at each call rather than collected into a
+# dict, because `**kwargs` defeats the overloads `subprocess` is typed with.
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # Where this repo's own skills live. Absent until the first one lands, which
@@ -110,6 +120,8 @@ def build_local_wheel(into: Path) -> Path:
         check=True,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=300,
     )
     built = sorted(wheels.glob("federated_agent_kits-*.whl"))
@@ -131,7 +143,17 @@ class OpencodeResult:
     workdir: Path
 
     @classmethod
-    def parse(cls, stdout: str, stderr: str, rc: int, workdir: Path) -> OpencodeResult:
+    def parse(cls, stdout: str | None, stderr: str | None, rc: int, workdir: Path) -> OpencodeResult:
+        """Whatever the process said, as events, including when it said nothing.
+
+        A stream of `None` is what a killed process can hand back, and this is
+        only ever called once something has already gone wrong: an assertion
+        composing the transcript that explains its own failure. Raising here
+        would replace that explanation with an `AttributeError` about a
+        `NoneType`, which is how a Windows render failure arrived with its cause
+        deleted.
+        """
+        stdout, stderr = stdout or "", stderr or ""
         events = []
         for raw in stdout.splitlines():
             line = raw.strip()
@@ -222,6 +244,8 @@ class DisposableAgent:
             cwd=self.home,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=300,
         )
 
@@ -240,6 +264,8 @@ class DisposableAgent:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            encoding="utf-8",
+            errors="replace",
         )
         try:
             stdout, stderr = proc.communicate(timeout=timeout)
@@ -399,6 +425,8 @@ def build_disposable_agent(
         env=env,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=300,
     )
     # The npm package pulls a per-platform binary; locate the real executable,
