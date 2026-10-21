@@ -278,6 +278,53 @@ def dispatch(arguments: argparse.Namespace, out: TextIO) -> Exit:
     raise NotImplementedYetError(command.name, command.task or "")
 
 
+#: How many leftover arguments it takes before a shell is the likelier
+#: explanation than a typo. One stray word is a mistake somebody made; several,
+#: each of them a file that exists here, is `*` having been expanded on its way
+#: in, because the only kit name that needs quoting is the one that matches
+#: every file in the directory you are standing in.
+SEVERAL = 2
+
+
+def eaten_by_the_shell(extra: Sequence[str]) -> bool:
+    """Whether these unrecognized arguments are a directory listing.
+
+    Every one of them naming something that exists in this directory is the
+    signature, and it is a strong one: a command line that genuinely wanted
+    four kit names would not have four files of those names beside it.
+    """
+    if len(extra) < SEVERAL:
+        return False
+    try:
+        return all(Path(word).exists() for word in extra)
+    except OSError:  # pragma: no cover - a path too long or otherwise unaskable
+        return False
+
+
+def parse(parser: argparse.ArgumentParser, argv: Sequence[str] | None) -> argparse.Namespace | int:
+    """The command line, or the exit code of a command line that was not one.
+
+    `parse_known_args` rather than `parse_args` so the leftovers can be read
+    before they are refused. Argparse's own message names them and stops, which
+    is accurate and unhelpful for the one case that produces them in ordinary
+    use: `akit remove --kind rule *`, where the shell replaced the only name
+    this argument takes with the contents of the current directory, and
+    argparse reported the ones it could not place.
+    """
+    arguments, extra = parser.parse_known_args(argv)
+    if not extra:
+        return arguments
+    parser.print_usage(sys.stderr)
+    print(f"akit: error: unrecognized arguments: {' '.join(extra)}", file=sys.stderr)
+    if eaten_by_the_shell(extra):
+        print(
+            "  Every one of those is a file in this directory, so your shell expanded a `*`\n"
+            "  before akit saw it. Quote it: akit <command> ... '*'",
+            file=sys.stderr,
+        )
+    return Exit.USAGE
+
+
 def main(
     argv: Sequence[str] | None = None,
     *,
@@ -290,7 +337,10 @@ def main(
     to make impossible, and it is not a bug any verb can be asked to prove alone.
     """
     parser = build_parser()
-    arguments = parser.parse_args(argv)
+    parsed = parse(parser, argv)
+    if isinstance(parsed, int):
+        return parsed
+    arguments = parsed
     if arguments.command is None:
         parser.print_help()
         return Exit.USAGE

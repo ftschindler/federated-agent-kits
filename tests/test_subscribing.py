@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 import textwrap
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -24,6 +25,7 @@ from federated_agent_kits.cache import CacheError, RefKind, UnreachableError
 from federated_agent_kits.cli import build_parser, dispatch
 from federated_agent_kits.exits import Exit, UsageError
 from federated_agent_kits.manifest import Kind, Scope
+from federated_agent_kits.reporting import SHORT
 from federated_agent_kits.sources import parse as parse_source
 from federated_agent_kits.subscribing import AmbiguityError
 
@@ -332,13 +334,183 @@ class TestRemove:
         assert world.places.user_manifest is not None
         assert list(subscriptions(world.places.user_manifest, Scope.USER)) == ["skills/writing"]
 
-    def test_a_name_nobody_subscribed_to_says_to_look(self, world: World):
-        with pytest.raises(UsageError, match="akit list"):
+    def test_a_name_nobody_subscribed_to_says_the_manifest_holds_nothing(self, world: World):
+        with pytest.raises(UsageError, match="subscribes to nothing at all"):
             subscribing.remove(world.call(), name="writing")
 
     def test_and_names_the_file_when_one_was_named(self, world: World):
         with pytest.raises(UsageError, match=r"in .*\.akit\.yaml"):
             subscribing.remove(world.call(only_project=True), name="writing")
+
+    def test_a_name_it_cannot_drop_is_answered_with_the_ones_it_can(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+
+        with pytest.raises(UsageError) as refusal:
+            subscribing.remove(world.call(), name="prose-style")
+
+        said = str(refusal.value)
+        assert "What this manifest holds, and what drops each:" in said
+        assert "akit remove --project writing" in said
+        assert f"drops the skill from {world.remote}" in said
+
+    def test_a_part_a_glob_renders_says_which_line_explains_it(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="*", kind=Kind.RULE)
+
+        with pytest.raises(UsageError) as refusal:
+            subscribing.remove(world.call(), name="prose-style")
+
+        said = str(refusal.value)
+        assert "one of the rules the subscription `*`" in said
+        assert "Dropping it takes the others with it." in said
+        assert "akit remove --project --kind rule '*'" in said
+        assert "drops every rule from" in said
+        assert "prose-style, writing" in said
+
+    def test_a_named_manifest_is_what_the_invocation_names(self, world: World):
+        subscribing.add(world.call(named=world.manifest), source=world.remote, name="writing", kind=Kind.SKILL)
+
+        with pytest.raises(UsageError) as refusal:
+            subscribing.remove(world.call(named=world.manifest), name="nope")
+
+        assert f"akit remove --manifest {world.manifest} writing" in str(refusal.value)
+
+    def test_a_glob_whose_source_the_cache_lost_still_offers_the_line(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="*", kind=Kind.RULE)
+        assert world.places.cache is not None
+        shutil.rmtree(world.places.cache)
+
+        with pytest.raises(UsageError) as refusal:
+            subscribing.remove(world.call(), name="prose-style")
+
+        said = str(refusal.value)
+        assert "akit remove --project --kind rule '*'" in said
+        assert f"drops every rule from {world.remote}\n" in f"{said}\n"
+
+    def test_a_kit_that_is_two_lines_is_offered_as_one_command(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing")
+
+        with pytest.raises(UsageError) as refusal:
+            subscribing.remove(world.call(), name="nope")
+
+        said = str(refusal.value)
+        assert said.count("akit remove --project writing") == 1
+        assert f"drops the skill from {world.remote} and the rule from {world.remote}" in said
+
+    def test_the_global_flag_is_what_a_global_subscription_offers(self, world: World):
+        subscribing.add(world.call(only_global=True), source=world.remote, name="writing", kind=Kind.SKILL)
+
+        with pytest.raises(UsageError) as refusal:
+            subscribing.remove(world.call(only_global=True), name="nope")
+
+        assert "akit remove --global writing" in str(refusal.value)
+
+
+class TestRemoveWritesNothing:
+    """`remove` withdraws what it dropped and leaves the rest to `akit render`."""
+
+    def test_a_manifest_behind_its_disk_is_counted_rather_than_caught_up(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+        subscribing.add(world.call(), source=world.remote, name="prose-style", kind=Kind.RULE)
+        landed = world.project / SKILLS / "writing" / "SKILL.md"
+        landed.unlink()
+
+        outcome = subscribing.remove(world.call(), name="prose-style")
+
+        assert not landed.exists()
+        assert outcome.rendered.withdrawing
+        assert outcome.rendered.written == 0
+        assert outcome.rendered.outstanding == 1
+
+    def test_what_it_dropped_is_still_deleted(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+        subscribing.add(world.call(), source=world.remote, name="prose-style", kind=Kind.RULE)
+
+        subscribing.remove(world.call(), name="writing")
+
+        assert not (world.project / SKILLS / "writing").exists()
+
+    def test_the_record_keeps_the_digests_it_had_rather_than_the_ones_it_planned(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+        subscribing.add(world.call(), source=world.remote, name="prose-style", kind=Kind.RULE)
+        landed = world.project / SKILLS / "writing" / "SKILL.md"
+        landed.write_text("# writing, by hand\n", encoding="utf-8")
+
+        subscribing.remove(world.call(), name="prose-style")
+        after = render.render(world.project, world.places, render.Choices(scopes=(Scope.PROJECT,)))
+
+        assert landed.read_text(encoding="utf-8") == "# writing\n"
+        assert after.replaced
+
+    def test_the_report_names_the_command_that_finishes_the_job(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+        subscribing.add(world.call(), source=world.remote, name="prose-style", kind=Kind.RULE)
+        (world.project / SKILLS / "writing" / "SKILL.md").unlink()
+
+        outcome = subscribing.remove(world.call(), name="prose-style")
+        shown = io.StringIO()
+        subscribing.text(outcome, shown)
+
+        said = shown.getvalue()
+        assert "Deleted 1 rule and wrote nothing." in said
+        assert "1 file elsewhere in this manifest is out of date, which `akit render` writes." in said
+        assert "rendering for" not in said
+
+    def test_a_manifest_that_was_up_to_date_says_so(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+        subscribing.add(world.call(), source=world.remote, name="prose-style", kind=Kind.RULE)
+
+        outcome = subscribing.remove(world.call(), name="writing")
+        shown = io.StringIO()
+        subscribing.text(outcome, shown)
+
+        assert "The rest of this manifest is already rendered." in shown.getvalue()
+
+    def test_a_rule_beside_the_one_it_dropped_is_not_refreshed(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.RULE)
+        subscribing.add(world.call(), source=world.remote, name="prose-style", kind=Kind.RULE)
+        world.commit({"rules/writing.md": "Reach for it, revised.\n"})
+        host = world.project / "AGENTS.md"
+        before = host.read_text(encoding="utf-8")
+
+        subscribing.remove(world.call(), name="prose-style")
+
+        after = host.read_text(encoding="utf-8")
+        assert "Write in the present tense." not in after
+        assert "Reach for the writing skill." in after
+        assert before != after
+
+    def test_a_rule_that_is_out_of_date_is_counted_as_a_rule(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.RULE)
+        subscribing.add(world.call(), source=world.remote, name="prose-style", kind=Kind.RULE)
+        host = world.project / "AGENTS.md"
+        host.write_text(host.read_text(encoding="utf-8").replace("Reach for the writing skill.", "Mine."), "utf-8")
+
+        outcome = subscribing.remove(world.call(), name="prose-style")
+        shown = io.StringIO()
+        subscribing.text(outcome, shown)
+
+        said = shown.getvalue()
+        assert outcome.rendered.outstanding_blocks == 1
+        assert "Deleted 1 rule and wrote nothing." in said
+        assert "1 rule elsewhere in this manifest is out of date" in said
+
+    def test_a_harness_removal_withdraws_without_writing(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+
+        outcome = subscribing.harness(world.call(), action="remove", name="detected")
+
+        assert outcome.rendered.withdrawing
+        assert not (world.project / SKILLS / "writing").exists()
+
+    def test_the_json_carries_what_is_left_to_do(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
+        subscribing.add(world.call(), source=world.remote, name="prose-style", kind=Kind.RULE)
+        (world.project / SKILLS / "writing" / "SKILL.md").unlink()
+
+        payload = subscribing.payload(subscribing.remove(world.call(), name="prose-style"))
+
+        assert payload["render"]["withdrawing"] is True
+        assert payload["render"]["outstanding"] == {"files": 1, "rules": 0}
 
     def test_a_hand_written_skill_in_the_way_is_left_alone(self, world: World):
         subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
@@ -595,7 +767,7 @@ class TestTheLiveAccountOfASlowCommand:
 
         said, _ = self.watched(world)
 
-        assert f"moved to {head[:9]}" in said
+        assert f"moved to {head[:SHORT]}" in said
 
     def test_a_key_already_at_the_newest_commit_says_so_in_three_words(self, world: World):
         subscribing.add(world.call(), source=world.remote, name="writing", kind=Kind.SKILL)
@@ -686,7 +858,7 @@ class TestWhatUpdateReports:
 
         shown = self.report(subscribing.update(world.call()))
 
-        assert f"skills from {world.remote}, {was[:9]} to {head[:9]}" in shown
+        assert f"skills from {world.remote}, {was[:SHORT]} to {head[:SHORT]}" in shown
         assert shown.index(f"skills from {world.remote}") < shown.index("# writing, revised")
 
     def test_a_pin_that_moved_over_nothing_you_subscribe_to_is_one_trailing_line(self, world: World):

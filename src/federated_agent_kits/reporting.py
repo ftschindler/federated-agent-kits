@@ -85,6 +85,14 @@ SINGULAR: dict[Kind, str] = {Kind.SKILL: "skill", Kind.RULE: "rule", Kind.AGENT:
 
 NOTHING = "nothing subscribed here"
 
+#: How much of a commit a person reads, in every verb that shows one. The whole
+#: of one is in `--json` and in the manifest, so this answers only how much is
+#: worth reading on a line of prose. Seven is what git itself abbreviates to in
+#: a repository this size, and it lives here rather than in each verb because
+#: two verbs showing one commit at two lengths cannot be compared by eye.
+SHORT = 7
+
+
 #: The length at which a list stops needing an "and" in it.
 ONE = 1
 
@@ -190,12 +198,14 @@ __all__ = [
     "INDENT",
     "MISSING",
     "NOTHING",
+    "ONE",
     "ORDERING",
     "PLURAL",
     "SCOPE_MANIFEST",
     "SCOPE_NAMED",
     "SCOPE_TITLE",
     "SECTION",
+    "SHORT",
     "SINGULAR",
     "UNMARKED",
     "Column",

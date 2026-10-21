@@ -1323,7 +1323,7 @@ the flag stays, and `uv tool install federated-agent-kits` is what the daily use
 ```text
 akit list                    # what you subscribed to, and where it is
 akit add <source> <name>     # register a subscription, then render it; --global for global
-akit remove <name>           # drop a subscription, and the files it rendered
+akit remove <name>           # drop a subscription, and delete the files it rendered
 akit harness add <name>      # render for a harness by name, and commit what it reads
 akit harness remove <name>   # stop, and withdraw what it rendered
 akit render                  # make the harness files match the manifests, both scopes
@@ -1489,10 +1489,10 @@ that says what that will do beats a key somebody guesses the spelling of. Its re
 [§8](#8-keeping-the-employers-kits-in)'s: a private source already subscribed in this
 repository means the harness cannot be added until that subscription goes.
 
-`harness remove` drops the name and withdraws what it rendered, by the rules below. Without
-it the only way to turn the cloud agent off would be a hand edit that left a directory of
-committed rules in the repository with nothing to explain them, still being read by the
-harness you meant to stop using.
+`harness remove` drops the name and withdraws what it rendered, by the rules below, and like
+`remove` it writes nothing else ([below](#remove)). Without it the only way to turn the cloud
+agent off would be a hand edit that left a directory of committed rules in the repository with
+nothing to explain them, still being read by the harness you meant to stop using.
 
 **`detected` is a name like any other here.** `akit harness remove detected` is how a
 repository pins ([§6](#6-the-manifest)), and on a machine holding a harness the list does not
@@ -1511,6 +1511,30 @@ away the one file in that directory with something of yours in it.
 
 Naming a kit is enough. Where two manifests subscribe to one name, it refuses and asks which,
 because guessing would silently change what a repository gives everybody else.
+
+**It withdraws, and it does not render.** Every other manifest-writing command ends by
+reconciling the whole manifest, which for `remove` meant dropping one subscription and
+catching everything else up in passing: a command that reads as subtractive performing the
+largest write a machine had yet seen, into directories the removal had nothing to do with,
+including a file somebody else owns. The reconciliation was defensible and the direction was
+not. So the pass `remove` ends with deletes what the manifest no longer explains, writes
+nothing at all, and counts what a render would have written. The count goes in the last line
+with the command that performs it.
+
+Three things follow, and all three are the point. The record keeps the digests it already
+had, because a record is a claim about bytes on disk and this pass wrote none; adopting what
+it planned would make every file the manifest is behind on look hand-edited to the next
+render, which keeps a file rather than refreshing it. A rule beside the one being dropped is
+copied through exactly as it stands, rather than being refreshed on the way past. And `akit
+harness remove` works the same way, being the other subtractive verb.
+
+**A name it cannot drop is answered with the ones it can.** A `"*"` subscription renders
+parts under their own names, so `akit list` prints a name that `remove` then refuses, and the
+refusal used to say to run `akit list`. It now says which manifest line explains that name,
+that dropping the line takes the rest with it, and then every subscription this manifest
+holds as the command that drops it. Whether `remove <part>` should perform the expansion
+itself - drop the glob, re-subscribe the rest by name - is left open: it rewrites several
+lines of somebody's manifest from one word, which wants its own decision.
 
 **Writing a kit is what this is for, more than tidying up.** A new kit starts subscribed from
 a path on your disk, and ends up subscribed from a published repository. That swap is
