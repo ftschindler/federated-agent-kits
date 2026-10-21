@@ -1151,6 +1151,14 @@ anonymously is public.
 This costs nothing, needs no cooperation, and is true at the moment it matters, which is when
 the parts are fetched.
 
+**Neither attempt may ask you for the credentials.** A credential already stored on this
+machine answers, and that is what the test needs; a prompt is not an extra chance to pass it.
+The retry is reached by every source that is simply not there, so a prompt there is not a
+question somebody can answer - it blocks a command in a session that often has no terminal at
+all, and the dialog it opens is somewhere a stored token has been seen in clear text. A
+source whose credentials are not stored is reported as unreachable, with the `git clone` to
+run by hand, which is also what git does with no terminal.
+
 **A path inside the repository is as public as the repository.** It is the same files, in the
 same commit, behind the same remote, so nothing has to be asserted and nothing has to be
 cloned. That covers the case [§6](#6-the-manifest) designs for, a repository shipping kits
@@ -1322,6 +1330,7 @@ the flag stays, and `uv tool install federated-agent-kits` is what the daily use
 
 ```text
 akit list                    # what you subscribed to, and where it is
+akit discover <source>       # what one source holds, by kind, without subscribing to it
 akit add <source> <name>     # register a subscription, then render it; --global for global
 akit remove <name>           # drop a subscription, and delete the files it rendered
 akit harness add <name>      # render for a harness by name, and commit what it reads
@@ -1331,13 +1340,23 @@ akit update [name]           # fetch, move the pins, show what moved
 akit doctor                  # what is wrong, and which command fixes it
 ```
 
-**Three commands fetch, and only where the cache falls short.** `add` fetches a source this
+**Four commands fetch, and only where the cache falls short.** `add` fetches a source this
 machine does not have yet, and skips that when the cache already holds it at the ref asked
 for. `update` fetches new commits for a source it does have. `render` fetches a source it has
 never seen, at the commit the manifest already names, because a colleague who clones a
-repository has an empty cache and one command to run. None of them re-fetches a source the
-cache can answer for, so a render on a train produces exactly what it produced yesterday, and
-`list` and `doctor` never go near a remote at all.
+repository has an empty cache and one command to run. `discover` fetches what it was asked to
+look inside. None of them re-fetches a source the cache can answer for, so a render on a train
+produces exactly what it produced yesterday, and `list` and `doctor` never go near a remote at
+all.
+
+**`discover` is the one that reads and still fetches, and the cache is why.** It answers the
+question somebody had to ask by mistyping an `akit add`: what is in this repository at all.
+Doing that offline would mean answering only about sources this machine already has, which is
+the opposite of when the question is asked. So it clones into the same cache every other
+command reads, at the same location, recording what the clone learned about whether the source
+needs credentials; the `add` that usually follows is then an edit to a manifest and nothing
+else. Fetching is not what makes a command dangerous - writing is - and this one writes no
+manifest, renders nothing and deletes nothing.
 
 **A render moves no pin and writes no manifest**, whatever it had to fetch. That is still the
 line between it and `update`, and it is the one that matters: a clone of a repository renders
