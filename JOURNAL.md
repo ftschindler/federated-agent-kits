@@ -1946,3 +1946,62 @@ which is what git itself does with no terminal.
 
 Worth recording that the thing that found both was typing a wrong name on purpose, which is
 the same act the command this branch adds was written to make unnecessary.
+
+## 2026-10-21 - The ignore block never looked at the home directory, and `~/.agents` was a public repo
+
+Found while collecting data for [#31](https://github.com/ftschindler/federated-agent-kits/issues/31),
+on a real machine rather than in a fixture. `akit doctor` reported two findings, both
+"renders no record knows about":
+
+```text
+/home/felix/.agents/skills/find-skills looks like a render, and no record knows about it
+/home/felix/.agents/skills/repo-maintenance looks like a render, and no record knows about it
+  fix: leave it alone if you wrote it by hand, which looks identical from here; ...
+```
+
+`~/.agents` turned out to be a git repository, `ftschindler/agents-skills`, public, with a
+hand-written `.gitignore` that denies by default and then explicitly allows `/skills/**`. Its
+working tree held four renders from the global manifest. One of them, `arup-writing`, comes
+from a source that needs credentials to clone. So a private kit was sitting untracked but
+unignored in a public repository, one `git add -A` from being published, and a second,
+`skills/writing/`, was already tracked: a generated file git-added into a source repository.
+
+Every machine for catching that already existed and none of it ran. `ignore.py` maintains the
+block, `doctor` has the both-directions check, `leaks.py` refuses a private source into a
+public target. All of it keyed off `Standing.root`, "the repository this was run in", and off
+`Scope.PROJECT`. The question those ask is whether the *invocation* is inside a repository.
+The question that matters is whether the *render root* is. For the project scope the two
+coincide, which is why it held for a year of fixtures: every test renders into the repository
+it runs in.
+
+`ignore_block` said the false premise out loud, in its own docstring:
+
+```text
+Only inside a repository, and only for the project scope: your home
+directory is not a working tree, so nothing rendered there can be committed
+by accident.
+```
+
+A home directory is a working tree whenever somebody keeps one there, and keeping `~/.agents`
+in git to sync it between machines is the thing `akit` was built to replace. Arriving with
+one is the normal case, not the strange one.
+
+The fix is one definition: ask each rendered directory which worktree contains it, rather
+than asking the command where it was run. The project scope's answer is the anchor it already
+had, so its behaviour is unchanged by construction, and the whole suite passing on the first
+run with one assertion updated is what that claim rests on.
+
+Two things fell out that were not the point. A render into somebody's home-directory
+repository must not write their `.gitignore` unasked, which is why `--gitignore` exists and
+why `doctor` nags instead; and the orphan check, which had been admitting in its own fix line
+that a hand-written skill "looks identical from here", can now ask git. A directory the
+surrounding repository tracks has a history and an author. That is not an orphan, it is
+content of somebody's own sitting where renders go, and the advice it wants is to move it
+somewhere `akit` can subscribe to it rather than an offer to delete it.
+
+The privacy half is deliberately not in this change. `leaks.py` decides what is committed
+from what a machineless harness reads, which has no meaning in the global scope, so
+extending it needs a second definition of committed-ness. It is also largely self-closing:
+once the block covers a global render root, what renders there is ignored, and what is
+ignored is not committed. What is left is content git was already tracking when `akit`
+arrived, which is exactly what the check above now names.

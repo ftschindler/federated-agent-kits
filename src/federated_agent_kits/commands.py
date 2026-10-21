@@ -239,6 +239,11 @@ COMMANDS: tuple[Command, ...] = (
                 action="store_true",
             ),
             Argument(
+                ("--gitignore",),
+                "Also write the ignore block of a repository that contains a global render root",
+                action="store_true",
+            ),
+            Argument(
                 ("--yes",),
                 "Answer the question `--prune` asks, for a script that means it",
                 action="store_true",

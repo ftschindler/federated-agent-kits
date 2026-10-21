@@ -596,6 +596,107 @@ def _fixes(printed: str) -> list[str]:
     return [line.split("fix: ", 1)[1] for line in printed.splitlines() if "fix: " in line]
 
 
+class TestAGlobalRenderRootInsideARepository:
+    """The home directory half of the ignore block, which is reported and not written.
+
+    `~/.agents` kept as a git repository is the shape this tool replaces, so it
+    is the shape a person arrives with. What renders there is as committable as
+    what renders into a project, and the `.gitignore` saying so belongs to
+    somebody who never pointed this tool at it.
+    """
+
+    def test_the_repository_is_reported_and_its_gitignore_left_alone(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        agents = _a_global_render_root(places, kits)
+        render.render(project, places)
+
+        found = report(project, places)
+
+        assert "ignore-block" in checks(found)
+        assert "--gitignore" in next(entry.fix for entry in found.findings if entry.check == "ignore-block")
+        assert not (agents / ignore.GITIGNORE).exists()
+
+    def test_the_flag_writes_the_block_and_settles_the_finding(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        agents = _a_global_render_root(places, kits)
+
+        render.render(project, places, render.Choices(gitignore=True))
+
+        assert "skills/" in (agents / ignore.GITIGNORE).read_text(encoding="utf-8")
+        assert "ignore-block" not in checks(report(project, places))
+
+    def test_an_ordinary_render_says_the_block_is_missing_rather_than_claiming_it_wrote_one(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        _a_global_render_root(places, kits)
+        out = io.StringIO()
+
+        outcome = render.render(project, places)
+        render.text(outcome, out)
+
+        assert "does not list" in out.getvalue()
+        assert outcome.exit_code is Exit.OK
+
+    def test_git_tracking_what_renders_there_is_the_worse_half_and_is_named(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        agents = _a_global_render_root(places, kits)
+        render.render(project, places)
+        git("-C", str(agents), "add", "-A", "-f")
+        git("-C", str(agents), *FIXED_AUTHOR, "commit", "-qm", "commit the lot")
+
+        found = report(project, places)
+
+        assert "tracked-render" in checks(found)
+        assert "git rm -r --cached" in next(entry.fix for entry in found.findings if entry.check == "tracked-render")
+
+    def test_a_home_directory_that_is_no_repository_is_asked_nothing(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        _a_global_subscription(places, kits)
+        render.render(project, places)
+
+        found = report(project, places)
+
+        assert "ignore-block" not in checks(found)
+        assert "tracked-render" not in checks(found)
+
+    def test_a_skill_that_repository_tracks_is_authored_rather_than_orphaned(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        agents = _a_global_render_root(places, kits)
+        render.render(project, places)
+        mine = agents / "skills" / "repo-maintenance"
+        mine.mkdir(parents=True)
+        (mine / "SKILL.md").write_text("# mine\n", encoding="utf-8")
+        git("-C", str(agents), "add", "-f", "--", "skills/repo-maintenance")
+        git("-C", str(agents), *FIXED_AUTHOR, "commit", "-qm", "a skill I wrote")
+
+        found = report(project, places)
+
+        assert "authored-render" in checks(found)
+        assert "orphan" not in checks(found)
+        assert "akit add" in next(entry.fix for entry in found.findings if entry.check == "authored-render")
+
+
+def _a_global_subscription(places: render.Directories, kits: Path) -> None:
+    yours = places.user_manifest
+    assert yours is not None
+    yours.parent.mkdir(parents=True, exist_ok=True)
+    yours.write_text(f"version: 1\n\nskills:\n  {kits}: [writing]\n", encoding="utf-8")
+
+
+def _a_global_render_root(places: render.Directories, kits: Path) -> Path:
+    """A global subscription whose render target sits in a repository of its own."""
+    _a_global_subscription(places, kits)
+    agents = places.home / ".agents"
+    agents.mkdir(parents=True, exist_ok=True)
+    git("-C", str(agents), "init", "-q")
+    return agents
+
+
 class TestTheReportItself:
     def test_a_healthy_setup_says_so_and_names_where_it_looked(
         self, project: Path, places: render.Directories, kits: Path

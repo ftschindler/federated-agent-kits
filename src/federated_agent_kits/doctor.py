@@ -65,12 +65,14 @@ TITLE: dict[str, str] = {
     "edited": "Rendered copies edited by hand",
     "unexplained": "Rendered copies nothing explains any more",
     "orphan": "Renders no record knows about",
+    "authored-render": "Content of your own where renders go",
     "foreign-entry": "Record entries naming somewhere that record does not cover",
     "abandoned-record": "Records of a project with no manifest",
     "dangling-pointer": "Harness configuration pointing nowhere",
     "escaping-path": "Committed manifests naming somewhere off this machine",
     "ignore-block": "Ignore rules that have drifted",
     "ignored-and-committed": "Ignored directories git is tracking anyway",
+    "tracked-render": "Render directories git is tracking",
     "refused": "Renders that were refused",
     "committed-render": "Committed renders that could not be checked",
     "stale": "Committed renders that are out of date",
@@ -307,6 +309,13 @@ def _orphans(standing: Standing) -> list[Finding]:
     asks. A fix line that opens with the destructive command on a finding this
     check cannot tell apart from an authored directory is an invitation to run
     it four times in a row, which is how issue #30 was found.
+
+    **Where a repository contains the render root, it can tell them apart.** A
+    directory git tracks was written by somebody and has a history, whatever it
+    looks like from here, so it is authored content in generated territory
+    rather than a render whose record was lost. That is a different fault with a
+    different fix, and offering `--prune` for it was the wrong half of the
+    sentence above.
     """
     if standing.plan is None:
         return []
@@ -318,18 +327,33 @@ def _orphans(standing: Standing) -> list[Finding]:
             if not directory.is_dir():
                 continue
             found.extend(
-                Finding(
-                    check="orphan",
-                    what=f"{child} looks like a render, and no record knows about it",
-                    fix=(
-                        "leave it alone if you wrote it by hand, which looks identical from here; "
-                        "`akit render --prune` deletes it, and lists what it found and asks first"
-                    ),
-                )
+                _unexplained_finding(child)
                 for child in sorted(directory.iterdir())
                 if not child.is_symlink() and not any(path == child or path.is_relative_to(child) for path in explained)
             )
     return found
+
+
+def _unexplained_finding(child: Path) -> Finding:
+    """What a directory nothing explains is, which git can sometimes answer."""
+    root = manifest.worktree_root(child)
+    if root is not None and _tracked_inside(root, child.relative_to(root).as_posix()):
+        return Finding(
+            check="authored-render",
+            what=f"{child} is tracked by the repository at {root}, and sits where akit renders",
+            fix=(
+                f"move it out of {child.parent} into a repository of its own, then `akit add <path> "
+                f"{child.name} --global`: what renders there is generated, and this is not"
+            ),
+        )
+    return Finding(
+        check="orphan",
+        what=f"{child} looks like a render, and no record knows about it",
+        fix=(
+            "leave it alone if you wrote it by hand, which looks identical from here; "
+            "`akit render --prune` deletes it, and lists what it found and asks first"
+        ),
+    )
 
 
 def _foreign(standing: Standing) -> list[Finding]:
@@ -528,48 +552,93 @@ def _rendering_for(standing: Standing) -> list[Adapter]:
 
 
 def _ignored(standing: Standing) -> list[Finding]:
-    """The `.gitignore` block, in both directions.
+    """The `.gitignore` block of every repository a render writes into, in both directions.
 
     A rendered directory missing from it is a laptop's kits on their way into
     somebody's history. A directory in it that git also tracks is the opposite
     and is worse: the files are committed and ignored at once, so nothing you do
     to them shows up in a diff again.
 
-    Only where something has actually been rendered. A repository that has never
-    run this has no block and needs none, and reporting one would be this
-    command's answer to "you have not rendered yet", which is a sentence the
-    whole of `akit list` already says better.
+    **Both are asked of the global scope too**, because a home directory holding
+    a git repository is ordinary. `~/.agents` kept as a repository to share or
+    back up is the shape this tool replaces, so it is the shape a person arrives
+    with, and a render into it is as committable as a render into a project. The
+    difference is whose file the `.gitignore` is: a project's is maintained by
+    every render, and this one is reported until `akit render --global
+    --gitignore` is asked for.
+
+    Only where that scope has actually rendered. A repository that has never run
+    this has no block and needs none, and reporting one would be this command's
+    answer to "you have not rendered yet", which is a sentence the whole of
+    `akit list` already says better.
     """
-    if standing.plan is None or standing.root is None or not standing.records.of(Scope.PROJECT).written:
+    if standing.plan is None:
         return []
     plan = standing.plan
     keeps_a_record = any(Scope.PROJECT in planned.scopes for planned in plan.writes.values())
     explained = set(standing.records.paths) | {path for path, _ in plan.spots}
     found: list[Finding] = []
-    for root, listed, changed in render.ignore_block(
-        plan.walk, plan.owned, explained, tuple(Scope), keeps_a_record=keeps_a_record
-    ):
-        if changed and not _commits_renders(standing):
-            found.append(
-                Finding(
-                    check="ignore-block",
-                    what=f"the akit block in {root / ignore.GITIGNORE} does not list what this project renders",
-                    fix="run `akit render`, which rewrites that block whole",
-                )
-            )
+    for block in render.ignore_block(plan.walk, plan.owned, explained, tuple(Scope), keeps_a_record=keeps_a_record):
+        scope = Scope.PROJECT if block.maintained else Scope.USER
+        if not standing.records.of(scope).written:
+            continue
+        found.extend(_block_findings(standing, block))
         found.extend(
-            Finding(
-                check="ignored-and-committed",
-                what=f"{root / ignore.GITIGNORE} ignores {relative}, and git is tracking files in it",
-                fix=(
-                    f"run `git rm -r --cached {relative}` and commit that, or `akit harness add <name>` "
-                    f"if this project means to commit them"
-                ),
-            )
-            for relative in listed
-            if _tracked_inside(root, relative)
+            _tracking_finding(block, relative) for relative in block.listed if _tracked_inside(block.root, relative)
         )
     return found
+
+
+def _block_findings(standing: Standing, block: render.Ignored) -> list[Finding]:
+    """The one finding a stale or missing block is worth, worded for whose file it is."""
+    if not block.changed:
+        return []
+    where = block.root / ignore.GITIGNORE
+    if not block.maintained:
+        return [
+            Finding(
+                check="ignore-block",
+                what=f"{block.root} is a git repository that akit renders into, and {where} does not say so",
+                fix="run `akit render --global --gitignore`, which writes that block and nothing else new",
+            )
+        ]
+    if _commits_renders(standing):
+        return []
+    return [
+        Finding(
+            check="ignore-block",
+            what=f"the akit block in {where} does not list what this project renders",
+            fix="run `akit render`, which rewrites that block whole",
+        )
+    ]
+
+
+def _tracking_finding(block: render.Ignored, relative: str) -> Finding:
+    """Git tracking a directory a render owns, which is the same fault in two settings.
+
+    The untracking is named second on purpose. This directory is where renders
+    go and may also hold a skill somebody wrote, which the check above reports
+    one by one, and `git rm -r --cached` over the lot takes both. Doing the
+    authored half first leaves a command whose whole effect is to stop
+    committing generated files.
+    """
+    if not block.maintained:
+        return Finding(
+            check="tracked-render",
+            what=f"git is tracking files in {block.root / relative}, which akit renders into",
+            fix=(
+                f"settle anything of your own reported in it first, then `git rm -r --cached {relative}` "
+                f"in {block.root} and commit that: what is left there is generated"
+            ),
+        )
+    return Finding(
+        check="ignored-and-committed",
+        what=f"{block.root / ignore.GITIGNORE} ignores {relative}, and git is tracking files in it",
+        fix=(
+            f"run `git rm -r --cached {relative}` and commit that, or `akit harness add <name>` "
+            f"if this project means to commit them"
+        ),
+    )
 
 
 def _tracked_inside(root: Path, relative: str) -> bool:
