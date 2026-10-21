@@ -55,7 +55,7 @@ repos:
 # the half of the pin that decides whether a link is reported broken, so one
 # frozen rev here replaces a matched pair of versions kept in step by hand.
 - repo: https://github.com/ftschindler/linkspector-pre-commit
-  rev: db683f24c1df3b24e91c81271811a9e8b3ae5409  # frozen: v0.1.0
+  rev: 0cbd6389d0423aef04cbff8b96a6ff47462b190f  # unreleased: ftschindler/linkspector-pre-commit#2, for the sandbox ubuntu-latest refuses
   hooks:
   - id: linkspector-changed
 
