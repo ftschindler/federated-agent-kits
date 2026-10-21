@@ -302,6 +302,54 @@ class TestWhatIsActuallyOnDisk:
         assert "orphan" in checks(found)
         assert "--prune" in next(entry.fix for entry in found.findings if entry.check == "orphan")
 
+    def test_the_orphan_fix_offers_the_reversible_outcome_first(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        """Pruning a hand-written skill destroys the only copy; leaving a stale render costs nothing.
+
+        The two are indistinguishable from what this check can see, so the fix
+        line leads with the one that cannot lose anything. Four unexplained
+        directories on one machine is four chances to run the other by habit.
+        """
+        one_skill(project, kits)
+        render.render(project, places)
+        record.project_location(project).unlink()
+        subscribe(project, "version: 1\n")
+
+        fix = next(entry.fix for entry in report(project, places).findings if entry.check == "orphan")
+
+        assert fix.startswith("leave it alone")
+        assert fix.index("leave it alone") < fix.index("--prune")
+        assert "asks first" in fix
+
+    def test_a_record_entry_pointing_outside_the_root_it_answers_for(
+        self, project: Path, places: render.Directories, kits: Path, tmp_path: Path
+    ):
+        one_skill(project, kits)
+        render.render(project, places)
+        escaped = tmp_path / "somebody-elses-checkout" / "SKILL.md"
+        kept = record.load(record.project_location(project))
+        record.save(
+            record.Record(
+                path=kept.path,
+                written=(*kept.written, record.Written(path=escaped, digest="sha256:0")),
+            ),
+            record.project_location(project),
+        )
+
+        found = report(project, places)
+
+        assert "foreign-entry" in checks(found)
+        assert str(escaped) in next(entry.what for entry in found.findings if entry.check == "foreign-entry")
+
+    def test_a_record_that_stays_inside_its_root_is_not_reported(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        one_skill(project, kits)
+        render.render(project, places)
+
+        assert "foreign-entry" not in checks(report(project, places))
+
     def test_a_skill_the_manifest_still_explains_is_not_an_orphan(
         self, project: Path, places: render.Directories, kits: Path
     ):

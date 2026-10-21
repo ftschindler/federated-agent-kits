@@ -197,6 +197,7 @@ def render_command(arguments: argparse.Namespace, out: TextIO) -> Exit:
         only=tuple(arguments.harness or ()),
         without=tuple(arguments.no_harness or ()),
         prune=arguments.prune,
+        yes=arguments.yes,
     )
     if arguments.check:
         return render.check(out, as_json=arguments.json, choices=choices)

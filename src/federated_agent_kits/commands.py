@@ -187,6 +187,10 @@ COMMANDS: tuple[Command, ...] = (
             "still match, so anything you wrote or edited yourself survives, and a block "
             "inside your `AGENTS.md` is taken out without the file around it being touched. "
             "It fetches nothing, which is why a render on a train is yesterday's render. "
+            "A rendered kit is a copy, so a target that is already a symlink is refused rather "
+            "than written through: the bytes would land wherever it points, and this tool deletes "
+            "what it writes. `--prune` is the one deletion it cannot prove is safe, so it lists "
+            "what it found and asks before taking any of it, and `--yes` is how a script answers. "
             "`--check` is the exception: it writes nothing, judges only what this project "
             "commits for the harnesses it names that have no machine, and fetches the pinned "
             "commits a fresh checkout has no cache for."
@@ -200,7 +204,12 @@ COMMANDS: tuple[Command, ...] = (
             ),
             Argument(
                 ("--prune",),
-                "Also delete plausible orphans, which is the one deletion we cannot prove safe",
+                "Also delete plausible orphans; it lists them and asks first, since it cannot prove they are ours",
+                action="store_true",
+            ),
+            Argument(
+                ("--yes",),
+                "Answer the question `--prune` asks, for a script that means it",
                 action="store_true",
             ),
             Argument(

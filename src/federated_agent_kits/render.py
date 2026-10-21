@@ -51,7 +51,8 @@ prose around both (DESIGN.md section 6).
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping, Sequence
+import sys
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
@@ -78,6 +79,7 @@ from federated_agent_kits.adapters.adapter import SEPARATOR
 from federated_agent_kits.cache import Privacy
 from federated_agent_kits.exits import AkitError, Exit, RefusalError, UsageError
 from federated_agent_kits.manifest import Kind, Merged, Scope, Subscription
+from federated_agent_kits.paths import located
 from federated_agent_kits.record import Explanation, Record, Records, Region, Spot, Written
 from federated_agent_kits.reporting import (
     INDENT,
@@ -189,6 +191,15 @@ class Outcome:
     """
 
     pruned: tuple[Path, ...] = ()
+    unpruned: tuple[Path, ...] = ()
+    """Prune candidates that were listed and then not deleted, because nobody said yes.
+
+    Carried rather than dropped so the report can name them and the exit code
+    can say the command did not do what it was asked to. `--prune` that found
+    something, printed it and returned success would be indistinguishable from
+    `--prune` that found nothing.
+    """
+
     ignored: tuple[tuple[Path, tuple[str, ...], bool], ...] = ()
     """Each repository whose `.gitignore` was considered, what it now lists, and
     whether the file changed."""
@@ -232,9 +243,15 @@ class Outcome:
 
     @property
     def quiet(self) -> bool:
-        """Whether this render changed nothing at all, which it usually should."""
+        """Whether this render changed nothing at all, which it usually should.
+
+        A render with a problem in it is never quiet, however little it wrote.
+        "Nothing changed: the files on disk already match the manifests" is a
+        claim about the disk, and a subscription that produced nothing because
+        it was refused has left the disk not matching anything.
+        """
         changed = any(changed for _, _, changed in self.ignored)
-        return not (self.written or self.blocks_written or self.deleted or self.pruned or changed)
+        return not (self.written or self.blocks_written or self.deleted or self.pruned or changed or self.problems)
 
     @property
     def stale(self) -> tuple[str, ...]:
@@ -264,7 +281,7 @@ class Outcome:
     def exit_code(self) -> Exit:
         if self.checking and self.stale:
             return Exit.ERROR
-        return Exit.ERROR if self.problems or self.unknown else Exit.OK
+        return Exit.ERROR if self.problems or self.unknown or self.unpruned else Exit.OK
 
 
 @dataclass(frozen=True)
@@ -280,6 +297,13 @@ class Choices:
     only: tuple[str, ...] = ()
     without: tuple[str, ...] = ()
     prune: bool = False
+    yes: bool = False
+    """`--yes`, which is how something with nobody at a keyboard answers `--prune`.
+
+    Here rather than as an argument of its own because it is a flag of the same
+    command and means nothing without `prune`: the two are read together or not
+    at all, which is what this value is for.
+    """
 
     @property
     def narrowed(self) -> bool:
@@ -290,6 +314,22 @@ class Choices:
 #: no pruning. A module-level value rather than a default built per call, so
 #: "everything" is one object the whole program compares against.
 EVERYTHING = Choices()
+
+#: What `--prune` asks before it deletes anything: here is the list, may I.
+#: A callable rather than a flag on `Choices` because the answer is a person's
+#: and the question has to be put to them in the middle of a render, after the
+#: candidates are known and before any of them is gone.
+Approval = Callable[[tuple[Path, ...]], bool]
+
+
+def declined(candidates: tuple[Path, ...]) -> bool:
+    """The answer when nobody was asked, which is no.
+
+    The default for every caller that is not the command line: a library call
+    that wanted these deleted can say so, and one that did not say anything gets
+    the outcome that destroys nothing.
+    """
+    return False
 
 
 @dataclass(frozen=True)
@@ -570,6 +610,32 @@ def _skill_bytes(wanted: _Wanted, file: Path) -> bytes:
     return skills.as_copied(data, name=wanted.name)
 
 
+def _linked(path: Path) -> str | None:
+    """Why this spot may not be written, when the thing at it is a link.
+
+    `akit` owns the kit directory it writes and every file under it, and owning
+    something means being allowed to delete it. A link is not a thing we can own:
+    the bytes land wherever it points, the record would claim that destination,
+    and a withdrawal would then delete files somewhere nobody subscribed
+    anything into. One was a git working tree (DESIGN.md section 6).
+
+    Only the leaf is asked about. A home directory assembled out of a dotfiles
+    checkout puts a link above almost every target on the machine, and refusing
+    that would refuse the arrangement rather than the mistake.
+
+    Reported as a problem on the subscription rather than raised, so the rest of
+    the render still happens and nothing is withdrawn while one subscription is
+    unaccounted for (`_suspension`).
+    """
+    if not path.is_symlink():
+        return None
+    return (
+        f"{path} is a symlink, and a rendered kit is a copy rather than a link we follow. "
+        f"Nothing was written there. Delete the link and render again, which writes the kit "
+        f"in its place, or keep the link and `akit remove` what points at it"
+    )
+
+
 def _plan_skill(walk: _Pass, wanted: _Wanted, writes: dict[Spot, _Target]) -> tuple[list[Placement], str | None]:
     """A skill, copied unchanged into every directory a harness in scope reads."""
     placements: list[Placement] = []
@@ -580,10 +646,14 @@ def _plan_skill(walk: _Pass, wanted: _Wanted, writes: dict[Spot, _Target]) -> tu
         )
         if directory is None:
             continue
+        linked = _linked(directory)
+        if linked is not None:
+            clash = linked
+            continue
         spots: list[Spot] = []
         for file in _files_of(wanted.part.path):
-            spot = ((directory / file.relative_to(wanted.part.path)).resolve(), None)
-            problem = _spot_wanted(
+            spot = (located(directory / file.relative_to(wanted.part.path)), None)
+            problem = _linked(spot[0]) or _spot_wanted(
                 writes,
                 spot,
                 _skill_bytes(wanted, file),
@@ -622,8 +692,8 @@ def _plan_rule(walk: _Pass, wanted: _Wanted, writes: dict[Spot, _Target]) -> tup
             if region is not None
             else rules.as_file(data, name=wanted.name, keys=adapter.rule_frontmatter)
         )
-        spot = (target.resolve(), region)
-        problem = _spot_wanted(
+        spot = (located(target), region)
+        problem = (None if region is not None else _linked(spot[0])) or _spot_wanted(
             writes,
             spot,
             written,
@@ -750,7 +820,7 @@ def _plan_note(walk: _Pass, referring: Sequence[_Referring], writes: dict[Spot, 
                 if region is not None
                 else rules.as_file(data, name=renames_.RENAMES, keys=adapter.rule_frontmatter, ours=True)
             )
-            spot = (target.resolve(), region)
+            spot = (located(target), region)
             for entry in here:
                 _spot_wanted(
                     writes,
@@ -970,7 +1040,7 @@ def _tidy(path: Path, boundaries: Iterable[Path]) -> None:
     directory or the project anchor, so it can never climb out of the scope it
     was deleting in.
     """
-    stops = {Path(entry).resolve() for entry in boundaries}
+    stops = {located(Path(entry)) for entry in boundaries}
     directory = path.parent
     while directory not in stops and any(directory.is_relative_to(stop) for stop in stops):
         if not directory.is_dir() or any(directory.iterdir()):
@@ -1066,26 +1136,30 @@ def _directories(picked: Iterable[Adapter], walk: _Pass, scopes: Sequence[Scope]
     return found
 
 
-def _prune(owned: dict[Path, set[str]], explained: set[Path]) -> list[Path]:
-    """Delete what nothing explains in a directory we own, one kit at a time.
+def _prunable(owned: dict[Path, set[str]], explained: set[Path]) -> tuple[Path, ...]:
+    """What nothing explains in a directory we own, one kit at a time.
 
     The one deletion this tool cannot prove is safe, which is why it is a flag.
     A kit rendered before the record was lost is indistinguishable from a kit
     somebody wrote by hand in the same directory, so this takes both and the
     other three commands take neither.
+
+    Finding them and deleting them are separate because of that: a list that can
+    be printed before anything happens is what lets the person who wrote one of
+    these by hand say no (DESIGN.md section 10).
     """
-    removed: list[Path] = []
+    found: list[Path] = []
     for base, written in owned.items():
         for relative in sorted(written):
             directory = base.joinpath(*relative.split(SEPARATOR))
             if not directory.is_dir():
                 continue
-            for child in sorted(directory.iterdir()):
-                if any(path == child or path.is_relative_to(child) for path in explained):
-                    continue
-                _remove(child)
-                removed.append(child)
-    return removed
+            found.extend(
+                child
+                for child in sorted(directory.iterdir())
+                if not any(path == child or path.is_relative_to(child) for path in explained)
+            )
+    return tuple(found)
 
 
 def _remove(path: Path) -> None:
@@ -1270,7 +1344,7 @@ def _unexplained(walk: _Pass, writes: dict[Spot, _Target], root: Path | None) ->
         if not directory.is_dir():
             continue
         found.extend(
-            path for path in sorted(directory.rglob("*")) if path.is_file() and (path.resolve(), None) not in writes
+            path for path in sorted(directory.rglob("*")) if path.is_file() and (located(path), None) not in writes
         )
     return tuple(found)
 
@@ -1355,13 +1429,35 @@ class Plan:
         return tuple(entry for entry in self.entries if entry.problem is not None)
 
 
+def _roots(start: Path, places: Directories, chosen: Mapping[Scope, tuple[Adapter, ...]]) -> dict[Scope, set[Path]]:
+    """Where each record's entries are allowed to be, which is where its render writes.
+
+    Your record covers your home directory, and a project's covers the project
+    (DESIGN.md section 6). The second is the anchor rather than the git root
+    because an adapter answers question 6 for itself, and one that anchors
+    somewhere other than the worktree writes there legitimately.
+
+    An entry outside all of them is not a file this scope could have produced,
+    so it is not one this scope may delete. That is a guard against two faults
+    at once: a path recorded through a symlink, and a suite that wrote into a
+    real record while pointed at a temporary directory.
+    """
+    found: dict[Scope, set[Path]] = {}
+    for scope in chosen:
+        if scope is Scope.USER:
+            found[scope] = {located(places.home)}
+            continue
+        anchors = {adapter.anchor(start) or start for adapter in chosen[scope]}
+        found[scope] = {located(path) for path in {manifest.worktree_root(start) or start, *anchors}}
+    return found
+
+
 def plan(start: Path, places: Directories, choices: Choices = EVERYTHING, mode: Mode = RENDERING) -> Plan:
     """Work out what a render would do, without doing any of it."""
     _check_names(choices.only, "--harness")
     _check_names(choices.without, "--no-harness")
     merged = manifest.load(start, user_path=places.user_manifest)
     files = record.locations(start, state_root=places.state)
-    before = {scope: record.load(path) for scope, path in files.items()}
     chosen: dict[Scope, tuple[Adapter, ...]] = {}
     unknown: list[str] = []
     for scope in choices.scopes:
@@ -1371,6 +1467,8 @@ def plan(start: Path, places: Directories, choices: Choices = EVERYTHING, mode: 
             adapters.machineless(picked) if mode.checking else picked, choices.only, choices.without
         )
         unknown.extend(name for name in missing if name not in unknown)
+    roots = _roots(start, places, chosen)
+    before = {scope: record.load(path, roots=roots.get(scope, ())) for scope, path in files.items()}
     walk = _Pass(
         start=start,
         home=places.home,
@@ -1403,12 +1501,23 @@ def plan(start: Path, places: Directories, choices: Choices = EVERYTHING, mode: 
     )
 
 
-def render(start: Path, places: Directories, choices: Choices = EVERYTHING, mode: Mode = RENDERING) -> Outcome:
+def render(
+    start: Path,
+    places: Directories,
+    choices: Choices = EVERYTHING,
+    mode: Mode = RENDERING,
+    approve: Approval = declined,
+) -> Outcome:
     """Make the files on disk match the manifests, and say everything that happened.
 
     `mode` is `RENDERING` for every caller but one. `CHECKING` is the same walk
     that fetches what the cache lacks, writes nothing, and judges only what this
     repository commits.
+
+    `approve` is asked once, and only when `--prune` found something. It is the
+    only question this package puts to a person, which is why it arrives as a
+    parameter rather than as a call to `input` somewhere in here: a render is
+    run from hooks and from tests, and neither has anybody to answer.
     """
     writing, checking = mode.writing, mode.checking
     prepared = plan(start, places, choices, mode)
@@ -1439,7 +1548,11 @@ def render(start: Path, places: Directories, choices: Choices = EVERYTHING, mode
         if scope is Scope.PROJECT:
             keeps_a_record = bool(after.written)
         standing |= set(after.paths)
-    pruned = _prune(owned, standing) if choices.prune and suspended is None and writing else []
+    candidates = _prunable(owned, standing) if choices.prune and suspended is None and writing else ()
+    agreed = bool(candidates) and approve(candidates)
+    pruned = tuple(candidates) if agreed else ()
+    for path in pruned:
+        _remove(path)
     return Outcome(
         checking=checking,
         manifests={
@@ -1454,7 +1567,8 @@ def render(start: Path, places: Directories, choices: Choices = EVERYTHING, mode
         blocks_unchanged=sum(1 for spot, changed in done.items() if not changed and spot[1] is not None),
         withdrawals=tuple(withdrawals),
         replaced=replaced,
-        pruned=tuple(pruned),
+        pruned=pruned,
+        unpruned=() if agreed else tuple(candidates),
         ignored=ignore_block(walk, owned, standing, choices.scopes, keeps_a_record=keeps_a_record),
         unexplained=_unexplained(walk, writes, manifest.worktree_root(start)) if checking else (),
         unknown=prepared.unknown,
@@ -1478,7 +1592,7 @@ def _suspension(entries: Sequence[Entry], choices: Choices, *, checking: bool) -
     if choices.narrowed:
         return "a narrowing flag was given, and narrowing skips work rather than undoing it"
     if any(entry.problem is not None for entry in entries):
-        return "something could not be resolved, so the list of what is still explained is incomplete"
+        return "a subscription could not be rendered, so the list of what is still explained is incomplete"
     return None
 
 
@@ -1609,6 +1723,23 @@ def _print_pruned(outcome: Outcome, out: TextIO, style: Style) -> None:
     print("", file=out)
 
 
+def _print_unpruned(outcome: Outcome, out: TextIO, style: Style) -> None:
+    """What `--prune` found and did not delete, because the answer was no.
+
+    Named rather than counted. Each of these is either a render whose record is
+    gone or something somebody wrote by hand, and the person reading is the only
+    one who can tell those apart; a count tells them nothing they can act on.
+    """
+    if not outcome.unpruned:
+        return
+    section("Not pruned", out, style)
+    print("Nothing was deleted. These are the ones `--prune` was going to take:", file=out)
+    for path in outcome.unpruned:
+        print(f"- {style.place(str(path))}", file=out)
+    print(f"{INDENT}fix: run `akit render --prune --yes` to delete them, if none of them is yours", file=out)
+    print("", file=out)
+
+
 def _print_ignored(outcome: Outcome, out: TextIO, style: Style) -> None:
     if not outcome.ignored:
         return
@@ -1706,6 +1837,7 @@ def text(outcome: Outcome, out: TextIO, *, style: Style | None = None) -> None:
     _print_replacements(outcome, out, shown)
     _print_withdrawals(outcome, out, shown)
     _print_pruned(outcome, out, shown)
+    _print_unpruned(outcome, out, shown)
     _print_ignored(outcome, out, shown)
     section("Summary", out, shown)
     print(_summary(outcome), file=out)
@@ -1744,6 +1876,7 @@ def payload(outcome: Outcome) -> dict[str, Any]:
             {"path": str(entry.path), "region": entry.region, "action": entry.action} for entry in outcome.withdrawals
         ],
         "pruned": [str(path) for path in outcome.pruned],
+        "unpruned": [str(path) for path in outcome.unpruned],
         "replaced": [{"path": str(path), "region": region} for path, region in outcome.replaced],
         "ignored": [
             {"repository": str(root), "lists": list(listed), "changed": changed}
@@ -1770,6 +1903,46 @@ def scopes_from(*, only_global: bool, only_project: bool) -> tuple[Scope, ...]:
     return tuple(Scope)
 
 
+#: What counts as yes at the prompt. `y` and nothing else, in either case: a
+#: question whose destructive answer is the one you get by pressing return is
+#: not a question.
+AGREEMENT = frozenset({"y", "yes"})
+
+
+def asking(out: TextIO, style: Style, *, yes: bool, interactive: bool, ask: Callable[[str], str] = input) -> Approval:
+    """How `--prune` puts its question, which depends on who is there to answer.
+
+    Three audiences and one answer each. A person at a terminal reads what is
+    about to go and types it. A script passed `--yes`, which is what meaning it
+    looks like, and is not stopped. Anything else - a hook, a pipe, a CI job -
+    is nobody, and nobody says no: a prompt that cannot be answered is a hang,
+    and a silent yes there is how the four hand-written skills in issue #30
+    would have gone.
+
+    Only the question prints the list, because only the question needs it
+    first. The other two get the same paths from the report, under `Pruned` or
+    under `Not pruned`, which is where every other thing this command did or
+    declined to do is already written down.
+    """
+
+    def approve(candidates: tuple[Path, ...]) -> bool:
+        if yes:
+            return True
+        if not interactive:
+            return False
+        section("About to be pruned", out, style)
+        print("Nothing explains these, and no record claims them. `--prune` takes both", file=out)
+        print("a render whose record was lost and a kit somebody wrote here by hand:", file=out)
+        for path in candidates:
+            print(f"- {style.place(str(path))}", file=out)
+        print("", file=out)
+        answer = ask(f"Delete {counted(len(candidates), 'thing')}? [y/N] ")
+        print("", file=out)
+        return answer.strip().lower() in AGREEMENT
+
+    return approve
+
+
 def run(
     out: TextIO,
     *,
@@ -1778,13 +1951,24 @@ def run(
     start: Path | None = None,
     home: Path | None = None,
 ) -> Exit:
-    """`akit render`. Non-zero when a subscription could not be rendered."""
+    """`akit render`. Non-zero when a subscription could not be rendered.
+
+    Whether anybody can be asked about `--prune` is worked out here rather than
+    passed in: a terminal on the other end of stdin is a fact about this process,
+    and `--json` means a program is reading, which is nobody to ask.
+    """
     places = Directories(home=home or Path.home())
-    outcome = render(start or Path.cwd(), places, choices)
+    style = Style.of(out)
+    outcome = render(
+        start or Path.cwd(),
+        places,
+        choices,
+        approve=asking(out, style, yes=choices.yes, interactive=sys.stdin.isatty() and not as_json),
+    )
     if as_json:
         print(json.dumps(payload(outcome), indent=2), file=out)
     else:
-        text(outcome, out, style=Style.of(out))
+        text(outcome, out, style=style)
     return outcome.exit_code
 
 
@@ -1831,10 +2015,12 @@ def check(
 
 
 __all__ = [
+    "AGREEMENT",
     "CHECKING",
     "COMMITTED",
     "INSPECTING",
     "RENDERING",
+    "Approval",
     "Choices",
     "Directories",
     "Entry",
@@ -1843,7 +2029,9 @@ __all__ = [
     "Placement",
     "Plan",
     "Withdrawal",
+    "asking",
     "check",
+    "declined",
     "escaping",
     "ignore_block",
     "payload",

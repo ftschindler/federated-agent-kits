@@ -1781,3 +1781,52 @@ The unit is the key and not the kit, which is worth writing down because the opp
 tempting: a reader wants a diff per kit. A pin belongs to a key, a key holding three kits
 moves for all three or for none, and one diff over the three is the change that pin actually
 names. Per kit would also be one `git diff` per name rather than one per key.
+
+## 2026-10-21 - A render target that was a symlink, and the 23 files that went with it
+
+`~/.agents/skills/fkb` was a symlink into a checkout of the repository that skill is written
+in, made by hand in September, long before `akit` existed. Subscribing to the published kit
+followed it, compared the checkout against the pinned source, found them identical, and said:
+
+```text
+    already up to date, 23 files in /home/felix/.agents/skills/fkb, for opencode and copilot-vscode
+```
+
+Nothing was written, which is the first problem on its own. The harness was still loading the
+working tree rather than anything `akit` manages, and would have stayed there through every
+later upgrade. The sentence was true of the bytes and false of the arrangement.
+
+The second problem is what the record kept. Removing the link and rendering again:
+
+```text
+  deleted /home/felix/Projects/public/federated-knowledge-skills/skills/fkb/SKILL.md, ...
+  ... 21 more ...
+Wrote 23 files, left 14 files alone as already correct, and deleted 23 files.
+```
+
+Paths were stored through `Path.resolve`, so withdrawal acted on the link's destination.
+
+**Resolving was the bug, and it was one line in three places.** `resolve` answers where a
+path leads; what a record wants is what the file is called, because that record is the
+exhaustive list of files this tool may delete. `os.path.abspath` is the half that was wanted
+and the whole of the fix: absolute, `..` taken out, nothing followed. It now lives in
+`paths.py` with the reason beside it, because the next reader's instinct will be to put
+`resolve` back.
+
+**Refusing a link at the leaf and following one above it is not a hedge.** A home directory
+assembled out of a dotfiles checkout puts a link above nearly every target on the machine,
+and refusing those would refuse the arrangement rather than the mistake. What `akit` claims
+is the kit directory and the files under it, and the rule follows from the claim.
+
+**Tidied paths made a containment check free.** Every target is built by joining names onto a
+scope root, so a tidied path is under its root by construction, and an entry that is not
+could not have been written by the scope claiming it. That same check collects the other way
+a foreign entry got into a record: a test run that redirected the render target but not the
+state directory wrote pytest paths into the real one (the suite half of that was fixed in
+October by the autouse `confined` fixture). Those entries are now set aside on load and
+reported rather than acted on, which turns a leak into a line of text instead of a deletion.
+
+**And the thing that found all three was running it on a real machine**, which is what
+[T14](IMPLEMENTATION.md#t14---iterate-on-what-use-earns) is for. No test would have thought to
+make a render target a symlink, because nobody writing the renderer imagines somebody having
+got there first.

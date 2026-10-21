@@ -764,6 +764,24 @@ So editing a kit you author means running `akit render` afterwards. That makes r
 real requirement rather than a nicety: it is the inner loop of writing a kit, not just
 something you run after changing the manifest.
 
+**A target that is already a symlink is refused rather than written through.** Somebody who
+made one by hand before `akit` existed - `~/.agents/skills/fkb` pointing into the checkout the
+skill is written in - gets a subscription that reports the link and writes nothing, rather
+than a render that quietly agrees. Two things went wrong when it followed one. The bytes
+matched, so it reported "already up to date" while the harness was still reading the working
+tree rather than anything `akit` manages; that sentence was true of the bytes and false of
+the arrangement. And the path recorded was the link's destination, which made a git working
+tree something withdrawal would later delete, and did.
+
+**Only the leaf is refused.** A home directory assembled out of a dotfiles checkout has a
+link above nearly every target on the machine, and that is an arrangement rather than a
+mistake. What `akit` claims is the kit directory and the files in it, so a link there is
+refused and a link above it is followed without comment.
+
+**And a recorded path is tidied rather than resolved**: made absolute with `.` and `..` taken
+out, by text, with nothing followed. "Where does this lead" is the wrong question to ask
+about a file this tool is claiming the right to delete; "what is it called" is the right one.
+
 ### What a render leaves behind
 
 The manifest already says which commit every subscription is on, so nothing has to be
@@ -839,6 +857,26 @@ however many repositories subscribe to it, so it lives beside the records in the
 directory with a file of its own. Copying it into every repository's record would store one
 fact once per project, and putting it in the global one alone would make one record the odd
 one that also carries machine state.
+
+**Every entry lies under the root its record answers for, and the loader checks rather than
+assumes.** Yours covers your home directory; a repository's covers that repository. An entry
+naming anywhere else could not have been written by the scope that claims it, and the record
+is the exhaustive list of what this tool may delete, so that is the one entry the list must
+not be trusted about. It is set aside on load: not withdrawn, not counted, not written back,
+and reported by `akit doctor` so that a record quietly shorter than its file is not something
+that happens in silence.
+
+Two faults put an entry there and both were this tool's own. A target recorded through a
+symlink, before the paragraph above was true. And a test suite that redirected the render
+target but not the state directory, writing entries full of temporary paths into the
+developer's real record; that one is fixed where it belongs, in the suite, and this is the
+guard that makes the next one harmless rather than a deletion.
+
+**User-created files inside a rendered directory are the user's.** `node_modules/` beside a
+skill's `package.json`, a scratch file, anything written there by hand: the record never
+named them, so withdrawal does not touch them and `--prune` does not either, since `--prune`
+asks before it takes anything. Nothing in here is ever ours by virtue of the directory it is
+sitting in.
 
 A record is a cache of facts about this disk, so deleting one costs one `akit render` and
 nothing else. One thing does not come back: a file rendered before its record was deleted is
@@ -1545,6 +1583,19 @@ was lost, which are now unknown rather than unexplained. It deletes what `doctor
 a plausible orphan, and it exists as a flag rather than a default because it is the one
 deletion this tool cannot prove is safe.
 
+**So it says what it took or would have taken, and asks before taking any of it.** The flag
+is not consent on its own,
+because the thing it cannot prove is exactly the thing that matters: a kit rendered before
+its record was lost and a kit somebody wrote in that directory by hand are the same bytes in
+the same place. One of those outcomes is reversible by running a command again and the other
+destroys the only copy. A person at a terminal reads the list and answers; `--yes` is how
+something with nobody at a keyboard answers in advance; anything else - a hook, a pipe, a
+`--json` run - gets the list, deletes nothing, and exits non-zero, because a prompt nobody
+can answer is a hang and a silent yes there is the deletion this paragraph exists to prevent.
+
+`akit doctor` reports the same candidates, and its fix line leads with leaving them alone for
+the same reason.
+
 **Which harnesses are in scope is one list, expanded then narrowed.**
 
 The manifest's `harnesses:` key is that list, and defaults to `[detected]`
@@ -1715,7 +1766,10 @@ What it looks for:
 - a rendered file edited by hand, caught by its hash in the render record, which is also the
   file `render` and `remove` refuse to delete until you say what you meant by it;
 - a file that looks like a render nothing knows about, which is what a lost render record
-  leaves behind, and what `render --prune` is for;
+  leaves behind, and what `render --prune` is for, the fix leading with leaving it alone
+  because the other branch destroys the only copy of anything written there by hand;
+- a record entry naming somewhere outside the root that record answers for, which is set
+  aside on load and goes when the record is next written ([§6](#6-the-manifest));
 - a source that is missing from the cache, or pinned to a commit the cache does not hold;
 - a committed manifest naming a path that leaves the repository, which is somebody's laptop
   written into a shared file;

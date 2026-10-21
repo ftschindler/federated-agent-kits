@@ -65,6 +65,7 @@ TITLE: dict[str, str] = {
     "edited": "Rendered copies edited by hand",
     "unexplained": "Rendered copies nothing explains any more",
     "orphan": "Renders no record knows about",
+    "foreign-entry": "Record entries naming somewhere that record does not cover",
     "abandoned-record": "Records of a project with no manifest",
     "dangling-pointer": "Harness configuration pointing nowhere",
     "escaping-path": "Committed manifests naming somewhere off this machine",
@@ -255,6 +256,13 @@ def _orphans(standing: Standing) -> list[Finding]:
     What a lost record leaves behind, and the one thing `render --prune` is for.
     A kit somebody wrote by hand in the same directory looks exactly like one,
     which is why this reports and never deletes (DESIGN.md section 6).
+
+    **The safe branch is named first, and it is the one in plain words.** The
+    two outcomes are not equally bad: pruning a hand-written skill destroys the
+    only copy of it, and leaving a stale render costs nothing until somebody
+    asks. A fix line that opens with the destructive command on a finding this
+    check cannot tell apart from an authored directory is an invitation to run
+    it four times in a row, which is how issue #30 was found.
     """
     if standing.plan is None:
         return []
@@ -269,12 +277,40 @@ def _orphans(standing: Standing) -> list[Finding]:
                 Finding(
                     check="orphan",
                     what=f"{child} looks like a render, and no record knows about it",
-                    fix="run `akit render --prune` to delete it, or leave it alone if you wrote it yourself",
+                    fix=(
+                        "leave it alone if you wrote it by hand, which looks identical from here; "
+                        "`akit render --prune` deletes it, and lists what it found and asks first"
+                    ),
                 )
                 for child in sorted(directory.iterdir())
                 if not any(path == child or path.is_relative_to(child) for path in explained)
             )
     return found
+
+
+def _foreign(standing: Standing) -> list[Finding]:
+    """A record naming a file outside the root that record answers for.
+
+    Two faults put one here and both are this tool's own. A render target under
+    a symlink used to be recorded as wherever the link pointed, which made a git
+    working tree something a withdrawal would delete. And a test suite that
+    redirected the render target but not the state directory wrote entries full
+    of temporary paths into the real record.
+
+    Neither is actionable by the person reading, and both are already handled:
+    the entry is not loaded as an explanation, so nothing will act on it. What
+    this adds is being told, because a record silently shorter than its file is
+    the kind of thing that should not happen quietly twice.
+    """
+    return [
+        Finding(
+            check="foreign-entry",
+            what=f"{found.path} claims {entry.path}, which is outside the root that record answers for",
+            fix="run `akit render`, which writes the record back without it",
+        )
+        for found in standing.records.by_scope.values()
+        for entry in found.foreign
+    ]
 
 
 def _abandoned_record(standing: Standing) -> list[Finding]:
@@ -565,6 +601,7 @@ CHECKS: tuple[Callable[[Standing], list[Finding]], ...] = (
     _not_reading,
     _rendered_files,
     _orphans,
+    _foreign,
     _abandoned_record,
     _pointers,
     _escaping_paths,
