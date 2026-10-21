@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from federated_agent_kits.manifest import Kind
+from federated_agent_kits.paths import located
 
 #: What marks a skill: a directory with this file in it. The file is the part's
 #: content and the directory is the part, because a skill brings its
@@ -184,7 +185,7 @@ def _is_ours(part: Part, rendered: set[Path]) -> bool:
     equality would miss every skill, which is the one kind this subtraction
     exists for.
     """
-    here = part.path.resolve()
+    here = located(part.path)
     return any(path == here or path.is_relative_to(here) for path in rendered)
 
 
@@ -202,7 +203,7 @@ def parts(
     `rendered` is what the render record says this tool wrote, subtracted so a
     repository that is its own source never reads its own output back.
     """
-    ours = {path.resolve() for path in rendered}
+    ours = {located(path) for path in rendered}
     found: list[Part] = []
     for relative in (*KIND_DIRECTORIES[kind], *extra_directories):
         directory = root if relative == "" else root.joinpath(*relative.split("/"))

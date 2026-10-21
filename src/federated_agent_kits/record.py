@@ -36,6 +36,18 @@ between those markers, and may never delete its host (DESIGN.md section 6). The
 field is additive and an absent one already means "a whole file", so T6 added it
 without a version bump.
 
+**A path in here is tidied rather than resolved, so no link was followed to
+write it down.** `paths.py` has the whole of why. The short version is that a
+render target under a symlinked directory used to be recorded as wherever that
+link pointed, which made somebody's git working tree a file this record claimed
+the right to delete.
+
+**Every entry lies under the root its record is responsible for**, which the
+loader enforces rather than assumes. An entry that does not is `foreign`: it is
+not withdrawable, it is not written back, and `akit doctor` reports it. A record
+is the exhaustive list of what this tool may delete, so a path in it that
+escaped its own root is the one thing that list must not be trusted about.
+
 **Deleting a record costs one `akit render`**, which is why each is written whole
 rather than edited. One thing does not come back: a file rendered before its
 record was lost is now unknown rather than unexplained, and `render --prune` is
@@ -46,7 +58,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -56,6 +68,7 @@ from platformdirs import user_state_path
 from federated_agent_kits import rules
 from federated_agent_kits.exits import AkitError
 from federated_agent_kits.manifest import Kind, Scope, worktree_root
+from federated_agent_kits.paths import located, under
 
 APPLICATION = "akit"
 RECORD = "render.json"
@@ -81,7 +94,15 @@ DIRECTORY = ".akit"
 #: is discarded rather than guessed at: everything in it can be rebuilt by
 #: rendering again, which is the one piece of state in this system that is
 #: genuinely disposable.
-SUPPORTED_VERSION = 1
+SUPPORTED_VERSION = 2
+
+#: Every version this build can read. A 1 is this tool's own earlier output and
+#: differs in one way: its paths were resolved through whatever links stood in
+#: them. Reading one rather than refusing it is what keeps an upgrade from
+#: orphaning every file on the machine, and the containment check below is what
+#: makes it safe: a 1 entry that escaped its root is dropped on sight, which is
+#: exactly the entry the resolving wrote. What is read as 1 is written back as 2.
+READABLE = (1, SUPPORTED_VERSION)
 
 #: What separates the three parts of an explanation. A vertical bar rather than a
 #: colon or a slash, both of which a source key is full of: `github.com/acme/kits`
@@ -227,10 +248,18 @@ class Record:
 
     path: Path | None
     written: tuple[Written, ...] = ()
+    foreign: tuple[Written, ...] = ()
+    """Entries naming somewhere outside the root this record answers for.
+
+    Kept apart rather than dropped on the floor so that `akit doctor` can say
+    what it found and the next render can say what it stopped carrying. Nothing
+    reads these as explanations: they are not withdrawn, not counted and not
+    written back, which is the whole point of separating them.
+    """
 
     @property
     def paths(self) -> frozenset[Path]:
-        """Every file in the record, resolved, for discovery to subtract.
+        """Every file in the record, for discovery to subtract.
 
         A host file is in here too. It is not ours, but our text is in it, and a
         repository that is its own source would otherwise find its own
@@ -250,7 +279,7 @@ class Record:
         in. Without one, a directory counts as rendered when a recorded file is
         inside it, because a skill is a directory and the record names files.
         """
-        here = path.resolve()
+        here = located(path)
         if region is not None:
             return any(entry.path == here and entry.region == region for entry in self.written)
         return any(entry.path == here or entry.path.is_relative_to(here) for entry in self.written)
@@ -317,7 +346,7 @@ def _entry(raw: object, path: Path) -> Written:
         raise RecordError(path, "has an entry that is not a written file")
     region = raw.get("region")
     return Written(
-        path=Path(raw["path"]).resolve(),
+        path=located(Path(raw["path"])),
         digest=raw["digest"],
         explained_by=frozenset(raw.get("explained_by", ())),
         harnesses=frozenset(raw.get("harnesses", ())),
@@ -325,8 +354,17 @@ def _entry(raw: object, path: Path) -> Written:
     )
 
 
-def load(path: Path) -> Record:
-    """One record, or an empty one when nothing has been rendered into that root."""
+def load(path: Path, *, roots: Iterable[Path] = ()) -> Record:
+    """One record, or an empty one when nothing has been rendered into that root.
+
+    `roots` is what this record is responsible for, and an entry outside all of
+    them is set aside as `foreign` rather than loaded. Two things put one there
+    and both are faults: a path recorded through a symlink before `located`
+    stopped following them, and a suite that wrote into a real record while
+    pointed at a temporary directory. Either way the record has named a file
+    nothing in this scope could have written, and the list of files this tool
+    may delete is exactly the list that must not contain one.
+    """
     if not path.is_file():
         return Record(path=None)
     try:
@@ -335,12 +373,17 @@ def load(path: Path) -> Record:
         raise RecordError(path, f"is not valid JSON ({error.msg}, line {error.lineno})") from error
     if not isinstance(document, dict):
         raise RecordError(path, "is not an object")
-    if document.get("version") != SUPPORTED_VERSION:
-        raise RecordError(path, f"says version {document.get('version')!r}, and this build understands 1")
+    if document.get("version") not in READABLE:
+        raise RecordError(path, f"says version {document.get('version')!r}, and this build understands 1 and 2")
     written = document.get("written", [])
     if not isinstance(written, list):
         raise RecordError(path, "has a `written` that is not a list")
-    return Record(path=path, written=tuple(_entry(raw, path) for raw in written))
+    entries = tuple(_entry(raw, path) for raw in written)
+    return Record(
+        path=path,
+        written=tuple(entry for entry in entries if under(entry.path, roots)),
+        foreign=tuple(entry for entry in entries if not under(entry.path, roots)),
+    )
 
 
 def load_all(start: Path, *, state_root: Path | None = None) -> Records:
@@ -396,6 +439,7 @@ def _discard(path: Path) -> None:
 
 __all__ = [
     "DIRECTORY",
+    "READABLE",
     "RECORD",
     "SUPPORTED_VERSION",
     "Explanation",

@@ -19,6 +19,7 @@ import textwrap
 from pathlib import Path
 
 import pytest
+from links import linked, really_linked
 
 from federated_agent_kits import adapters, ignore, privacy, record, render, reporting
 from federated_agent_kits.adapters.adapter import Adapter, Destination, RuleShape
@@ -26,6 +27,7 @@ from federated_agent_kits.cache import Privacy
 from federated_agent_kits.cli import build_parser, dispatch
 from federated_agent_kits.exits import Exit, UsageError
 from federated_agent_kits.manifest import Kind, Scope
+from federated_agent_kits.styling import Style
 
 pytestmark = pytest.mark.unit
 
@@ -48,6 +50,11 @@ def project_record(project: Path) -> record.Record:
 def user_record(places: render.Directories) -> record.Record:
     """What your machine's record says, which is the other half and never the same file."""
     return record.load(record.user_location(places.state))
+
+
+def agreed(candidates: tuple[Path, ...]) -> bool:
+    """The answer `--prune` gets from somebody who read the list and meant it."""
+    return True
 
 
 def tree(root: Path) -> dict[str, str]:
@@ -391,7 +398,7 @@ class TestPruning:
         render.render(project, places)
         assert (project / SKILLS / "writing" / "SKILL.md").is_file()
 
-        outcome = render.render(project, places, render.Choices(prune=True))
+        outcome = render.render(project, places, render.Choices(prune=True), approve=agreed)
 
         assert not (project / SKILLS / "writing").exists()
         assert outcome.pruned
@@ -401,10 +408,36 @@ class TestPruning:
     ):
         render.render(project, places)
 
+        outcome = render.render(project, places, render.Choices(prune=True), approve=agreed)
+
+        assert (project / SKILLS / "writing" / "SKILL.md").is_file()
+        assert outcome.pruned == ()
+
+    def test_nothing_is_deleted_until_somebody_says_so(
+        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    ):
+        render.render(project, places)
+        record.project_location(project).unlink()
+        subscribe(project / ".akit.yaml", "version: 1\n")
+
         outcome = render.render(project, places, render.Choices(prune=True))
 
         assert (project / SKILLS / "writing" / "SKILL.md").is_file()
         assert outcome.pruned == ()
+        assert outcome.unpruned == (project / SKILLS / "writing",)
+        assert outcome.exit_code is Exit.ERROR
+
+    def test_the_list_is_the_same_whichever_way_it_is_answered(
+        self, project: Path, places: render.Directories, kits: Path, one_skill: Path
+    ):
+        render.render(project, places)
+        record.project_location(project).unlink()
+        subscribe(project / ".akit.yaml", "version: 1\n")
+
+        refused = render.render(project, places, render.Choices(prune=True))
+        taken = render.render(project, places, render.Choices(prune=True), approve=agreed)
+
+        assert refused.unpruned == taken.pruned
 
     def test_pruning_is_suspended_with_everything_else_when_a_flag_narrows(
         self, project: Path, places: render.Directories, one_skill: Path
@@ -417,6 +450,171 @@ class TestPruning:
 
         assert (project / SKILLS / "writing" / "SKILL.md").is_file()
         assert outcome.pruned == ()
+
+
+class TestATargetThatIsAlreadyALink:
+    """A render target that is a symlink, which `akit` writes beside rather than through.
+
+    The arrangement this is about is somebody's, made before `akit` existed:
+    `~/.agents/skills/fkb` pointing into a checkout of the repository the skill
+    is written in. Following it wrote nothing (the bytes already agreed), said
+    "already up to date", and recorded the checkout as a directory this tool
+    could delete. The next render deleted 23 files inside a git working tree.
+
+    A link above the kit directory is a different thing and stays allowed: a
+    home directory assembled out of a dotfiles checkout puts one above nearly
+    every target on the machine, and that is an arrangement rather than a
+    mistake.
+    """
+
+    def test_a_refused_render_does_not_claim_the_disk_already_matches(
+        self, project: Path, places: render.Directories, one_skill: Path, tmp_path: Path, monkeypatch
+    ):
+        linked(project / SKILLS / "writing", tmp_path / "checkout", monkeypatch)
+
+        outcome = render.render(project, places)
+
+        assert not outcome.quiet
+
+    def test_a_kit_directory_that_is_a_link_is_refused_and_named(
+        self, project: Path, places: render.Directories, one_skill: Path, tmp_path: Path, monkeypatch
+    ):
+        elsewhere = build(tmp_path / "checkout", {"SKILL.md": "# mine\n"})
+        linked(project / SKILLS / "writing", elsewhere, monkeypatch)
+
+        outcome = render.render(project, places)
+
+        problem = next(entry.problem for entry in outcome.entries) or ""
+        assert "is a symlink" in problem
+        assert str(project / SKILLS / "writing") in problem
+        assert "`akit render`" in problem, "the refusal carries the command that resolves it"
+        assert outcome.exit_code is Exit.ERROR
+
+    def test_nothing_of_ours_is_recorded_at_a_link(
+        self, project: Path, places: render.Directories, one_skill: Path, tmp_path: Path, monkeypatch
+    ):
+        linked(project / SKILLS / "writing", tmp_path / "checkout", monkeypatch)
+
+        render.render(project, places)
+
+        assert project_record(project).written == ()
+
+    def test_what_the_link_points_at_is_left_exactly_as_it_was(
+        self, project: Path, places: render.Directories, one_skill: Path, tmp_path: Path
+    ):
+        elsewhere = build(tmp_path / "checkout", {"SKILL.md": "# mine\n", "notes.md": "# notes\n"})
+        before = tree(elsewhere)
+        really_linked(project / SKILLS / "writing", elsewhere)
+
+        render.render(project, places)
+        render.render(project, places)
+
+        assert tree(elsewhere) == before
+
+    def test_a_rule_written_as_a_file_of_ours_is_refused_the_same_way(
+        self, project: Path, places: render.Directories, kits: Path, tmp_path: Path, monkeypatch
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {kits}: prose-style\n")
+        target = project / ".github" / "instructions" / "prose-style.instructions.md"
+        linked(target, tmp_path / "somewhere.md", monkeypatch)
+
+        outcome = render.render(project, places)
+
+        assert "is a symlink" in (next(entry.problem for entry in outcome.entries if entry.problem) or "")
+
+    def test_a_link_above_the_kit_directory_is_followed_as_the_arrangement_it_is(
+        self, project: Path, places: render.Directories, kits: Path, tmp_path: Path
+    ):
+        elsewhere = tmp_path / "dotfiles"
+        elsewhere.mkdir()
+        really_linked(project / ".agents", elsewhere)
+        subscribe(project / ".akit.yaml", f"version: 1\n\nskills:\n  {kits}: [writing]\n")
+
+        outcome = render.render(project, places)
+
+        assert (elsewhere / "skills" / "writing" / "SKILL.md").is_file()
+        assert outcome.exit_code is Exit.OK
+
+    def test_the_record_keeps_the_path_it_was_given_rather_than_where_it_leads(
+        self, project: Path, places: render.Directories, kits: Path, tmp_path: Path
+    ):
+        elsewhere = tmp_path / "dotfiles"
+        elsewhere.mkdir()
+        really_linked(project / ".agents", elsewhere)
+        subscribe(project / ".akit.yaml", f"version: 1\n\nskills:\n  {kits}: [writing]\n")
+
+        render.render(project, places)
+
+        assert project_record(project).written
+        assert all(path.is_relative_to(project) for path in project_record(project).paths)
+
+
+class TestPruningMeetsALink:
+    """`--prune` and a symlink, which is the same incident through the other door.
+
+    The record half of it was fixed by not resolving. This half never asks the
+    record: it walks the directories we own looking for what nothing explains,
+    and `is_dir` follows a link. So a link somebody made in `.agents/skills/`
+    was offered as a probable render, and taking the offer deleted the contents
+    of whatever it pointed at and then died trying to `rmdir` the link.
+
+    The rule that settles it is already written down: this tool never creates a
+    symlink (DESIGN.md section 9), so one here was made by a person and cannot
+    be a render whose record was lost.
+    """
+
+    def linked_orphan(self, project: Path, places: render.Directories, tmp_path: Path) -> Path:
+        elsewhere = build(tmp_path / "checkout", {"precious.md": "keep me\n"})
+        render.render(project, places)
+        really_linked(project / SKILLS / "other-thing", elsewhere)
+        return elsewhere
+
+    def test_a_link_is_not_offered_as_a_prunable_orphan(
+        self, project: Path, places: render.Directories, one_skill: Path, tmp_path: Path
+    ):
+        self.linked_orphan(project, places, tmp_path)
+
+        outcome = render.render(project, places, render.Choices(prune=True))
+
+        assert outcome.pruned == ()
+        assert outcome.unpruned == ()
+
+    def test_what_it_points_at_survives_a_prune_that_was_agreed_to(
+        self, project: Path, places: render.Directories, one_skill: Path, tmp_path: Path
+    ):
+        elsewhere = self.linked_orphan(project, places, tmp_path)
+        before = tree(elsewhere)
+
+        render.render(project, places, render.Choices(prune=True), approve=agreed)
+
+        assert tree(elsewhere) == before
+        assert (project / SKILLS / "other-thing").is_symlink()
+
+    def test_a_link_beside_a_real_orphan_does_not_stop_the_real_one_going(
+        self, project: Path, places: render.Directories, one_skill: Path, tmp_path: Path
+    ):
+        elsewhere = self.linked_orphan(project, places, tmp_path)
+        (project / SKILLS / "stray.md").write_text("# stray\n", encoding="utf-8")
+
+        outcome = render.render(project, places, render.Choices(prune=True), approve=agreed)
+
+        assert outcome.pruned == (project / SKILLS / "stray.md",)
+        assert tree(elsewhere)
+
+    def test_a_link_inside_a_directory_being_pruned_is_unlinked_rather_than_followed(
+        self, project: Path, places: render.Directories, one_skill: Path, tmp_path: Path
+    ):
+        elsewhere = build(tmp_path / "checkout", {"precious.md": "keep me\n"})
+        render.render(project, places)
+        orphan = project / SKILLS / "left-behind"
+        orphan.mkdir(parents=True)
+        (orphan / "SKILL.md").write_text("# left behind\n", encoding="utf-8")
+        really_linked(orphan / "pointer", elsewhere)
+
+        render.render(project, places, render.Choices(prune=True), approve=agreed)
+
+        assert not orphan.exists()
+        assert tree(elsewhere) == {"precious.md": tree(elsewhere)["precious.md"]}
 
 
 class TestTheIgnoreBlock:
@@ -737,7 +935,7 @@ class TestWhatIsCopiedOutOfASkill:
         loose = project / SKILLS / "stray.md"
         loose.write_text("# stray\n", encoding="utf-8")
 
-        render.render(project, places, render.Choices(prune=True))
+        render.render(project, places, render.Choices(prune=True), approve=agreed)
 
         assert not loose.exists()
         assert (project / SKILLS / "writing" / "SKILL.md").is_file()
@@ -823,9 +1021,21 @@ class TestTheReport:
         render.render(project, places)
         (project / SKILLS / "stray.md").write_text("# stray\n", encoding="utf-8")
 
+        outcome = render.render(project, places, render.Choices(prune=True), approve=agreed)
+
+        assert "which nothing explains and no record claims" in self.report(outcome)
+
+    def test_an_orphan_nobody_agreed_to_is_named_with_the_flag_that_takes_it(
+        self, project: Path, places: render.Directories, one_skill: Path
+    ):
+        render.render(project, places)
+        (project / SKILLS / "stray.md").write_text("# stray\n", encoding="utf-8")
+
         printed = self.report(render.render(project, places, render.Choices(prune=True)))
 
-        assert "pruned" in printed
+        assert "Not pruned" in printed
+        assert str(project / SKILLS / "stray.md") in printed
+        assert "--prune --yes" in printed
 
     def test_a_kind_that_is_waiting_names_its_task(self, project: Path, places: render.Directories, kits: Path):
         subscribe(project / ".akit.yaml", f"version: 1\n\nagents:\n  {kits}: [reviewer]\n")
@@ -891,6 +1101,49 @@ class TestTheSameThingAsData:
         assert json.loads(json.dumps(payload))["subscriptions"][0]["name"] == "writing"
 
 
+class TestTheQuestionPruneAsks:
+    """Who gets asked before the one deletion this tool cannot prove is safe.
+
+    `--prune` takes a kit rendered before its record was lost and a kit somebody
+    wrote in the same directory by hand, because from here they are the same
+    bytes in the same place. The list is printed in every case; what differs is
+    who can answer, and the answer nobody gives is no.
+    """
+
+    def ask(self, *, yes: bool, interactive: bool, answer: str = "") -> tuple[str, bool]:
+        out = io.StringIO()
+        approve = render.asking(out, Style.plain(), yes=yes, interactive=interactive, ask=lambda _: answer)
+        agreement = approve((Path("/tmp/kits/writing"),))
+        return out.getvalue(), agreement
+
+    def test_the_question_names_what_it_is_about_before_asking_it(self):
+        printed, _ = self.ask(yes=False, interactive=True, answer="n")
+
+        assert "About to be pruned" in printed
+        assert str(Path("/tmp/kits/writing")) in printed
+
+    def test_a_script_that_said_yes_is_not_stopped(self):
+        printed, agreement = self.ask(yes=True, interactive=False)
+
+        assert agreement
+        assert printed == "", "the report names what was pruned; this would say it twice"
+
+    def test_nobody_there_to_answer_means_no(self):
+        printed, agreement = self.ask(yes=False, interactive=False)
+
+        assert not agreement
+        assert printed == "", "the report names what was not pruned; this would say it twice"
+
+    @pytest.mark.parametrize(
+        ("answer", "expected"),
+        [("y", True), ("Y", True), ("yes", True), ("", False), ("n", False), ("no", False), ("later", False)],
+    )
+    def test_a_person_at_a_terminal_is_taken_at_their_word(self, answer: str, expected: bool):
+        _, agreement = self.ask(yes=False, interactive=True, answer=answer)
+
+        assert agreement is expected
+
+
 class TestTheCommandLine:
     def run(self, *argv: str, home: Path, start: Path) -> tuple[Exit, str]:
         out = io.StringIO()
@@ -931,6 +1184,29 @@ class TestTheCommandLine:
 
         assert code is Exit.OK
         assert json.loads(printed)["stale"] == []
+
+    def test_prune_without_yes_deletes_nothing_and_says_what_it_found(
+        self, project: Path, places: render.Directories, home: Path, kits: Path, one_skill: Path
+    ):
+        render.render(project, places)
+        (project / SKILLS / "stray.md").write_text("# stray\n", encoding="utf-8")
+
+        code, printed = self.run("--prune", home=home, start=project)
+
+        assert (project / SKILLS / "stray.md").is_file()
+        assert code is Exit.ERROR
+        assert "Not pruned" in printed
+
+    def test_yes_is_how_a_script_answers(
+        self, project: Path, places: render.Directories, home: Path, kits: Path, one_skill: Path
+    ):
+        render.render(project, places)
+        (project / SKILLS / "stray.md").write_text("# stray\n", encoding="utf-8")
+
+        code, _ = self.run("--prune", "--yes", home=home, start=project)
+
+        assert not (project / SKILLS / "stray.md").exists()
+        assert code is Exit.OK
 
     def test_check_refuses_the_narrowing_flags(self, project: Path, home: Path, one_skill: Path):
         with pytest.raises(UsageError) as raised:

@@ -115,7 +115,7 @@ class TestWhatTheRecordExplains:
 
         assert not record.load(path).holds(tmp_path / ".agents" / "skills" / "mine")
 
-    def test_what_it_wrote_comes_back_resolved_for_discovery_to_subtract(self, tmp_path: Path):
+    def test_what_it_wrote_comes_back_tidied_for_discovery_to_subtract(self, tmp_path: Path):
         skill = tmp_path / ".agents" / "skills" / "writing" / "SKILL.md"
         path = one(tmp_path / "state" / record.RECORD, skill)
 
@@ -170,6 +170,7 @@ class TestARecordThatCannotBeRead:
         [
             ({"version": 99, "written": []}, "version 99"),
             ({"written": []}, "version None"),
+            ({"version": 3, "written": []}, "version 3"),
             ({"version": 1, "written": {}}, "`written` that is not a list"),
             ({"version": 1, "written": ["a.md"]}, "entry that is not a written file"),
             ({"version": 1, "written": [{"path": "a.md"}]}, "entry that is not a written file"),
@@ -197,6 +198,105 @@ class TestARecordThatCannotBeRead:
 
         with pytest.raises(record.RecordError, match="not an object"):
             record.load(path)
+
+
+class TestAnEntryOutsideTheRootItsRecordAnswersFor:
+    """What a record claims that nothing in its scope could have written.
+
+    Two faults put one there and both were this tool's. A render target under a
+    symlink was recorded as wherever the link pointed, which made a git working
+    tree somewhere a withdrawal would delete. And a suite that redirected the
+    render target but not the state directory wrote entries full of pytest
+    temporary paths into the developer's real record.
+
+    The record is documented as the exhaustive list of files this tool may
+    delete. An entry naming somewhere outside its own root is the one thing that
+    list cannot be trusted about, so it is set aside rather than loaded.
+    """
+
+    def test_an_entry_inside_the_root_is_loaded_as_usual(self, tmp_path: Path, worktree: Path):
+        path = one(tmp_path / record.RECORD, worktree / "skills" / "writing" / "SKILL.md")
+
+        found = record.load(path, roots=(worktree,))
+
+        assert found.written
+        assert found.foreign == ()
+
+    def test_an_entry_outside_it_is_set_aside_rather_than_loaded(self, tmp_path: Path, worktree: Path):
+        elsewhere = tmp_path / "somebody-elses-checkout" / "SKILL.md"
+        path = one(tmp_path / record.RECORD, elsewhere)
+
+        found = record.load(path, roots=(worktree,))
+
+        assert found.written == ()
+        assert [entry.path for entry in found.foreign] == [elsewhere]
+
+    def test_a_set_aside_entry_explains_nothing_and_so_is_never_withdrawn(self, tmp_path: Path, worktree: Path):
+        elsewhere = tmp_path / "somebody-elses-checkout" / "SKILL.md"
+        path = one(tmp_path / record.RECORD, elsewhere)
+
+        found = record.load(path, roots=(worktree,))
+
+        assert not found.holds(elsewhere)
+        assert found.paths == frozenset()
+
+    def test_a_reader_that_names_no_root_is_narrowed_by_nothing(self, tmp_path: Path):
+        elsewhere = tmp_path / "anywhere" / "SKILL.md"
+        path = one(tmp_path / record.RECORD, elsewhere)
+
+        found = record.load(path)
+
+        assert found.paths == frozenset({elsewhere})
+        assert found.foreign == ()
+
+    def test_the_root_itself_counts_as_inside_it(self, tmp_path: Path, worktree: Path):
+        path = one(tmp_path / record.RECORD, worktree)
+
+        assert record.load(path, roots=(worktree,)).written
+
+
+class TestARecordWrittenByAnEarlierBuild:
+    """A version 1 record, which differs in one way: its paths were resolved.
+
+    Refusing it would make the first command after an upgrade an error whose
+    fix is the command that just failed, and discarding it would orphan every
+    file on the machine at once. Reading it is safe because the entries a
+    resolved path produced wrongly are exactly the entries the containment
+    check sets aside.
+    """
+
+    def test_it_is_read_rather_than_refused(self, tmp_path: Path, worktree: Path):
+        path = write(
+            tmp_path / record.RECORD,
+            {
+                "version": 1,
+                "written": [{"path": str(worktree / "SKILL.md"), "digest": "sha256:0"}],
+            },
+        )
+
+        assert record.load(path, roots=(worktree,)).written
+
+    def test_what_it_escaped_with_is_still_set_aside(self, tmp_path: Path, worktree: Path):
+        path = write(
+            tmp_path / record.RECORD,
+            {
+                "version": 1,
+                "written": [{"path": str(tmp_path / "checkout" / "SKILL.md"), "digest": "sha256:0"}],
+            },
+        )
+
+        assert record.load(path, roots=(worktree,)).written == ()
+
+    def test_it_is_written_back_as_the_version_this_build_writes(self, tmp_path: Path, worktree: Path):
+        path = write(
+            tmp_path / record.RECORD,
+            {"version": 1, "written": [{"path": str(worktree / "SKILL.md"), "digest": "sha256:0"}]},
+        )
+        found = record.load(path, roots=(worktree,))
+
+        record.save(found, path)
+
+        assert json.loads(path.read_text(encoding="utf-8"))["version"] == record.SUPPORTED_VERSION
 
 
 class TestAnExplanation:

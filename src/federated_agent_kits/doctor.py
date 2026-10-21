@@ -34,7 +34,7 @@ agents render, so it lands with T13.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
@@ -58,13 +58,14 @@ from federated_agent_kits.styling import Style
 TITLE: dict[str, str] = {
     "unreadable": "Files this build cannot read",
     "collision": "Two kits wanting one name",
-    "subscription": "Subscriptions that do not resolve",
+    "subscription": "Subscriptions that could not be rendered",
     "unknown-harness": "Harness names no adapter answers to",
     "harness-left-out": "Harnesses installed here and not rendered for",
     "harness-not-here": "Harnesses rendered for and not installed here",
     "edited": "Rendered copies edited by hand",
     "unexplained": "Rendered copies nothing explains any more",
     "orphan": "Renders no record knows about",
+    "foreign-entry": "Record entries naming somewhere that record does not cover",
     "abandoned-record": "Records of a project with no manifest",
     "dangling-pointer": "Harness configuration pointing nowhere",
     "escaping-path": "Committed manifests naming somewhere off this machine",
@@ -74,6 +75,12 @@ TITLE: dict[str, str] = {
     "committed-render": "Committed renders that could not be checked",
     "stale": "Committed renders that are out of date",
 }
+
+
+#: What makes a sentence a fix rather than a remark: it names something to run.
+#: Written down here as well as asserted in the tests, because the one place it
+#: is read is a check deciding whether a refusal's own advice is usable as one.
+COMMANDED = ("akit ", "git ")
 
 
 @dataclass(frozen=True)
@@ -180,7 +187,22 @@ def _subscriptions(standing: Standing) -> list[Finding]:
 
     This is where a source missing from the cache and a pin the cache does not
     hold arrive, because both are a resolution that failed and `render.plan`
-    already reports them per line rather than stopping.
+    already reports them per line rather than stopping. A target refused for
+    being a symlink arrives here too, which is why the check is not named after
+    resolution: not every subscription that produced nothing failed to resolve.
+
+    **A problem that names a command of its own keeps it.** Every refusal in
+    this package says what went wrong on the first line and what to do about it
+    on the lines under it (DESIGN.md section 3, rule 5), and those lines were
+    being dropped: the heading took the first line and the fix written here
+    replaced the rest. `akit update` is the right answer for a pin the cache
+    does not hold and the wrong one for a link somebody made by hand, and the
+    sentence that knows which is the one the refusal already wrote.
+
+    It has to name a command, because that is what a finding promises. A
+    refusal whose second line is advice rather than an instruction - "check the
+    path, or subscribe to the repository instead" - leaves this check to supply
+    one, which is what the fallback is.
     """
     if standing.plan is None:
         return []
@@ -189,15 +211,32 @@ def _subscriptions(standing: Standing) -> list[Finding]:
             check="subscription",
             what=(
                 f"{entry.subscription.kind} {entry.subscription.name} from {entry.subscription.source} "
-                f"cannot be rendered: {(entry.problem or '').splitlines()[0]}"
+                f"cannot be rendered: {_said(entry)[0]}"
             ),
-            fix=(
+            fix=_offered(entry)
+            or (
                 f"run `akit update {entry.subscription.name}` to fetch it and move the pin, "
                 f"or `akit remove {entry.subscription.name}` if it is gone for good"
             ),
         )
         for entry in standing.plan.problems
     ]
+
+
+def _said(entry: render.Entry) -> Sequence[str]:
+    """What a problem said, as the lines it was written in."""
+    return (entry.problem or "").splitlines()
+
+
+def _offered(entry: render.Entry) -> str:
+    """The fix a problem wrote for itself, or nothing when it did not write one.
+
+    Nothing also covers a problem whose own advice names no command: a finding
+    that cannot say what to run is the thing `doctor` exists to be the opposite
+    of, and `tests/test_doctor.py` refuses one on every call.
+    """
+    offered = " ".join(line.strip() for line in _said(entry)[1:])
+    return offered if "`" in offered and any(verb in offered for verb in COMMANDED) else ""
 
 
 def _rendered_files(standing: Standing) -> list[Finding]:
@@ -255,6 +294,19 @@ def _orphans(standing: Standing) -> list[Finding]:
     What a lost record leaves behind, and the one thing `render --prune` is for.
     A kit somebody wrote by hand in the same directory looks exactly like one,
     which is why this reports and never deletes (DESIGN.md section 6).
+
+    **A symlink is not one of these.** This tool never creates one (DESIGN.md
+    section 9), so a link here was made by a person and cannot be a render
+    whose record was lost. Reporting it as one offered `--prune` for it, and
+    `--prune` followed it: the contents of whatever it pointed at went, and the
+    command then died trying to remove the link as a directory.
+
+    **The safe branch is named first, and it is the one in plain words.** The
+    two outcomes are not equally bad: pruning a hand-written skill destroys the
+    only copy of it, and leaving a stale render costs nothing until somebody
+    asks. A fix line that opens with the destructive command on a finding this
+    check cannot tell apart from an authored directory is an invitation to run
+    it four times in a row, which is how issue #30 was found.
     """
     if standing.plan is None:
         return []
@@ -269,12 +321,40 @@ def _orphans(standing: Standing) -> list[Finding]:
                 Finding(
                     check="orphan",
                     what=f"{child} looks like a render, and no record knows about it",
-                    fix="run `akit render --prune` to delete it, or leave it alone if you wrote it yourself",
+                    fix=(
+                        "leave it alone if you wrote it by hand, which looks identical from here; "
+                        "`akit render --prune` deletes it, and lists what it found and asks first"
+                    ),
                 )
                 for child in sorted(directory.iterdir())
-                if not any(path == child or path.is_relative_to(child) for path in explained)
+                if not child.is_symlink() and not any(path == child or path.is_relative_to(child) for path in explained)
             )
     return found
+
+
+def _foreign(standing: Standing) -> list[Finding]:
+    """A record naming a file outside the root that record answers for.
+
+    Two faults put one here and both are this tool's own. A render target under
+    a symlink used to be recorded as wherever the link pointed, which made a git
+    working tree something a withdrawal would delete. And a test suite that
+    redirected the render target but not the state directory wrote entries full
+    of temporary paths into the real record.
+
+    Neither is actionable by the person reading, and both are already handled:
+    the entry is not loaded as an explanation, so nothing will act on it. What
+    this adds is being told, because a record silently shorter than its file is
+    the kind of thing that should not happen quietly twice.
+    """
+    return [
+        Finding(
+            check="foreign-entry",
+            what=f"{found.path} claims {entry.path}, which is outside the root that record answers for",
+            fix="run `akit render`, which writes the record back without it",
+        )
+        for found in standing.records.by_scope.values()
+        for entry in found.foreign
+    ]
 
 
 def _abandoned_record(standing: Standing) -> list[Finding]:
@@ -565,6 +645,7 @@ CHECKS: tuple[Callable[[Standing], list[Finding]], ...] = (
     _not_reading,
     _rendered_files,
     _orphans,
+    _foreign,
     _abandoned_record,
     _pointers,
     _escaping_paths,
