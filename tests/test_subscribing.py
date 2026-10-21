@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import io
 import json
-import shutil
 import textwrap
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -374,10 +373,10 @@ class TestRemove:
 
         assert f"akit remove --manifest {world.manifest} writing" in str(refusal.value)
 
-    def test_a_glob_whose_source_the_cache_lost_still_offers_the_line(self, world: World):
+    def test_a_glob_whose_pin_the_cache_lost_still_offers_the_line(self, world: World):
         subscribing.add(world.call(), source=world.remote, name="*", kind=Kind.RULE)
-        assert world.places.cache is not None
-        shutil.rmtree(world.places.cache)
+        pinned = subscriptions(world.manifest)["rules/*"] or ""
+        world.manifest.write_text(world.written.replace(pinned, "0" * 40), encoding="utf-8")
 
         with pytest.raises(UsageError) as refusal:
             subscribing.remove(world.call(), name="prose-style")
