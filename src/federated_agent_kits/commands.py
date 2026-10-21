@@ -395,7 +395,9 @@ TOPICS: tuple[Topic, ...] = (
             "\n"
             "Cloning is also how a source is known to be private: the first attempt is made\n"
             "with your credentials taken away, and a source that needs them back is private\n"
-            "from then on. See `akit help privacy` for what that classification is used for."
+            "from then on. Neither attempt ever asks you for them: a credential this machine\n"
+            "already stores answers, and a source that would need you to type one is\n"
+            "reported as unreachable, with the `git clone` to run by hand. See `akit help privacy` for what that classification is used for."
         ),
         following="akit add, which is how a source becomes a subscription",
         see_also=("manifest", "privacy"),

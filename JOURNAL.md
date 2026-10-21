@@ -1913,3 +1913,36 @@ to report, in the words of the kit it refused.
 **`--json` carries the path each part sits at inside the source.** The reported case had its
 skills under `plugins/travel-hacking-toolkit/skills/`, found by the walk and said by nothing,
 and that path is the field that answers whether a plain `owner/repo` shorthand is enough.
+
+## 2026-10-21 - the half-sentence, and the prompt behind it
+
+Running `akit discover foo/bar` by hand, against a repository that does not exist, found two
+things. The reported one was the message:
+
+```text
+  git said: and the repository exists.
+```
+
+`_said` kept git's last line, on the reasoning that git puts the reason last. It does not.
+Git's refusal here is four lines, the first names the problem, and the last is half a
+sentence that, lifted out of its paragraph, reads as if `akit` had just confirmed the
+repository was fine. All of it is kept now, indented under the line that introduces it,
+because every one of those lines is somebody else's words rather than ours.
+
+**The second thing was underneath it.** The anonymous attempt is made with prompts and
+credential helpers taken away, which is what makes it a test of whether the source is public.
+The retry was plain git, on the reasoning that somebody who has to type a password should be
+asked. The case that misses is the common one: a source that is not there fails anonymously
+and reaches the credential helper every single time. On the machine that found this, the
+helper opened a GUI dialog - which blocks a command nobody is sitting in front of, and which
+displayed a stored `ghp_` token in clear text while it waited.
+
+So no invocation of ours asks anybody anything: `UNPROMPTED` goes into the environment of
+both attempts, and `stdin` is `DEVNULL` so that a tool which asks anyway reads end-of-file
+rather than the terminal a person is using for something else. Stored credentials still
+answer, which is all the classification in section 8 needs. A source whose credentials are
+not stored is now unreachable rather than a prompt, with the `git clone` to run by hand,
+which is what git itself does with no terminal.
+
+Worth recording that the thing that found both was typing a wrong name on purpose, which is
+the same act the command this branch adds was written to make unnecessary.

@@ -1151,6 +1151,14 @@ anonymously is public.
 This costs nothing, needs no cooperation, and is true at the moment it matters, which is when
 the parts are fetched.
 
+**Neither attempt may ask you for the credentials.** A credential already stored on this
+machine answers, and that is what the test needs; a prompt is not an extra chance to pass it.
+The retry is reached by every source that is simply not there, so a prompt there is not a
+question somebody can answer - it blocks a command in a session that often has no terminal at
+all, and the dialog it opens is somewhere a stored token has been seen in clear text. A
+source whose credentials are not stored is reported as unreachable, with the `git clone` to
+run by hand, which is also what git does with no terminal.
+
 **A path inside the repository is as public as the repository.** It is the same files, in the
 same commit, behind the same remote, so nothing has to be asserted and nothing has to be
 cloned. That covers the case [§6](#6-the-manifest) designs for, a repository shipping kits

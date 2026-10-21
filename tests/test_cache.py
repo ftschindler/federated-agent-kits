@@ -173,6 +173,34 @@ class TestCloningIsTheTest:
         assert "git said:" in str(refusal.value)
         assert not list(cache_root.iterdir())
 
+    def test_it_quotes_everything_git_said_rather_than_its_last_line(self, tmp_path: Path, cache_root: Path):
+        # git's refusal is a paragraph, and for a repository that is not there
+        # its last line on its own is "and the repository exists."
+        missing = (tmp_path / "nowhere").as_uri()
+
+        with pytest.raises(cache.CacheError) as refusal:
+            cache.resolve(sources.parse(missing), anchor=tmp_path, cache_root=cache_root)
+
+        said = str(refusal.value).split("git said:")[1].strip().splitlines()
+        assert len(said) > 1
+        assert any("fatal:" in line for line in said)
+
+    def test_neither_attempt_may_ask_a_person_anything(self, tmp_path: Path, cache_root: Path):
+        # The credentialed retry is reached by every source that is simply not
+        # there, often with no terminal to ask at: a prompt there blocks a
+        # command rather than asking a question anybody can answer.
+        for anonymous in (True, False):
+            environment = cache._environment(anonymous=anonymous)
+            assert environment["GIT_TERMINAL_PROMPT"] == "0"
+            assert environment["GIT_ASKPASS"] == ""
+            assert environment["SSH_ASKPASS"] == ""
+
+    def test_a_git_that_asks_anyway_reads_end_of_file_rather_than_the_terminal(self) -> None:
+        done = cache.git("hash-object", "--stdin", anonymous=True, check=False)
+
+        assert done.returncode == 0
+        assert done.stdout.strip() == "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391", "the empty blob"
+
     def test_a_cached_source_is_not_classified_again(self, tmp_path: Path, cache_root: Path):
         url = a_source(tmp_path)
         cache.resolve(sources.parse(url), anchor=tmp_path, cache_root=cache_root)

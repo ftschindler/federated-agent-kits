@@ -41,13 +41,36 @@ from federated_agent_kits.sources import SourceKey, SourceKind, local_path
 APPLICATION = "akit"
 SOURCES = "sources"
 
-#: Everything that lets git reach the developer: a credential helper that could
-#: answer, a prompt that could ask, and the config that names either. Applied to
-#: the first attempt only, which is what makes that attempt a test of whether
-#: the source is public rather than a test of whether this laptop can see it.
-WITHOUT_CREDENTIALS: dict[str, str] = {
+#: What stops any git invocation of ours asking a person something. Every one
+#: of them, not only the anonymous attempt.
+#:
+#: The attempt that is allowed credentials used to be plain git, on the
+#: reasoning that a person who has to type a password should be asked. The case
+#: that reasoning misses is the common one: a source that is not there at all
+#: fails anonymously, is retried with credentials, and reaches the credential
+#: helper every time. There is nothing to answer, so the prompt does not ask a
+#: question - it blocks a command somebody is waiting on, in a session that
+#: often has no terminal at all, and the dialog it opens has been seen
+#: displaying a stored token in clear text.
+#:
+#: Stored credentials still answer, which is the whole of what the
+#: classification in DESIGN.md section 8 asks: a source that needs credentials
+#: and has them on this machine is private, and one whose credentials are not
+#: stored is reported as unreachable with the `git clone` to run by hand. That
+#: is also what git itself does with no terminal.
+UNPROMPTED: dict[str, str] = {
     "GIT_TERMINAL_PROMPT": "0",
     "GIT_ASKPASS": "",
+    "SSH_ASKPASS": "",
+    "SSH_ASKPASS_REQUIRE": "never",
+}
+
+#: What else lets git reach the developer: a credential helper that could
+#: answer, and the config that names one. Applied to the first attempt only,
+#: which is what makes that attempt a test of whether the source is public
+#: rather than a test of whether this laptop can see it. The prompting half of
+#: it is in `UNPROMPTED` and is unconditional.
+WITHOUT_CREDENTIALS: dict[str, str] = {
     "GIT_CONFIG_NOSYSTEM": "1",
     "GIT_CONFIG_GLOBAL": os.devnull,
     "GIT_CONFIG_SYSTEM": os.devnull,
@@ -66,6 +89,11 @@ GIT_PREFIX = "GIT_"
 
 #: One commit is all a render reads. A pin outside it is fetched by name.
 SHALLOW = ("--depth", "1", "--no-tags")
+
+#: Where git's own words sit when a message quotes them: under the line that
+#: introduced them, and indented past it, so that a paragraph somebody else
+#: wrote cannot be read as a sentence of ours.
+QUOTED = "\n    "
 
 #: What a file or a directory is chmodded to before it is removed. git writes
 #: its objects read-only, and on Windows a read-only file cannot be unlinked.
@@ -139,6 +167,7 @@ def location(source: SourceKey, *, cache_root: Path | None = None) -> Path:
 def _environment(*, anonymous: bool) -> dict[str, str]:
     """The environment a git invocation gets, with the outer repository taken out."""
     environment = {key: value for key, value in os.environ.items() if not key.startswith(GIT_PREFIX)}
+    environment.update(UNPROMPTED)
     if anonymous:
         environment.update(WITHOUT_CREDENTIALS)
     return environment
@@ -160,6 +189,11 @@ def git(
     for how private something is (DESIGN.md section 8), and a second
     implementation of them would be a second definition of the word.
 
+    Nothing it runs may ask a question. The environment takes every prompt away
+    (`UNPROMPTED`), and `stdin` is `DEVNULL` so that a tool which asks anyway
+    reads end-of-file rather than the terminal a person is using for something
+    else.
+
     `timeout` raises `subprocess.TimeoutExpired`, which is a `SubprocessError`
     and deliberately not a `TimeoutError`, so a caller has to name it. Nothing
     here passes one: a clone is as slow as the repository is big. The one caller
@@ -171,6 +205,7 @@ def git(
         ["git", *flags, *arguments],
         cwd=None if cwd is None else str(cwd),
         env=_environment(anonymous=anonymous),
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         check=check,
@@ -238,7 +273,7 @@ def _fetch(source: SourceKey, destination: Path) -> Privacy:
         f"this source could not be cloned from {source.url}",
         "Check the URL, and that you can clone it yourself:\n"
         f"    git clone {source.url}\n"
-        f"  git said: {_said(credentialed)}",
+        f"  git said:{_said(credentialed)}",
     )
 
 
@@ -264,10 +299,21 @@ def _over_the_network(destination: Path, *arguments: str) -> subprocess.Complete
 
 
 def _said(result: subprocess.CompletedProcess[str]) -> str:
-    """git's own last word, which is the only thing that says what actually went wrong."""
+    """Everything git said, quoted under the line that introduced it.
+
+    The last line used to be the whole of it, on the grounds that git puts the
+    reason last. It does not. What git says about a repository that is not there
+    is four lines, and the last of them is "and the repository exists." - half a
+    sentence, lifted out of the paragraph it belongs to and reading as if `akit`
+    had just confirmed the repository was fine. The line that names the problem
+    is the first one.
+
+    So all of it is kept. It is a few lines at most, every one of them is
+    somebody else's words rather than ours, and the indent is what says so.
+    """
     text = (result.stderr or result.stdout).strip()
-    lines = [line for line in text.splitlines() if line.strip()]
-    return lines[-1] if lines else f"exit code {result.returncode}"
+    lines = [line.strip() for line in text.splitlines() if line.strip()] or [f"exit code {result.returncode}"]
+    return QUOTED + QUOTED.join(lines)
 
 
 def _holds(destination: Path, commit: str) -> bool:
@@ -438,7 +484,7 @@ def _asked(source: SourceKey, destination: Path, *patterns: str) -> dict[str, st
         raise UnreachableError(
             source,
             "the remote could not be reached",
-            f"Check that you can reach it yourself:\n    git ls-remote {source.url}\n  git said: {_said(found)}",
+            f"Check that you can reach it yourself:\n    git ls-remote {source.url}\n  git said:{_said(found)}",
         )
     seen: dict[str, str] = {}
     for line in found.stdout.splitlines():
@@ -460,7 +506,7 @@ def _ls_remote(source: SourceKey, destination: Path, ref: str | None) -> tuple[s
             raise UnreachableError(
                 source,
                 "the remote could not be reached to ask which branch it defaults to",
-                f"Check that you can reach it yourself:\n    git ls-remote {source.url}\n  git said: {_said(found)}",
+                f"Check that you can reach it yourself:\n    git ls-remote {source.url}\n  git said:{_said(found)}",
             )
         # git prints the symbolic ref before the commit it resolves to, so the
         # answer is the first line or there is no answer: a repository with no
