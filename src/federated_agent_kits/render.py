@@ -610,7 +610,7 @@ def _skill_bytes(wanted: _Wanted, file: Path) -> bytes:
     return skills.as_copied(data, name=wanted.name)
 
 
-def _linked(path: Path) -> str | None:
+def _linked(path: Path, name: str) -> str | None:
     """Why this spot may not be written, when the thing at it is a link.
 
     `akit` owns the kit directory it writes and every file under it, and owning
@@ -631,8 +631,9 @@ def _linked(path: Path) -> str | None:
         return None
     return (
         f"{path} is a symlink, and a rendered kit is a copy rather than a link we follow. "
-        f"Nothing was written there. Delete the link and render again, which writes the kit "
-        f"in its place, or keep the link and `akit remove` what points at it"
+        f"Nothing was written there.\n"
+        f"  Delete the link and run `akit render`, which writes the kit in its place, or run "
+        f"`akit remove {name}` if the link is what you want."
     )
 
 
@@ -646,14 +647,14 @@ def _plan_skill(walk: _Pass, wanted: _Wanted, writes: dict[Spot, _Target]) -> tu
         )
         if directory is None:
             continue
-        linked = _linked(directory)
+        linked = _linked(directory, wanted.name)
         if linked is not None:
             clash = linked
             continue
         spots: list[Spot] = []
         for file in _files_of(wanted.part.path):
             spot = (located(directory / file.relative_to(wanted.part.path)), None)
-            problem = _linked(spot[0]) or _spot_wanted(
+            problem = _linked(spot[0], wanted.name) or _spot_wanted(
                 writes,
                 spot,
                 _skill_bytes(wanted, file),
@@ -693,7 +694,7 @@ def _plan_rule(walk: _Pass, wanted: _Wanted, writes: dict[Spot, _Target]) -> tup
             else rules.as_file(data, name=wanted.name, keys=adapter.rule_frontmatter)
         )
         spot = (located(target), region)
-        problem = (None if region is not None else _linked(spot[0])) or _spot_wanted(
+        problem = (None if region is not None else _linked(spot[0], wanted.name)) or _spot_wanted(
             writes,
             spot,
             written,
@@ -1147,6 +1148,13 @@ def _prunable(owned: dict[Path, set[str]], explained: set[Path]) -> tuple[Path, 
     Finding them and deleting them are separate because of that: a list that can
     be printed before anything happens is what lets the person who wrote one of
     these by hand say no (DESIGN.md section 10).
+
+    **A symlink is never one of these**, and that follows from a rule rather
+    than from caution: this tool never creates one (DESIGN.md section 9), so a
+    link in a directory we own was made by a person and cannot be something we
+    rendered. Following one would delete the contents of whatever it points at,
+    which is the same incident `_linked` exists for, arriving through the other
+    door.
     """
     found: list[Path] = []
     for base, written in owned.items():
@@ -1157,16 +1165,23 @@ def _prunable(owned: dict[Path, set[str]], explained: set[Path]) -> tuple[Path, 
             found.extend(
                 child
                 for child in sorted(directory.iterdir())
-                if not any(path == child or path.is_relative_to(child) for path in explained)
+                if not child.is_symlink() and not any(path == child or path.is_relative_to(child) for path in explained)
             )
     return tuple(found)
 
 
 def _remove(path: Path) -> None:
-    """One file, or one kit directory and everything in it."""
-    if path.is_dir():
+    """One file, or one kit directory and everything in it.
+
+    A link is unlinked rather than descended into, here as well as in
+    `_prunable`, because `is_dir` follows one and a directory walk through it
+    would delete somebody else's files and then fail to `rmdir` the link. The
+    caller already declines to offer a link; this is the same rule written
+    where the deletion actually happens.
+    """
+    if path.is_dir() and not path.is_symlink():
         for child in sorted(path.rglob("*"), key=lambda entry: len(entry.parts), reverse=True):
-            child.rmdir() if child.is_dir() else child.unlink()
+            child.rmdir() if child.is_dir() and not child.is_symlink() else child.unlink()
         path.rmdir()
     else:
         path.unlink()

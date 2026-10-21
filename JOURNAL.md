@@ -1826,7 +1826,25 @@ state directory wrote pytest paths into the real one (the suite half of that was
 October by the autouse `confined` fixture). Those entries are now set aside on load and
 reported rather than acted on, which turns a leak into a line of text instead of a deletion.
 
-**And the thing that found all three was running it on a real machine**, which is what
+**`--prune` was the same bug through a second door, and asking what to tell people about the
+upgrade is what found it.** The record half was fixed by not resolving, and `--prune` never
+asks the record: it walks the directories we own looking for what nothing explains, and
+`is_dir` follows a link. So a link in `.agents/skills/` was offered as a probable render, and
+agreeing to it deleted the contents of what it pointed at and then crashed trying to `rmdir`
+the link. In the reported setup the refusal happened to suspend pruning, so the first fix
+looked complete while the general case was still live.
+
+The rule that settles it was already written down two sections away: nothing here ever
+creates a symlink, so one in a directory we own was made by a person. That it took a question
+about documentation to find it is the argument for writing the upgrade note at all.
+
+**A refusal's own fix was being thrown away.** `doctor` took the first line of a problem for
+its heading and replaced the rest with "run `akit update`, or `akit remove` if it is gone for
+good". Right for a pin the cache does not hold, wrong and misleading for a link somebody made
+by hand, and the correct sentence was sitting in the line it discarded. It now keeps a fix
+the refusal wrote whenever that fix names a command, and falls back otherwise.
+
+**And the thing that found all of it was running it on a real machine**, which is what
 [T14](IMPLEMENTATION.md#t14---iterate-on-what-use-earns) is for. No test would have thought to
 make a render target a symlink, because nobody writing the renderer imagines somebody having
 got there first.

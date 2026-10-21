@@ -782,6 +782,12 @@ refused and a link above it is followed without comment.
 out, by text, with nothing followed. "Where does this lead" is the wrong question to ask
 about a file this tool is claiming the right to delete; "what is it called" is the right one.
 
+**Nor is a link ever pruned**, which follows from [§9](#9-windows-linux-python) rather than
+from caution: nothing here creates one, so a link in a directory we own was made by a person
+and cannot be a render whose record was lost. That matters because `--prune` does not ask the
+record at all - it walks the directories we own looking for what nothing explains - so the
+paragraph above protects withdrawal and this one protects the other deletion.
+
 ### What a render leaves behind
 
 The manifest already says which commit every subscription is on, so nothing has to be

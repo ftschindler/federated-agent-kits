@@ -487,6 +487,7 @@ class TestATargetThatIsAlreadyALink:
         problem = next(entry.problem for entry in outcome.entries) or ""
         assert "is a symlink" in problem
         assert str(project / SKILLS / "writing") in problem
+        assert "`akit render`" in problem, "the refusal carries the command that resolves it"
         assert outcome.exit_code is Exit.ERROR
 
     def test_nothing_of_ours_is_recorded_at_a_link(
@@ -546,6 +547,74 @@ class TestATargetThatIsAlreadyALink:
 
         assert project_record(project).written
         assert all(path.is_relative_to(project) for path in project_record(project).paths)
+
+
+class TestPruningMeetsALink:
+    """`--prune` and a symlink, which is the same incident through the other door.
+
+    The record half of it was fixed by not resolving. This half never asks the
+    record: it walks the directories we own looking for what nothing explains,
+    and `is_dir` follows a link. So a link somebody made in `.agents/skills/`
+    was offered as a probable render, and taking the offer deleted the contents
+    of whatever it pointed at and then died trying to `rmdir` the link.
+
+    The rule that settles it is already written down: this tool never creates a
+    symlink (DESIGN.md section 9), so one here was made by a person and cannot
+    be a render whose record was lost.
+    """
+
+    def linked_orphan(self, project: Path, places: render.Directories, tmp_path: Path) -> Path:
+        elsewhere = build(tmp_path / "checkout", {"precious.md": "keep me\n"})
+        render.render(project, places)
+        really_linked(project / SKILLS / "other-thing", elsewhere)
+        return elsewhere
+
+    def test_a_link_is_not_offered_as_a_prunable_orphan(
+        self, project: Path, places: render.Directories, one_skill: Path, tmp_path: Path
+    ):
+        self.linked_orphan(project, places, tmp_path)
+
+        outcome = render.render(project, places, render.Choices(prune=True))
+
+        assert outcome.pruned == ()
+        assert outcome.unpruned == ()
+
+    def test_what_it_points_at_survives_a_prune_that_was_agreed_to(
+        self, project: Path, places: render.Directories, one_skill: Path, tmp_path: Path
+    ):
+        elsewhere = self.linked_orphan(project, places, tmp_path)
+        before = tree(elsewhere)
+
+        render.render(project, places, render.Choices(prune=True), approve=agreed)
+
+        assert tree(elsewhere) == before
+        assert (project / SKILLS / "other-thing").is_symlink()
+
+    def test_a_link_beside_a_real_orphan_does_not_stop_the_real_one_going(
+        self, project: Path, places: render.Directories, one_skill: Path, tmp_path: Path
+    ):
+        elsewhere = self.linked_orphan(project, places, tmp_path)
+        (project / SKILLS / "stray.md").write_text("# stray\n", encoding="utf-8")
+
+        outcome = render.render(project, places, render.Choices(prune=True), approve=agreed)
+
+        assert outcome.pruned == (project / SKILLS / "stray.md",)
+        assert tree(elsewhere)
+
+    def test_a_link_inside_a_directory_being_pruned_is_unlinked_rather_than_followed(
+        self, project: Path, places: render.Directories, one_skill: Path, tmp_path: Path
+    ):
+        elsewhere = build(tmp_path / "checkout", {"precious.md": "keep me\n"})
+        render.render(project, places)
+        orphan = project / SKILLS / "left-behind"
+        orphan.mkdir(parents=True)
+        (orphan / "SKILL.md").write_text("# left behind\n", encoding="utf-8")
+        really_linked(orphan / "pointer", elsewhere)
+
+        render.render(project, places, render.Choices(prune=True), approve=agreed)
+
+        assert not orphan.exists()
+        assert tree(elsewhere) == {"precious.md": tree(elsewhere)["precious.md"]}
 
 
 class TestTheIgnoreBlock:

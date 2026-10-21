@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 from fake_home import confine
 from git_environment import FIXED_AUTHOR, git, local_remote
+from links import really_linked
 
 from federated_agent_kits import adapters, cache, doctor, ignore, privacy, record, render, sources
 from federated_agent_kits.adapters.adapter import Adapter, Destination, Pointer, RuleShape
@@ -322,6 +323,20 @@ class TestWhatIsActuallyOnDisk:
         assert fix.index("leave it alone") < fix.index("--prune")
         assert "asks first" in fix
 
+    def test_a_link_is_not_reported_as_a_render_nothing_knows_about(
+        self, project: Path, places: render.Directories, kits: Path, tmp_path: Path
+    ):
+        """`akit` never creates a symlink, so one here was made by a person.
+
+        Reporting it as a probable render offered `--prune` for it, and
+        `--prune` followed it: the contents of what it pointed at went.
+        """
+        one_skill(project, kits)
+        render.render(project, places)
+        really_linked(project / SKILLS / "other-thing", tmp_path / "kits")
+
+        assert "orphan" not in checks(report(project, places))
+
     def test_a_record_entry_pointing_outside_the_root_it_answers_for(
         self, project: Path, places: render.Directories, kits: Path, tmp_path: Path
     ):
@@ -369,6 +384,41 @@ class TestWhatIsActuallyOnDisk:
 
         assert "abandoned-record" in checks(found)
         assert "akit render" in next(entry.fix for entry in found.findings if entry.check == "abandoned-record")
+
+
+class TestAFindingKeepsTheFixItsRefusalWrote:
+    """A problem that named a command of its own is not overwritten by a generic one.
+
+    `akit update` is right for a pin the cache does not hold and wrong for a
+    link somebody made by hand. The sentence that knows which is the one the
+    refusal wrote, and it was being dropped on the floor.
+    """
+
+    def found(self, project: Path, places: render.Directories) -> doctor.Finding:
+        return next(entry for entry in report(project, places).findings if entry.check == "subscription")
+
+    def test_a_refused_link_offers_the_command_that_resolves_it(
+        self, project: Path, places: render.Directories, kits: Path, tmp_path: Path
+    ):
+        one_skill(project, kits)
+        really_linked(project / SKILLS / "writing", tmp_path / "checkout")
+
+        finding = self.found(project, places)
+
+        assert "`akit render`" in finding.fix
+        assert "update" not in finding.fix
+
+    def test_a_problem_whose_advice_names_nothing_to_run_still_gets_a_command(
+        self, project: Path, places: render.Directories, tmp_path: Path
+    ):
+        subscribe(project, f"version: 1\n\nskills:\n  {tmp_path / 'gone'}: [writing]\n")
+
+        finding = self.found(project, places)
+
+        assert "`akit update writing`" in finding.fix
+
+    def test_the_heading_does_not_claim_every_one_of_them_failed_to_resolve(self):
+        assert "resolve" not in doctor.TITLE["subscription"]
 
 
 class TestAHarnessPointedAtADirectory:
