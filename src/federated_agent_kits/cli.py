@@ -223,6 +223,12 @@ def chosen_kind(arguments: argparse.Namespace) -> Kind | None:
     return None if named is None else subscribing.BY_FLAG[named]
 
 
+def chosen_doors(arguments: argparse.Namespace) -> dict[Kind, str]:
+    """`--rules` and `--skills` as the kinds the manifest spells them with."""
+    named = {Kind.RULE: getattr(arguments, "rules", None), Kind.SKILL: getattr(arguments, "skills", None)}
+    return {kind: door for kind, door in named.items() if door is not None}
+
+
 def writing_command(arguments: argparse.Namespace, out: TextIO) -> Exit:
     """The four verbs that edit a manifest and then render what they changed."""
     call = manifest_flags(arguments)
@@ -237,7 +243,7 @@ def writing_command(arguments: argparse.Namespace, out: TextIO) -> Exit:
     elif arguments.command == "remove":
         outcome = subscribing.remove(call, name=arguments.name, kind=chosen_kind(arguments))
     elif arguments.command == "harness":
-        outcome = subscribing.harness(call, action=arguments.action, name=arguments.name)
+        outcome = subscribing.harness(call, action=arguments.action, name=arguments.name, doors=chosen_doors(arguments))
     else:
         outcome = subscribing.update(call, name=arguments.name, watching=watching(arguments))
     return subscribing.report(outcome, out, as_json=arguments.json)

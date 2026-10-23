@@ -210,6 +210,7 @@ class TestListInAFakeHome:
             [ ] copilot-vscode  not detected on this machine
                 takes skills and rules, and is in no manifest's harness list
                 promises no order between rules, so two that contradict are a coin toss
+                takes skills through agents, and could take them through copilot, claude and github
             [ ] cursor-local    not detected on this machine
                 takes skills and rules, and is in no manifest's harness list
                 promises no order between rules, so two that contradict are a coin toss
@@ -220,6 +221,8 @@ class TestListInAFakeHome:
             -------------------------
 
             -   copilot-ci      takes skills and rules, and needs listing by name in a project's manifest
+                takes skills through agents, and could take them through github and claude
+                takes rules through agents-md, and could take them through instructions
             -   cursor-cloud    takes skills and rules, and needs listing by name in a project's manifest
 
             Name collisions

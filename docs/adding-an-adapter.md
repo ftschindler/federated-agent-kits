@@ -81,6 +81,26 @@ Every path is relative to the scope's base directory, which is a home directory 
 for the Windows answer: these are declarations, and `Path.joinpath` turns one into a path at
 the moment it is used.
 
+**A kind may have more than one destination, and then each one is named.** The value in
+`destinations` is a tuple, the first entry is what a manifest that says nothing gets, and any
+after it carry a `variant` a manifest can name. A harness with one place for a kind declares a
+one-entry tuple and no name:
+
+```python
+destinations = {
+    (Kind.SKILL, Scope.PROJECT): (Destination(write=SKILLS, read=SKILL_DIRECTORIES),),
+    (Kind.RULE, Scope.PROJECT): (
+        Destination(write=SHARED, variant="agents-md"),
+        Destination(write=OURS, variant="instructions", shape=RuleShape.DIRECTORY, suffix=SUFFIX),
+    ),
+}
+```
+
+Declare a second only where somebody would really choose it. Reading a directory is not a
+reason; writing to it is. The name is the harness's own word for the place, never a path, and
+it is a key other people commit the moment it ships, so it is as hard to change as the
+harness's own name.
+
 ## Question 2: which of the three rule shapes it is
 
 `RuleShape.DIRECTORY` is a directory we own, one file per rule. Rendering writes a file,
@@ -91,6 +111,14 @@ it is the one to want.
 markers. opencode and pi are this shape, because the file they read is an `AGENTS.md` that a
 person writes prose into. Everything outside our markers survives every render, which the
 renderer already does; what your adapter supplies is the path of the host file in `write`.
+
+**A harness offering two destinations for rules may be two shapes at once**, and the shape
+belongs to the destination rather than to the adapter. `rule_shape`, `rule_suffix`,
+`rule_frontmatter` and `orders_rules` on the adapter describe its default destination; a
+`Destination` may override each of them with `shape`, `suffix`, `frontmatter` and `orders`.
+Copilot in CI does: `AGENTS.md` is the shared-file shape with no frontmatter, and
+`.github/instructions/` is the directory shape with a suffix and an `applyTo`. Override all
+four or none, because a shape without its suffix is a shape that cannot be rendered.
 
 `RuleShape.POINTED` is a directory we own that the harness has to be pointed at once, by one
 key in a config somebody owns. **No adapter shipping today answers this way and there is no

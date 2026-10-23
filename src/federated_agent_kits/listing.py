@@ -21,8 +21,8 @@ it**, through `Adapter.target`, so the two cannot drift into two answers.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -129,6 +129,17 @@ class HarnessLine:
     scopes: tuple[Scope, ...]
     """The manifests whose `harnesses:` list puts this one in play."""
 
+    doors: Mapping[Kind, tuple[str, ...]] = field(default_factory=dict)
+    """Every destination this harness offers each kind, where it offers a choice.
+
+    Empty for a harness with one destination per kind, which is most of them.
+    `akit list` is where somebody finds out there is a choice at all, so the
+    names are printed rather than left to the help text (DESIGN.md section 6).
+    """
+
+    sending: Mapping[Kind, str] = field(default_factory=dict)
+    """Which of them a manifest picked, where one did."""
+
 
 @dataclass(frozen=True)
 class Collision:
@@ -197,7 +208,7 @@ class _Reading:
             path = adapter.target(subscription.kind, subscription.scope, name, self.anchor(adapter, subscription.scope))
             if path is None:
                 continue
-            region = adapter.region(subscription.kind, name)
+            region = adapter.region(subscription.kind, subscription.scope, name)
             found.append(
                 Target(
                     harness=adapter.name,
@@ -243,6 +254,16 @@ class _Reading:
         )
 
 
+def _taken(adapter: Adapter, doors: Mapping[str, Mapping[Kind, str]]) -> dict[Kind, str]:
+    """Which destination this harness is actually taking each kind through.
+
+    The manifest's choice only where the adapter offers it. A name no adapter
+    offers is a finding `akit doctor` makes, and a line here saying it was in
+    use would tell somebody the opposite of what the renderer will do.
+    """
+    return {kind: door for kind, door in doors.get(adapter.name, {}).items() if door in adapter.variants(kind)}
+
+
 def _harness_lines(merged: Merged, home: Path) -> tuple[tuple[HarnessLine, ...], dict[Scope, tuple[Adapter, ...]]]:
     """Every harness worth a line, and the expansion each scope ended up with.
 
@@ -253,11 +274,13 @@ def _harness_lines(merged: Merged, home: Path) -> tuple[tuple[HarnessLine, ...],
     chosen: dict[Scope, tuple[Adapter, ...]] = {}
     scopes: dict[str, list[Scope]] = {}
     unknown: dict[str, list[Scope]] = {}
+    sending: dict[str, dict[Kind, str]] = {}
     for scope in Scope:
-        picked, missing = adapters.expand(merged.harnesses(scope), home)
+        picked, missing, _ = adapters.expand(merged.harnesses(scope), home, merged.doors(scope))
         chosen[scope] = picked
         for adapter in picked:
             scopes.setdefault(adapter.name, []).append(scope)
+            sending.setdefault(adapter.name, {}).update(_taken(adapter, merged.doors(scope)))
         for name in missing:
             unknown.setdefault(name, []).append(scope)
     lines = [
@@ -267,7 +290,9 @@ def _harness_lines(merged: Merged, home: Path) -> tuple[tuple[HarnessLine, ...],
             known=True,
             detected=adapter.detected(home),
             has_a_machine=adapter.has_a_machine,
-            orders_rules=adapter.orders_rules,
+            orders_rules=adapter.orders(Kind.RULE, Scope.PROJECT),
+            doors={kind: adapter.variants(kind) for kind in adapter.kinds if adapter.variants(kind)},
+            sending=sending.get(adapter.name, {}),
             kinds=adapter.kinds,
             scopes=tuple(scopes.get(adapter.name, ())),
         )
@@ -409,6 +434,20 @@ def _print_harness(entry: HarnessLine, column: Column, out: TextIO) -> None:
     print(f"{INDENT * 2}takes {_takes(entry)}, and {_rendering(entry)}", file=out)
     if Kind.RULE in entry.kinds:
         print(f"{INDENT * 2}{ORDER[entry.orders_rules]}", file=out)
+    _print_doors(entry, out)
+
+
+def _print_doors(entry: HarnessLine, out: TextIO) -> None:
+    """The destinations this harness offers a kind, and which one it is taking.
+
+    Printed only where there is a choice, because "this harness has one place
+    for skills" is not news and every harness would otherwise carry two lines
+    nobody reads.
+    """
+    for kind, offered in entry.doors.items():
+        taken = entry.sending.get(kind, offered[0])
+        rest = [door for door in offered if door != taken]
+        print(f"{INDENT * 2}takes {kind.value} through {taken}, and could take them through {joined(rest)}", file=out)
 
 
 def _presence(entry: HarnessLine) -> str:
@@ -434,6 +473,7 @@ def _print_machineless(entry: HarnessLine, column: Column, out: TextIO) -> None:
     """
     whether = _rendering(entry) if entry.scopes else NAMING
     column.listed(entry.name, f"takes {_takes(entry)}, and {whether}", out)
+    _print_doors(entry, out)
 
 
 def _print_harnesses(inventory: Inventory, out: TextIO, style: Style) -> None:
@@ -515,6 +555,8 @@ def payload(inventory: Inventory) -> dict[str, Any]:
                 "detected": entry.detected,
                 "has_a_machine": entry.has_a_machine,
                 "orders_rules": entry.orders_rules,
+                "doors": {kind.value: list(offered) for kind, offered in entry.doors.items()},
+                "sending": {kind.value: door for kind, door in entry.sending.items()},
                 "kinds": [str(kind) for kind in entry.kinds],
                 "scopes": [str(scope) for scope in entry.scopes],
             }

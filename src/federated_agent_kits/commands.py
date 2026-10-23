@@ -192,9 +192,15 @@ COMMANDS: tuple[Command, ...] = (
             "Edits the `harnesses:` list in one manifest and then renders, or withdraws "
             "what that harness had rendered. It never edits a subscription, and removing a "
             "harness never deletes a file another harness still explains. `detected` is a "
-            "name like any other and stays where it is."
+            "name like any other and stays where it is. `--rules` and `--skills` pick between "
+            "the destinations a harness offers, and naming one for a harness already listed "
+            "moves what it renders rather than doing nothing."
         ),
-        examples=("akit harness add copilot-ci", "akit harness remove copilot-vscode --global"),
+        examples=(
+            "akit harness add copilot-ci",
+            "akit harness add copilot-ci --rules instructions",
+            "akit harness remove copilot-vscode --global",
+        ),
         arguments=(
             Argument(
                 ("action",),
@@ -203,6 +209,16 @@ COMMANDS: tuple[Command, ...] = (
                 choices=("add", "remove"),
             ),
             Argument(("name",), "The harness, by the name its adapter registers"),
+            Argument(
+                ("--rules",),
+                "Which of its destinations this harness takes rules through, where it offers more than one",
+                metavar="name",
+            ),
+            Argument(
+                ("--skills",),
+                "Which of its destinations this harness takes skills through, where it offers more than one",
+                metavar="name",
+            ),
             *SCOPE_FLAGS,
         ),
         following="akit render, to see the harness pick the files up",
@@ -364,10 +380,14 @@ TOPICS: tuple[Topic, ...] = (
             "\n"
             "Each entry is a source key mapped to the kits you want from it, and a key may\n"
             "carry a `#<commit>` pin. The file is yours: comments, key order and layout\n"
-            "survive every command that writes it."
+            "survive every command that writes it.\n"
+            "\n"
+            "One more key, `harnesses:`, says who gets rendered for. It is a list of names,\n"
+            "and an entry may be a mapping where a harness reads a kind from more than one\n"
+            "place: `{copilot-ci: {rules: instructions}}`. See `akit help harnesses`."
         ),
         following="akit list, which reads both manifests and tells you which scope each entry came from",
-        see_also=("sources",),
+        see_also=("sources", "harnesses"),
     ),
     Topic(
         name="sources",
@@ -427,7 +447,18 @@ TOPICS: tuple[Topic, ...] = (
             "Detection is by evidence on this disk, never by what a repository contains. When\n"
             "detection is not enough, name the harness in a manifest's `harnesses:` list.\n"
             "`detected` is a name like any other in that list, so naming one more harness\n"
-            "does not turn the rest off."
+            "does not turn the rest off.\n"
+            "\n"
+            "Some harnesses read a kind from more than one place, and then the destination is\n"
+            "yours to choose. An entry in the list becomes a mapping to say so:\n"
+            "\n"
+            "    harnesses: [detected, {copilot-ci: {rules: instructions}}]\n"
+            "\n"
+            "`akit harness add <name> --rules <where>` writes that entry, and writes it again\n"
+            "to move a harness that is already listed, withdrawing what it left behind. A\n"
+            "bare name takes the default, which is what almost every manifest wants. `akit\n"
+            "list` names the destinations each harness offers and which one it is taking, and\n"
+            "a name no harness offers is refused rather than quietly rendered somewhere else."
         ),
         following="akit list, which reports every harness it detected and which kinds each takes",
         see_also=("privacy",),

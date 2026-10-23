@@ -541,6 +541,55 @@ class TestHarness:
         assert world.written == before
         assert not outcome.changed
 
+    def test_naming_a_destination_sends_the_kind_there(self, world: World):
+        subscribing.add(world.call(), source=world.remote, name="prose-style", kind=Kind.RULE)
+
+        outcome = subscribing.harness(world.call(), action="add", name="copilot-ci", doors={Kind.RULE: "instructions"})
+
+        assert manifests.read(world.manifest, scope=Scope.PROJECT).doors == {"copilot-ci": {Kind.RULE: "instructions"}}
+        assert (world.project / ".github" / "instructions" / "prose-style.instructions.md").exists()
+        assert outcome.changed
+
+    def test_naming_another_one_moves_what_it_already_rendered(self, world: World):
+        """One command, both halves: the old copy goes and the new one is there when it returns."""
+        subscribing.add(world.call(), source=world.remote, name="prose-style", kind=Kind.RULE)
+        subscribing.harness(world.call(), action="remove", name="detected")
+        subscribing.harness(world.call(), action="add", name="copilot-ci")
+        assert (world.project / "AGENTS.md").read_text(encoding="utf-8").strip() != ""
+
+        outcome = subscribing.harness(world.call(), action="add", name="copilot-ci", doors={Kind.RULE: "instructions"})
+
+        assert (world.project / ".github" / "instructions" / "prose-style.instructions.md").exists()
+        assert "BEGIN akit prose-style" not in (world.project / "AGENTS.md").read_text(encoding="utf-8")
+        assert outcome.changed
+
+    def test_naming_the_one_it_already_takes_changes_nothing(self, world: World):
+        subscribing.harness(world.call(), action="add", name="copilot-ci", doors={Kind.RULE: "instructions"})
+        before = world.written
+
+        outcome = subscribing.harness(world.call(), action="add", name="copilot-ci", doors={Kind.RULE: "instructions"})
+
+        assert world.written == before
+        assert not outcome.changed
+
+    def test_a_destination_the_harness_does_not_offer_is_a_usage_error(self, world: World):
+        with pytest.raises(UsageError) as refused:
+            subscribing.harness(world.call(), action="add", name="copilot-ci", doors={Kind.RULE: "nonsense"})
+
+        assert "agents-md, instructions" in str(refused.value)
+
+    def test_a_kind_the_harness_has_one_destination_for_says_so(self, world: World):
+        with pytest.raises(UsageError) as refused:
+            subscribing.harness(world.call(), action="add", name="opencode", doors={Kind.RULE: "anywhere"})
+
+        assert "one destination for that kind" in str(refused.value)
+
+    def test_a_destination_named_for_a_harness_nobody_knows_waits_for_the_name_check(self, world: World):
+        with pytest.raises(UsageError) as refused:
+            subscribing.harness(world.call(), action="add", name="emacs", doors={Kind.RULE: "anywhere"})
+
+        assert "no adapter answers to the harness" in str(refused.value)
+
     def test_removing_one_withdraws_what_it_rendered(self, world: World):
         subscribing.add(world.call(), source=world.remote, name="prose-style", kind=Kind.RULE)
         subscribing.harness(world.call(), action="add", name="copilot-vscode")

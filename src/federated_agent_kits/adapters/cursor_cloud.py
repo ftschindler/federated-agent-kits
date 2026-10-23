@@ -66,8 +66,8 @@ ADAPTER = Adapter(
     summary="Cursor's cloud agents, which read only what the repository commits",
     has_a_machine=False,
     destinations={
-        (Kind.SKILL, Scope.PROJECT): Destination(write=SKILLS, read=SKILL_DIRECTORIES),
-        (Kind.RULE, Scope.PROJECT): Destination(write=RULES),
+        (Kind.SKILL, Scope.PROJECT): (Destination(write=SKILLS, read=SKILL_DIRECTORIES),),
+        (Kind.RULE, Scope.PROJECT): (Destination(write=RULES),),
     },
     rule_shape=RuleShape.DIRECTORY,
     rule_suffix=SUFFIX,
