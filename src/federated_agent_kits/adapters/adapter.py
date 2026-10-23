@@ -119,13 +119,19 @@ class Adapter:
     rule_suffix: str = ".md"
     """What a rule is called in a directory we own, `.instructions.md` for some."""
 
-    rule_frontmatter: Mapping[str, str] = field(default_factory=dict)
+    rule_frontmatter: Mapping[str, str | bool] = field(default_factory=dict)
     """Keys every rule rendered for this harness carries, whatever the source said.
 
     Not a style preference. Copilot's `applyTo` decides whether the file is read
     at all, so a rule rendered without it is a rule that sits on disk and never
     loads (DESIGN.md section 4). A harness that needs no such key declares none,
     and the renderer then writes the body alone.
+
+    **A value may be a bool, and the difference is not cosmetic.** Cursor's
+    `alwaysApply` is a YAML boolean, and `alwaysApply: "true"` is a string that
+    its parser does not read as true. So the type is the union rather than
+    `str`, and the renderer quotes strings and leaves booleans bare, which is
+    how YAML tells the two apart.
     """
 
     orders_rules: bool = False

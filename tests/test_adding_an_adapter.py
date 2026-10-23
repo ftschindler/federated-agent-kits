@@ -129,7 +129,15 @@ class TestTheDiffBudget:
     def test_an_adapter_is_one_module_exporting_one_adapter(self):
         inside = sorted(path.name for path in ADAPTER_PACKAGE.glob("*.py"))
 
-        assert inside == ["__init__.py", "adapter.py", "copilot_ci.py", "copilot_vscode.py", "opencode.py"]
+        assert inside == [
+            "__init__.py",
+            "adapter.py",
+            "copilot_ci.py",
+            "copilot_vscode.py",
+            "cursor_cloud.py",
+            "cursor_local.py",
+            "opencode.py",
+        ]
         for adapter in ADAPTERS:
             module = parsed(ADAPTER_PACKAGE / f"{adapter.name.replace('-', '_')}.py")
             assigned = {
