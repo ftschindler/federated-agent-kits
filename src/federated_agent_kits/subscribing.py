@@ -34,7 +34,7 @@ was meant, so each is reported with the flag that settles it.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TextIO
@@ -248,6 +248,11 @@ class _Edit:
     True for the two subtractive verbs and nothing else. `add` and `harness
     add` end with a render because the kit they just subscribed to has to exist
     when the command returns; `remove` has nothing to make exist.
+
+    A `harness add` that moved a harness to another destination is still one of
+    those: it both takes the old copy away and writes the new one, and an
+    ordinary render does both, so it is the withdrawal-only mode that would
+    leave the command half-done.
     """
 
 
@@ -535,7 +540,7 @@ def remove(call: Call, *, name: str, kind: Kind | None = None) -> Outcome:
     return _finish(call, chosen, _Edit("remove", written, notes, changed=True, withdrawing=True))
 
 
-def harness(call: Call, *, action: str, name: str) -> Outcome:
+def harness(call: Call, *, action: str, name: str, doors: Mapping[Kind, str] | None = None) -> Outcome:
     """Edit the `harnesses:` list, and render or withdraw for the harness named.
 
     `detected` is a name like any other here: removing it is how a repository
@@ -547,23 +552,31 @@ def harness(call: Call, *, action: str, name: str) -> Outcome:
     typo and fails saying so. Removing one is how that typo gets taken out
     again, and it is the fix `akit doctor` names for it, so refusing here would
     leave the only way out of a misspelt harness list a hand edit.
+
+    **Naming a destination is how one is changed as well as set.** A harness
+    already in the list is ordinarily a no-op to add, and it stops being one
+    when `--rules` or `--skills` says something the manifest does not: the
+    entry is rewritten, and the render that follows withdraws from the
+    destination it left.
     """
+    _check_doors(name, doors)
     known = {*adapters.BY_NAME, adapters.DETECTED}
     chosen = call.chosen()
     listed = chosen.manifest.harnesses
     if name not in known and not (action == "remove" and name in listed):
         raise UsageError(f"no adapter answers to the harness `{name}`.\n  Known harnesses: {', '.join(sorted(known))}.")
     if action == "add":
-        if name in listed:
+        if name in listed and (doors or {}) == dict(chosen.manifest.doors.get(name, {})):
             note = Note(
                 f"Already named: {name} is in the harnesses list of {chosen.path}.",
                 {"harness": name, "status": "unchanged"},
             )
             return _finish(call, chosen, _Edit("harness", chosen.manifest, [note]))
-        written = editing.name_harness(chosen.manifest, name)
+        written = editing.name_harness(chosen.manifest, name, doors)
         note = Note(
-            f"Named: {name} is now rendered for, installed on this machine or not.",
-            {"harness": name, "status": "added"},
+            _named_note(name, doors, listed=name in listed),
+            {"harness": name, "status": "changed" if name in listed else "added"}
+            | ({"doors": {kind.value: door for kind, door in doors.items()}} if doors else {}),
         )
         return _finish(call, chosen, _Edit("harness", written, [note], changed=True))
     if name not in listed:
@@ -578,6 +591,33 @@ def harness(call: Call, *, action: str, name: str) -> Outcome:
         {"harness": name, "status": "removed"},
     )
     return _finish(call, chosen, _Edit("harness", written, [note], changed=True, withdrawing=True))
+
+
+def _named_note(name: str, doors: Mapping[Kind, str] | None, *, listed: bool) -> str:
+    """What `harness add` says it did, which differs when the harness was already there."""
+    if not doors:
+        return f"Named: {name} is now rendered for, installed on this machine or not."
+    sent = ", ".join(f"{kind.value} to {door}" for kind, door in doors.items())
+    if listed:
+        return f"Changed: {name} now sends {sent}, and what it wrote elsewhere is withdrawn."
+    return f"Named: {name} is now rendered for, sending {sent}."
+
+
+def _check_doors(name: str, doors: Mapping[Kind, str] | None) -> None:
+    """A destination this harness does not offer, typed just now, is a usage error.
+
+    The same split `--harness` keeps: a name in a manifest is somebody else's
+    file and gets reported, and a name you typed a moment ago is a mistake to
+    correct before anything is written.
+    """
+    adapter = adapters.BY_NAME.get(name)
+    if adapter is None:
+        return
+    for kind, door in (doors or {}).items():
+        offered = adapter.variants(kind)
+        if door not in offered:
+            known = ", ".join(offered) if offered else "none: it has one destination for that kind"
+            raise UsageError(f"{name} has no {kind.value} destination called `{door}`.\n  It offers: {known}.")
 
 
 @dataclass(frozen=True)

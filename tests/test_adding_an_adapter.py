@@ -199,8 +199,8 @@ class TestTheAdapterSomebodyWroteFromTheGuide:
 
     def test_its_rules_are_the_shared_file_shape_at_both_scopes(self, tmp_path: Path):
         assert pi_adapter.ADAPTER.rule_shape is RuleShape.SHARED_FILE
-        assert pi_adapter.ADAPTER.shares_the_file(Kind.RULE)
-        assert pi_adapter.ADAPTER.region(Kind.RULE, "prose-style") == "prose-style"
+        assert pi_adapter.ADAPTER.shares_the_file(Kind.RULE, Scope.PROJECT)
+        assert pi_adapter.ADAPTER.region(Kind.RULE, Scope.PROJECT, "prose-style") == "prose-style"
         assert (
             pi_adapter.ADAPTER.target(Kind.RULE, Scope.USER, "prose-style", tmp_path)
             == tmp_path / ".pi" / "agent" / "AGENTS.md"
@@ -276,7 +276,7 @@ class TestTheGuideCannotGoStaleInSilence:
     def test_every_example_parses(self):
         blocks = code_blocks()
 
-        assert len(blocks) == 3
+        assert len(blocks) == 4
         for block in blocks:
             ast.parse(block)
 

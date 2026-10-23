@@ -435,7 +435,7 @@ class TestAHarnessPointedAtADirectory:
             name="pointy",
             summary="a harness that has to be pointed at the directory it reads",
             has_a_machine=True,
-            destinations={(Kind.RULE, Scope.PROJECT): Destination(write="kits/rules")},
+            destinations={(Kind.RULE, Scope.PROJECT): (Destination(write="kits/rules"),)},
             rule_shape=RuleShape.POINTED,
             pointer={Scope.PROJECT: Pointer(config="pointy.json", key="rules")},
         )
@@ -566,14 +566,47 @@ class TestWhatTheRepositoryCommits:
     def test_a_repository_that_commits_says_a_stale_block_once_rather_than_twice(
         self, project: Path, places: render.Directories, kits: Path
     ):
+        """The two checks divide the block between them rather than both claiming it.
+
+        A check judges a clone, where the only harnesses that read the same for
+        everybody are the ones that commit, so what it can say about a block is
+        whether it hides one of their directories. A deleted block hides
+        nothing and leaves private renders unignored, which is a fact about
+        this machine, so it is `doctor`'s own finding and not a stale commit.
+        """
         one_skill(project, kits, harnesses="detected, copilot-ci")
         render.render(project, places)
         (project / ignore.GITIGNORE).write_text("build/\n", encoding="utf-8")
 
         found = report(project, places)
 
-        assert "ignore-block" not in checks(found)
+        assert "ignore-block" in checks(found)
+        assert not any(ignore.GITIGNORE in entry.what for entry in found.findings if entry.check == "stale")
+
+    def test_a_block_hiding_what_the_cloud_agent_reads_is_a_stale_commit(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        """The half a clone can judge: the files would be correct and absent at once."""
+        one_skill(project, kits, harnesses="detected, copilot-ci")
+        render.render(project, places)
+        (project / ignore.GITIGNORE).write_text(f"{ignore.BEGIN}\n.agents/skills/\n{ignore.END}\n", encoding="utf-8")
+
+        found = report(project, places)
+
         assert any(ignore.GITIGNORE in entry.what for entry in found.findings if entry.check == "stale")
+
+    def test_a_destination_no_harness_offers_is_a_finding_rather_than_a_refusal(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        """`doctor` is the pass that reports it: a command that tells you what is wrong may not fail first."""
+        one_skill(project, kits, harnesses="{copilot-ci: {skills: nonsense}}")
+
+        found = report(project, places)
+
+        assert "unknown-door" in checks(found)
+        entry = next(one for one in found.findings if one.check == "unknown-door")
+        assert 'through "nonsense"' in entry.what
+        assert "akit harness add copilot-ci --skills" in entry.fix
 
     def test_a_directory_that_is_ignored_and_committed_at_the_same_time(
         self, project: Path, places: render.Directories, kits: Path

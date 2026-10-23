@@ -845,7 +845,7 @@ PAPER = Adapter(
     name="paper",
     summary="a harness that takes no skills at all",
     has_a_machine=True,
-    destinations={(Kind.RULE, Scope.PROJECT): Destination(write="paper/rules")},
+    destinations={(Kind.RULE, Scope.PROJECT): (Destination(write="paper/rules"),)},
     rule_shape=RuleShape.DIRECTORY,
     evidence=(".paper",),
 )
