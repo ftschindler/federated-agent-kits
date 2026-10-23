@@ -197,6 +197,7 @@ def render_command(arguments: argparse.Namespace, out: TextIO) -> Exit:
         only=tuple(arguments.harness or ()),
         without=tuple(arguments.no_harness or ()),
         prune=arguments.prune,
+        gitignore=arguments.gitignore,
         yes=arguments.yes,
     )
     if arguments.check:

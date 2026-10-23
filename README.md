@@ -194,6 +194,15 @@ more, a source missing from the cache, a harness installed here that your manife
 a `.gitignore` block that has drifted. It exits non-zero when it found something, and `--json`
 carries the findings as data.
 
+**It asks the same questions of your home directory.** A `~/.agents` you keep as a git
+repository, to share between machines or to back up, is a repository `akit` renders into, so
+it is told what it is ignoring and what it is committing. The block there is reported rather
+than written, because the file belongs to a repository you never pointed this tool at, and
+`akit render --global --gitignore` is what writes it once you want it. The same knowledge
+answers a question `doctor` could not answer before: a skill the repository tracks was
+written by somebody and has a history, so it is yours sitting where renders go rather than a
+render nothing remembers, and the two get different advice.
+
 **Every command explains itself.** `akit <command> --help` says what the command writes and
 what it never writes, with a worked example. `akit help manifest`, `akit help sources`, `akit
 help harnesses` and `akit help privacy` cover the four things that are not commands. `--json`

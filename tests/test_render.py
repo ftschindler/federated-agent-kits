@@ -889,7 +889,7 @@ class TestAHarnessThatDeclinesTheKind:
 
         outcome = render.render(project, places)
 
-        assert outcome.ignored == ((project, (), False),)
+        assert outcome.ignored == (render.Ignored(project, (), False, True),)
 
 
 class TestTwoSubscriptionsWantingOnePlace:

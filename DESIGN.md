@@ -666,6 +666,22 @@ A line the user wrote themselves that already covers one of those directories is
 it is, and duplicated inside the block, which costs nothing: git does not mind an entry twice.
 Removing ours is then still safe.
 
+**The repository a render root sits in is not always the one the command was run in.** The
+project scope's is, by construction. The global scope renders under the home directory, and a
+home directory holding a git repository is ordinary rather than exotic: a `~/.agents` kept as
+a repository to share between machines or to back up is the shape this tool replaces, so it
+is the shape a person arrives with. What renders there is exactly as committable as what
+renders into a project, and before this was asked, it was not asked at all.
+
+So each rendered directory is asked which worktree contains it. The project scope finds the
+anchor it already had. The global scope finds whatever repository somebody keeps there, and
+what follows differs in one respect: the block is worked out but not written. A project's
+`.gitignore` is a file a render is already in the business of maintaining; a repository in
+somebody's home directory that they never pointed this tool at is not. `akit doctor` reports
+the missing block with every other finding, for as long as it goes unwritten, and `akit
+render --global --gitignore` is the invocation that writes it. A flag rather than a silent
+write, for the reason `--prune` is a flag: this one touches a file whose owner did not ask.
+
 **A directory with two readers is committed if either of them commits**, because git cannot
 ignore a directory halfway. Skills share one directory ([§7](#7-rendering)), so naming the
 cloud agent takes `.agents/skills/` out of the ignore block and puts the skills every other
@@ -1832,7 +1848,10 @@ What it looks for:
 - a harness named in the manifest that no adapter knows, which is a typo in a list nothing
   else validates;
 - a rendered directory missing from the `.gitignore` block, or sitting in it while also being
-  committed.
+  committed, in the project's repository and in any repository a global render root sits in;
+- a directory nothing explains that the repository around it tracks, which is content of
+  somebody's own sitting where renders go rather than a render whose record was lost: git
+  knowing its history is what tells the two apart, and they want different fixes.
 
 Changing nothing is what makes it the safe thing to run when you do not know what is going
 on.

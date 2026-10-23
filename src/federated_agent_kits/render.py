@@ -55,7 +55,7 @@ import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, NamedTuple, TextIO
 
 from federated_agent_kits import (
     adapters,
@@ -176,6 +176,30 @@ class Withdrawal:
         return f'the "{self.region}" block in {self.path}'
 
 
+class Ignored(NamedTuple):
+    """One repository's ignore block, as this render found and left it.
+
+    `maintained` is the difference between the two kinds of repository a render
+    now meets. The project's `.gitignore` is ours to keep correct, so `changed`
+    there means the file was rewritten. A repository that merely happens to
+    contain a global render root is somebody else's, so `changed` means the
+    block is missing or stale and nothing was done about it: `akit doctor`
+    reports it, and `akit render --global --gitignore` is what writes it.
+    """
+
+    root: Path
+    listed: tuple[str, ...]
+    changed: bool
+    maintained: bool
+
+
+def _ignore_state(found: Ignored) -> str:
+    """The verb for this block, which depends on whether we were allowed to write it."""
+    if not found.changed:
+        return "already listed"
+    return "now lists" if found.maintained else "does not list"
+
+
 @dataclass(frozen=True)
 class Outcome:
     """Everything one render did, before any of it has been printed."""
@@ -202,9 +226,8 @@ class Outcome:
     `--prune` that found nothing.
     """
 
-    ignored: tuple[tuple[Path, tuple[str, ...], bool], ...] = ()
-    """Each repository whose `.gitignore` was considered, what it now lists, and
-    whether the file changed."""
+    ignored: tuple[Ignored, ...] = ()
+    """Each repository whose `.gitignore` was considered, and how it stands."""
 
     unknown: tuple[str, ...] = ()
     suspended: str | None = None
@@ -265,7 +288,7 @@ class Outcome:
         claim about the disk, and a subscription that produced nothing because
         it was refused has left the disk not matching anything.
         """
-        changed = any(changed for _, _, changed in self.ignored)
+        changed = any(found.changed and found.maintained for found in self.ignored)
         return not (self.written or self.blocks_written or self.deleted or self.pruned or changed or self.problems)
 
     @property
@@ -284,9 +307,9 @@ class Outcome:
         if self.unexplained:
             found.append(f"{counted(len(self.unexplained), 'committed file')} nothing subscribes to any more")
             found.extend(f"  {path}" for path in self.unexplained)
-        for root, _, changed in self.ignored:
-            if changed:
-                found.append(f"the akit block in {root / ignore.GITIGNORE} is out of date")
+        for found_block in self.ignored:
+            if found_block.changed and found_block.maintained:
+                found.append(f"the akit block in {found_block.root / ignore.GITIGNORE} is out of date")
         return tuple(found)
 
     def of_scope(self, scope: Scope) -> tuple[Entry, ...]:
@@ -312,6 +335,15 @@ class Choices:
     only: tuple[str, ...] = ()
     without: tuple[str, ...] = ()
     prune: bool = False
+    gitignore: bool = False
+    """`--gitignore`, which lets a render write the block of a repository it found.
+
+    The project's own is written without being asked, because a render is
+    already the thing that maintains it. A repository that happens to contain a
+    global render root is somebody else's file in somebody's home directory, so
+    it is reported until this says otherwise.
+    """
+
     yes: bool = False
     """`--yes`, which is how something with nobody at a keyboard answers `--prune`.
 
@@ -533,6 +565,15 @@ class _Pass:
     False is the same walk with every act suspended, which is what `--check`
     is: the copy, the withdrawal, the ignore block and the two record saves all
     ask this before they touch a file, and the counting happens either way.
+    """
+
+    gitignore: bool = False
+    """Whether a repository that merely contains a render root may have its block written.
+
+    Beside `writing` because it is the same kind of fact: what this pass is
+    allowed to do to a file. The project's own block is not asked, because a
+    render is the thing that maintains it; this is the one in somebody's home
+    directory that `akit render --global --gitignore` names on purpose.
     """
 
     resolutions: list[tuple[str, cache.Resolved]] = field(default_factory=list)
@@ -1268,8 +1309,8 @@ def ignore_block(
     scopes: Sequence[Scope],
     *,
     keeps_a_record: bool,
-) -> tuple[tuple[Path, tuple[str, ...], bool], ...]:
-    """Maintain the repository's ignore block, from the directories it wrote into.
+) -> tuple[Ignored, ...]:
+    """Maintain the ignore block of every repository this render wrote into.
 
     From what is on disk rather than from what the adapters declare, which is
     what lets a directory that stops being rendered leave the block on the next
@@ -1288,30 +1329,77 @@ def ignore_block(
     on disk would call every repository's `.gitignore` stale the moment
     `--check` looked at it.
 
-    Only inside a repository, and only for the project scope: your home
-    directory is not a working tree, so nothing rendered there can be committed
-    by accident.
+    **A render root is not always in the repository the command was run in.**
+    The project scope's is, by construction. The global scope's is a directory
+    under the home directory, and a home directory holding a git repository is
+    ordinary rather than exotic: `~/.agents` kept as a repository to share or
+    back up is the shape this tool exists to replace, so it is the shape a
+    person arrives with. Asking each rendered directory which worktree contains
+    it finds those, and finds nothing new for the project scope, where the
+    answer is the anchor it already had.
+
+    **What the global scope finds is reported and not written**, unless
+    `--gitignore` asked for it. The project's `.gitignore` is a file the render
+    is already in the business of maintaining; a repository in somebody's home
+    directory that they never pointed this tool at is not. So the block is
+    worked out either way, `akit doctor` says it is missing, and writing it
+    stays a thing somebody names.
 
     **What a machineless harness reads is subtracted**, so this block and the
     committed set are each other's inverse and nobody keeps two lists in step by
     hand.
     """
+    wanted = list(explained)
+    found: dict[Path, set[str]] = {}
+    maintained: set[Path] = set()
     root = manifest.worktree_root(walk.start)
-    if root is None or Scope.PROJECT not in scopes:
-        return ()
-    committed = _committed(walk.chosen.get(Scope.PROJECT, ()), Scope.PROJECT)
-    inside = [path for path in explained if path.is_relative_to(root)]
-    listed = {
-        f"{directory.relative_to(root).as_posix()}/"
-        for base, written in owned.items()
-        for relative in written
-        if relative not in committed
-        for directory in (base.joinpath(*relative.split(SEPARATOR)),)
-        if directory.is_relative_to(root) and any(path.is_relative_to(directory) for path in inside)
-    }
-    if keeps_a_record:
-        listed.add(f"{record.DIRECTORY}/")
-    return ((root, tuple(sorted(listed)), ignore.maintain(root, listed, writing=walk.writing)),)
+    if root is not None and Scope.PROJECT in scopes:
+        committed = _committed(walk.chosen.get(Scope.PROJECT, ()), Scope.PROJECT)
+        listed = {
+            f"{directory.relative_to(root).as_posix()}/"
+            for base, written in owned.items()
+            for relative in written
+            if relative not in committed
+            for directory in (base.joinpath(*relative.split(SEPARATOR)),)
+            if directory.is_relative_to(root) and any(path.is_relative_to(directory) for path in wanted)
+        }
+        if keeps_a_record:
+            listed.add(f"{record.DIRECTORY}/")
+        found[root] = listed
+        maintained.add(root)
+    for directory in _global_directories(walk, scopes):
+        above = manifest.worktree_root(directory)
+        if above is None or above in maintained:
+            continue
+        if any(path.is_relative_to(directory) for path in wanted):
+            found.setdefault(above, set()).add(f"{directory.relative_to(above).as_posix()}/")
+    return tuple(
+        Ignored(
+            root=where,
+            listed=tuple(sorted(listed)),
+            changed=ignore.maintain(where, listed, writing=walk.writing and allowed),
+            maintained=allowed,
+        )
+        for where, listed in sorted(found.items())
+        for allowed in (where in maintained or walk.gitignore,)
+    )
+
+
+def _global_directories(walk: _Pass, scopes: Sequence[Scope]) -> list[Path]:
+    """Every directory the global scope renders into, as paths rather than per root.
+
+    The project half of the block is anchored at the repository the command was
+    run in, which is one place and known. This half has as many places as there
+    are harnesses, each under the home directory, and which repository contains
+    one is a question about this machine rather than about this render.
+    """
+    if Scope.USER not in scopes:
+        return []
+    return [
+        base.joinpath(*relative.split(SEPARATOR))
+        for base, written in _directories(walk.chosen.get(Scope.USER, ()), walk, (Scope.USER,)).items()
+        for relative in sorted(written)
+    ]
 
 
 def escaping(merged: Merged, root: Path | None) -> tuple[str, ...]:
@@ -1544,6 +1632,7 @@ def plan(start: Path, places: Directories, choices: Choices = EVERYTHING, mode: 
         chosen=chosen,
         offline=mode.offline,
         writing=mode.writing,
+        gitignore=choices.gitignore,
     )
     wanted = Merged(
         subscriptions=tuple(entry for entry in merged.subscriptions if entry.scope in set(choices.scopes)),
@@ -1840,10 +1929,10 @@ def _print_ignored(outcome: Outcome, out: TextIO, style: Style) -> None:
     if not outcome.ignored:
         return
     section("Ignore rules", out, style)
-    for root, listed, changed in outcome.ignored:
-        state = "now lists" if changed else "already listed"
-        where = style.place(str(root / ignore.GITIGNORE))
-        print(f"- {where} {state} {joined(listed) or 'nothing of ours'}", file=out)
+    for found in outcome.ignored:
+        state = _ignore_state(found)
+        where = style.place(str(found.root / ignore.GITIGNORE))
+        print(f"- {where} {state} {joined(found.listed) or 'nothing of ours'}", file=out)
     print("", file=out)
 
 
@@ -2027,8 +2116,13 @@ def payload(outcome: Outcome) -> dict[str, Any]:
         "unpruned": [str(path) for path in outcome.unpruned],
         "replaced": [{"path": str(path), "region": region} for path, region in outcome.replaced],
         "ignored": [
-            {"repository": str(root), "lists": list(listed), "changed": changed}
-            for root, listed, changed in outcome.ignored
+            {
+                "repository": str(found.root),
+                "lists": list(found.listed),
+                "changed": found.changed,
+                "maintained": found.maintained,
+            }
+            for found in outcome.ignored
         ],
         "unexplained": [str(path) for path in outcome.unexplained],
         "withdrawal_suspended": outcome.suspended,
@@ -2174,6 +2268,7 @@ __all__ = [
     "Choices",
     "Directories",
     "Entry",
+    "Ignored",
     "Mode",
     "Outcome",
     "Placement",

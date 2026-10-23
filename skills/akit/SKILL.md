@@ -98,7 +98,10 @@ Then pick the command by what the person asked for:
 
 **When something is already wrong rather than missing, run `akit doctor`.** It
 changes nothing, names a command for every finding, and exits non-zero when it
-found something. Carry out the command it names rather than editing a rendered
+found something. It reports on the home directory as well as the project, so a
+`~/.agents` kept as a git repository gets the same questions a project does:
+what it ignores, what it commits, and which of the skills in it are the
+person's own rather than renders. Carry out the command it names rather than editing a rendered
 file: a copy you edit by hand is one `akit` refuses to touch again, which is a
 finding of its own.
 
