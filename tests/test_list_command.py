@@ -210,6 +210,9 @@ class TestListInAFakeHome:
             [ ] copilot-vscode  not detected on this machine
                 takes skills and rules, and is in no manifest's harness list
                 promises no order between rules, so two that contradict are a coin toss
+            [ ] cursor-local    not detected on this machine
+                takes skills and rules, and is in no manifest's harness list
+                promises no order between rules, so two that contradict are a coin toss
             [ ] emacs           named in a manifest, and no adapter answers to it
                 named by this project's manifest
 
@@ -217,6 +220,7 @@ class TestListInAFakeHome:
             -------------------------
 
             -   copilot-ci      takes skills and rules, and needs listing by name in a project's manifest
+            -   cursor-cloud    takes skills and rules, and needs listing by name in a project's manifest
 
             Name collisions
             ===============
@@ -326,6 +330,8 @@ class TestListInAFakeHome:
             "opencode",
             "copilot-vscode",
             "copilot-ci",
+            "cursor-local",
+            "cursor-cloud",
             "emacs",
         }
         assert all(

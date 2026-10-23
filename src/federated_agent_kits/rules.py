@@ -84,7 +84,7 @@ SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 #: What a harness needing no frontmatter of its own declares. A shared mapping
 #: rather than a fresh one per call, and read-only so that a caller cannot put a
 #: key into every future render by accident.
-NO_KEYS: Mapping[str, str] = MappingProxyType({})
+NO_KEYS: Mapping[str, str | bool] = MappingProxyType({})
 
 #: Names Windows will not give a file, whatever the extension after them. A
 #: rule called `aux` renders fine on Linux and fails on the other half of the
@@ -146,7 +146,7 @@ def parse(data: bytes, *, name: str) -> Document:
         raise RuleError(f'the rule "{name}" opens with frontmatter that is {error.summary}.\n  {error.fix}') from error
 
 
-def as_file(data: bytes, *, name: str, keys: Mapping[str, str] = NO_KEYS, ours: bool = False) -> bytes:
+def as_file(data: bytes, *, name: str, keys: Mapping[str, str | bool] = NO_KEYS, ours: bool = False) -> bytes:
     """One rule as a file for a harness that reads a directory of them.
 
     `keys` are the ones the harness needs and the source cannot be trusted to
@@ -159,6 +159,12 @@ def as_file(data: bytes, *, name: str, keys: Mapping[str, str] = NO_KEYS, ours: 
     Everything else the source wrote survives, in its own order, with its own
     comments. `description:` is the one that matters: it is the other key
     Copilot loads a rule on, and it is the author's to write.
+
+    **A bool is written bare and everything else is quoted**, because YAML has
+    no other way to tell `alwaysApply: true` from `alwaysApply: "true"`, and
+    Cursor reads only the first of those. Quoting is the default because the
+    keys that are strings are globs: `applyTo: **` unquoted is YAML asking for
+    an alias and failing.
     """
     check_name(name, ours=ours)
     document = parse(data, name=name)
@@ -166,7 +172,7 @@ def as_file(data: bytes, *, name: str, keys: Mapping[str, str] = NO_KEYS, ours: 
         return document.body.encode("utf-8")
     front = document.front if document.front is not None else CommentedMap()
     for key, value in keys.items():
-        front[key] = DoubleQuotedScalarString(value)
+        front[key] = value if isinstance(value, bool) else DoubleQuotedScalarString(value)
     return f"{FENCE}\n{frontmatter.dump(front)}{FENCE}\n\n{document.body}".encode()
 
 

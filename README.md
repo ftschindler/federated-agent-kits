@@ -225,13 +225,18 @@ and nobody you share the repository with sees it.
 your repository commits, so there is nothing on this disk to detect and it arrives only by
 being named. From then on what it reads is committed, which the next section is about.
 
-Three adapters ship today:
+Five adapters ship today:
 
 | Harness | Kind | Takes |
 | --- | --- | --- |
 | opencode | on this machine | skills, rules |
 | GitHub Copilot in VS Code | on this machine | skills, rules |
+| Cursor, on this machine | on this machine | skills, rules |
 | GitHub Copilot in CI | no machine, so named | skills, rules |
+| Cursor's cloud agents | no machine, so named | skills, rules |
+
+Copilot and Cursor are each two rows, because each ships an editor you render on and a cloud
+agent you cannot, and that difference decides everything else about where their files go.
 
 `akit list` reports which of them it found, for the machine it runs on. Detection is always by
 evidence on this disk, never by what a repository contains.
@@ -251,9 +256,10 @@ walks the seven questions with a worked example, and a pull request adding one i
 
 ## The harness that commits
 
-GitHub Copilot in CI is the harness with no machine that ships today. It runs on GitHub's
-infrastructure, clones your repository and reads what is there, which means **nothing you do
-not commit exists as far as it is concerned**. Naming it is one line:
+GitHub Copilot in CI and Cursor's cloud agents are the harnesses with no machine. Each runs
+on somebody else's infrastructure, clones your repository and reads what is there, which
+means **nothing you do not commit exists as far as either is concerned**. Naming one is one
+line:
 
 ```sh
 uvx --from federated-agent-kits akit harness add copilot-ci

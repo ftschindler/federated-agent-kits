@@ -165,13 +165,16 @@ class TestWhereAPartWouldLand:
     def test_a_rule_wanted_by_several_harnesses_is_not_one_copy(self, tmp_path: Path):
         # A rule is translated per harness, so the shape decides the path. The
         # two Copilot harnesses agree on `.github/instructions/` because they
-        # read the same files from the same checkout; opencode does not, and
-        # that is the whole reason rules are not written once for everybody.
+        # read the same files from the same checkout, and the two Cursor
+        # harnesses agree on `.cursor/rules/` for the same reason; opencode does
+        # not, and that is the whole reason rules are not written once for
+        # everybody.
         written = {adapter.target(Kind.RULE, Scope.PROJECT, "prose-style", tmp_path) for adapter in adapters.ADAPTERS}
 
         assert written == {
             tmp_path / "AGENTS.md",
             tmp_path / ".github" / "instructions" / "prose-style.instructions.md",
+            tmp_path / ".cursor" / "rules" / "prose-style.mdc",
         }
 
 
