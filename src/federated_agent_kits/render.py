@@ -192,6 +192,15 @@ class Ignored(NamedTuple):
     changed: bool
     maintained: bool
 
+    hides: bool = False
+    """Whether the block on disk ignores a directory a machineless harness reads.
+
+    The half of a drifted block that a clone can judge, and so the half
+    `render --check` calls stale. `changed` is the whole of it and is a fact
+    about this machine, because the block also covers harnesses installed here
+    that a runner has never heard of (DESIGN.md section 6).
+    """
+
 
 def _ignore_state(found: Ignored) -> str:
     """The verb for this block, which depends on whether we were allowed to write it."""
@@ -308,7 +317,7 @@ class Outcome:
             found.append(f"{counted(len(self.unexplained), 'committed file')} nothing subscribes to any more")
             found.extend(f"  {path}" for path in self.unexplained)
         for found_block in self.ignored:
-            if found_block.changed and found_block.maintained:
+            if found_block.hides and found_block.maintained:
                 found.append(f"the akit block in {found_block.root / ignore.GITIGNORE} is out of date")
         return tuple(found)
 
@@ -540,6 +549,31 @@ def _check_names(named: Sequence[str] | None, flag: str) -> None:
         raise UsageError(f"{flag} names a harness no adapter knows: {', '.join(unknown)}.\n  Known harnesses: {known}.")
 
 
+def _refuse_unoffered(unoffered: Sequence[adapters.Unoffered], *, refusing: bool) -> None:
+    """A manifest sending a kind through a door its harness does not have, refused.
+
+    The one place a choice is fatal rather than reported. An unknown harness
+    renders nothing, which is visible as nothing happening; an unknown door
+    would render into whatever the default happened to be, which is files
+    appearing somewhere nobody named and an agent reading the wrong ones. So
+    this stops before anything is written, the way the leak refusal does
+    (DESIGN.md section 6).
+
+    **`akit doctor` is the pass that does not refuse**, because a command whose
+    whole job is to tell you what is wrong should not fail at the first thing
+    it finds. It walks the same plan with the defaults in place and reports the
+    door as a finding with a fix beside it.
+    """
+    if not unoffered or not refusing:
+        return
+    listed = "\n".join(f"    {door}" for door in unoffered)
+    raise RefusalError(
+        f"a manifest chooses a destination the harness does not offer:\n{listed}\n"
+        "  Nothing was written, because the alternative is rendering somewhere nobody asked for.\n"
+        "  Run `akit help harnesses` for the destinations each harness offers."
+    )
+
+
 @dataclass(frozen=True)
 class _Pass:
     """One render, so the six things every subscription needs travel together."""
@@ -764,11 +798,11 @@ def _plan_rule(walk: _Pass, wanted: _Wanted, writes: dict[Spot, _Target]) -> tup
         target = adapter.target(wanted.subscription.kind, wanted.scope, wanted.name, walk.anchor(adapter, wanted.scope))
         if target is None:
             continue
-        region = adapter.region(wanted.subscription.kind, wanted.name)
+        region = adapter.region(wanted.subscription.kind, wanted.scope, wanted.name)
         written = (
             rules.as_block(data, name=wanted.name)
             if region is not None
-            else rules.as_file(data, name=wanted.name, keys=adapter.rule_frontmatter)
+            else rules.as_file(data, name=wanted.name, keys=adapter.frontmatter(wanted.subscription.kind, wanted.scope))
         )
         spot = (located(target), region)
         problem = (None if region is not None else _linked(spot[0], wanted.name)) or _spot_wanted(
@@ -892,11 +926,11 @@ def _plan_note(walk: _Pass, referring: Sequence[_Referring], writes: dict[Spot, 
             target = adapter.target(Kind.RULE, scope, renames_.RENAMES, walk.anchor(adapter, scope))
             if target is None:
                 continue
-            region = adapter.region(Kind.RULE, renames_.RENAMES)
+            region = adapter.region(Kind.RULE, scope, renames_.RENAMES)
             written = (
                 rules.as_block(data, name=renames_.RENAMES, ours=True)
                 if region is not None
-                else rules.as_file(data, name=renames_.RENAMES, keys=adapter.rule_frontmatter, ours=True)
+                else rules.as_file(data, name=renames_.RENAMES, keys=adapter.frontmatter(Kind.RULE, scope), ours=True)
             )
             spot = (located(target), region)
             for entry in here:
@@ -1224,7 +1258,7 @@ def _directories(picked: Iterable[Adapter], walk: _Pass, scopes: Sequence[Scope]
         for adapter in picked:
             for kind in RENDERED:
                 destination = adapter.destination(kind, scope)
-                if destination is None or destination.write is None or adapter.shares_the_file(kind):
+                if destination is None or destination.write is None or adapter.shares_the_file(kind, scope):
                     continue
                 found.setdefault(walk.anchor(adapter, scope), set()).add(destination.write)
     return found
@@ -1352,6 +1386,7 @@ def ignore_block(
     wanted = list(explained)
     found: dict[Path, set[str]] = {}
     maintained: set[Path] = set()
+    hiding: dict[Path, bool] = {}
     root = manifest.worktree_root(walk.start)
     if root is not None and Scope.PROJECT in scopes:
         committed = _committed(walk.chosen.get(Scope.PROJECT, ()), Scope.PROJECT)
@@ -1367,6 +1402,7 @@ def ignore_block(
             listed.add(f"{record.DIRECTORY}/")
         found[root] = listed
         maintained.add(root)
+        hiding[root] = ignore.hides(root, committed)
     for directory in _global_directories(walk, scopes):
         above = manifest.worktree_root(directory)
         if above is None or above in maintained:
@@ -1378,6 +1414,7 @@ def ignore_block(
             root=where,
             listed=tuple(sorted(listed)),
             changed=ignore.maintain(where, listed, writing=walk.writing and allowed),
+            hides=hiding.get(where, False),
             maintained=allowed,
         )
         for where, listed in sorted(found.items())
@@ -1617,7 +1654,8 @@ def plan(start: Path, places: Directories, choices: Choices = EVERYTHING, mode: 
     unknown: list[str] = []
     for scope in choices.scopes:
         expand = adapters.named if mode.checking else adapters.expand
-        picked, missing = expand(merged.harnesses(scope), places.home)
+        picked, missing, unoffered = expand(merged.harnesses(scope), places.home, merged.doors(scope))
+        _refuse_unoffered(unoffered, refusing=mode.writing or mode.checking)
         chosen[scope] = _narrow(
             adapters.machineless(picked) if mode.checking else picked, choices.only, choices.without
         )

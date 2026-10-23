@@ -31,6 +31,10 @@ pytestmark = pytest.mark.unit
 SKILLS = Path(".agents") / "skills"
 INSTRUCTIONS = Path(".github") / "instructions"
 
+#: The harness with its rules sent through the door it is not default on, which
+#: is what a manifest writes to pick between the two (DESIGN.md section 6).
+INSTRUCTIONS_DOOR = "{copilot-ci: {rules: instructions}}"
+
 
 @pytest.fixture(autouse=True)
 def house(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -147,7 +151,7 @@ class TestTheIgnoreBlockIsTheInverseOfWhatIsCommitted:
 
         render.render(project, places)
 
-        assert block(project) == [".akit/"]
+        assert block(project) == [".akit/", ".github/instructions/"]
 
     def test_the_record_stays_in_whatever_else_leaves(self, project: Path, places: render.Directories, kits: str):
         # It is the one entry that is not a rendered kit: machine state sitting
@@ -189,16 +193,35 @@ class TestWhatTheCloudAgentActuallyGets:
 
         assert (project / SKILLS / "writing" / "SKILL.md").read_text(encoding="utf-8") == "# writing\n"
 
-    def test_a_rule_lands_as_a_file_of_ours_carrying_the_frontmatter_it_needs(
+    def test_a_rule_lands_as_a_block_in_the_file_it_shares_with_opencode(
         self, project: Path, places: render.Directories, kits: str
     ):
+        """The default door, and the reason it is the default.
+
+        GitHub's cloud agent reads `AGENTS.md`, and so does opencode, so one
+        block serves both and neither gets a copy of its own.
+        """
         subscribe(project, places, kits, harnesses="copilot-ci")
+
+        render.render(project, places)
+
+        rendered = (project / "AGENTS.md").read_text(encoding="utf-8")
+        assert "<!-- BEGIN akit prose-style -->" in rendered
+        assert "# prose\n" in rendered
+        assert not (project / INSTRUCTIONS).exists()
+
+    def test_the_other_door_is_a_file_of_ours_carrying_the_frontmatter_it_needs(
+        self, project: Path, places: render.Directories, kits: str
+    ):
+        """What choosing the directory buys, which is the `applyTo` the other shape has no room for."""
+        subscribe(project, places, kits, harnesses=INSTRUCTIONS_DOOR)
 
         render.render(project, places)
 
         rendered = (project / INSTRUCTIONS / "prose-style.instructions.md").read_text(encoding="utf-8")
         assert 'applyTo: "**"' in rendered or "applyTo: '**'" in rendered
         assert "# prose\n" in rendered
+        assert not (project / "AGENTS.md").exists()
 
     def test_one_copy_serves_it_and_the_laptop_harnesses_alike(
         self, project: Path, places: render.Directories, kits: str
@@ -211,6 +234,26 @@ class TestWhatTheCloudAgentActuallyGets:
         shared = [place for place in skills if place.path.name == "writing"]
         assert len(shared) == 1
         assert sorted(shared[0].harnesses) == ["copilot-ci", "copilot-vscode", "opencode"]
+
+
+class TestADestinationTheHarnessDoesNotHave:
+    """DESIGN.md section 6: a door nobody offers stops the render rather than defaulting."""
+
+    def test_a_render_refuses_and_writes_nothing(self, project: Path, places: render.Directories, kits: str):
+        subscribe(project, places, kits, harnesses="{copilot-ci: {rules: nonsense}}")
+
+        with pytest.raises(RefusalError) as refused:
+            render.render(project, places)
+
+        assert 'copilot-ci sends rules through "nonsense"' in str(refused.value)
+        assert not (project / "AGENTS.md").exists()
+        assert not (project / SKILLS).exists()
+
+    def test_the_check_refuses_it_too(self, project: Path, places: render.Directories, kits: str):
+        subscribe(project, places, kits, harnesses="{copilot-ci: {rules: nonsense}}")
+
+        with pytest.raises(RefusalError):
+            render.render(project, places, render.COMMITTED, render.CHECKING)
 
 
 class TestTheCheck:
@@ -255,7 +298,7 @@ class TestTheCheck:
         assert outcome.exit_code is Exit.ERROR
 
     def test_a_missing_committed_file_fails_it(self, project: Path, places: render.Directories, kits: str):
-        subscribe(project, places, kits, harnesses="copilot-ci")
+        subscribe(project, places, kits, harnesses=INSTRUCTIONS_DOOR)
         render.render(project, places)
         (project / INSTRUCTIONS / "prose-style.instructions.md").unlink()
 
@@ -289,10 +332,10 @@ class TestTheCheck:
         committed, so a file in one the manifest no longer accounts for is
         stale whoever put it there.
         """
-        subscribe(project, places, kits, harnesses="copilot-ci")
+        subscribe(project, places, kits, harnesses=INSTRUCTIONS_DOOR)
         render.render(project, places)
         (project / ".akit.yaml").write_text(
-            f"version: 1\nharnesses: [copilot-ci]\n\nskills:\n  {kits}: [writing]\n", encoding="utf-8"
+            f"version: 1\nharnesses: [{INSTRUCTIONS_DOOR}]\n\nskills:\n  {kits}: [writing]\n", encoding="utf-8"
         )
         rendered = project / INSTRUCTIONS / "prose-style.instructions.md"
 

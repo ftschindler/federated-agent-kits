@@ -225,6 +225,37 @@ class TestHarnesses:
     def test_a_scalar_is_refused(self) -> None:
         assert "not a list" in refusal("version: 1\nharnesses: detected\n").problem
 
+    def test_an_entry_that_chose_a_destination_is_a_name_like_any_other(self) -> None:
+        """The whole point of keeping `harnesses` as names: nothing downstream changes."""
+        found = parsed("version: 1\nharnesses: [detected, {copilot-ci: {rules: agents-md}}]\n")
+
+        assert found.harnesses == ("detected", "copilot-ci")
+        assert found.doors == {"copilot-ci": {Kind.RULE: "agents-md"}}
+
+    def test_a_bare_name_chooses_nothing(self) -> None:
+        assert parsed("version: 1\nharnesses: [copilot-ci]\n").doors == {}
+
+    def test_both_kinds_can_be_sent_at_once(self) -> None:
+        found = parsed("version: 1\nharnesses: [{copilot-ci: {skills: github, rules: agents-md}}]\n")
+
+        assert found.doors == {"copilot-ci": {Kind.SKILL: "github", Kind.RULE: "agents-md"}}
+
+    def test_an_entry_naming_two_harnesses_is_refused(self) -> None:
+        found = refusal("version: 1\nharnesses: [{copilot-ci: {rules: agents-md}, opencode: {}}]\n")
+
+        assert "more than one harness" in found.problem
+
+    def test_an_entry_whose_value_is_not_a_mapping_is_refused(self) -> None:
+        assert "not a mapping of kinds" in refusal("version: 1\nharnesses: [{copilot-ci: agents-md}]\n").problem
+
+    def test_a_kind_nobody_knows_is_refused(self) -> None:
+        found = refusal("version: 1\nharnesses: [{copilot-ci: {prompts: agents-md}}]\n")
+
+        assert "not a kind" in found.problem
+
+    def test_a_destination_that_is_not_a_name_is_refused(self) -> None:
+        assert "is not a name" in refusal("version: 1\nharnesses: [{copilot-ci: {rules: [a]}}]\n").problem
+
 
 class TestTheRefusals:
     """One per rejection, each asserting the line as well as the message.

@@ -2005,3 +2005,62 @@ extending it needs a second definition of committed-ness. It is also largely sel
 once the block covers a global render root, what renders there is ignored, and what is
 ignored is not committed. What is left is content git was already tracking when `akit`
 arrived, which is exactly what the check above now names.
+
+## 2026-10-23 - The adapter was right about where it wrote and wrong about why
+
+Reading `copilot_ci.py` to answer a question about something else, a user asked whether the
+cloud agent really needs `.github/instructions/`, since it reads `AGENTS.md` the way opencode
+does. The docstring said every path in it had been checked against GitHub's documentation on
+2026-10-08, and it had been. The paths were right. The sentence around them was not:
+
+```text
+**Every path below was checked against GitHub's documentation on 2026-10-08**
+and all of them still stand: the three skills directories [...]; and
+`.github/instructions/*.instructions.md` with `applyTo` frontmatter
+```
+
+which reads as a complete list and is not one. GitHub's cloud agent has read `AGENTS.md`
+since a changelog entry in August 2025, alongside `.github/copilot-instructions.md`,
+`CLAUDE.md` and `GEMINI.md`. The adapter had picked one of five doors, correctly, and then
+written the check down in a way that made the choice invisible.
+
+**The cost of the invisible choice was two copies of every rule.** A repository rendering for
+opencode and for the cloud agent wrote each rule twice: a block in `AGENTS.md` and a file in
+`.github/instructions/`, same bytes, two places to keep in step. The skills half of the same
+adapter had got this right from the start, which is why `.agents/skills/` is the default
+there and why the second reader costs nothing.
+
+So the fix was not a path. It was that a destination had never been something a manifest
+could name, and [§4](DESIGN.md#4-adding-a-harness) question 1 had been read as asking for one
+answer when the honest answer is sometimes several. Three things followed from making the
+tuple the answer.
+
+**The shape belongs to the destination, not to the harness.** The first attempt folded the
+chosen destination's shape onto the adapter, which is fine until a manifest sends a
+repository's rules through one door and your own through another. Then one scope has
+`SHARED_FILE` and the other `DIRECTORY`, and whichever lost would have written marker blocks
+into a directory or a whole file over somebody's `AGENTS.md`. `shape`, `suffix`,
+`frontmatter` and `orders` became per-destination lookups taking `(kind, scope)`.
+
+**`expand` returning an already-chosen adapter is what kept the diff small.** The choice is
+made once, where the registry and the manifest meet, and `choosing` hands back an ordinary
+adapter with the chosen door first. The renderer, the ignore block, the leak refusal and
+`akit list` ask exactly the questions they asked before. The test that no engine module may
+name a harness caught the one place this leaked: an error message in `manifest.py` used
+`copilot-ci` as its example.
+
+**The check and `doctor` had been sharing one definition of a stale ignore block, and could
+not go on doing so.** `render --check` sees only the harnesses that commit, so the block it
+can reconstruct is missing every line a laptop harness put there. That was invisible while
+the cloud agent and Copilot in VS Code wrote to the same directory, and the moment the
+default moved to `AGENTS.md` a freshly rendered repository failed its own check:
+
+```text
+the akit block in /tmp/.../project/.gitignore is out of date
+```
+
+with nothing wrong with it. The block listed `.github/instructions/`, which Copilot in VS
+Code renders privately and a runner has never heard of. So the check now asks the narrower
+question it always meant: does the block hide a directory a machineless harness reads. The
+wider question, whether the block lists everything this machine renders, is a fact about this
+machine and became `doctor`'s alone.

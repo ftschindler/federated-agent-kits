@@ -55,8 +55,11 @@ from federated_agent_kits.rules import APPLY_TO, EVERYTHING
 #: The shared directory, written at both scopes, and the harness-specific ones
 #: it also accepts, which a source may equally have left a skill in.
 SKILLS = ".agents/skills"
-PROJECT_SKILL_DIRECTORIES: tuple[str, ...] = (SKILLS, ".github/skills", ".claude/skills")
-USER_SKILL_DIRECTORIES: tuple[str, ...] = (SKILLS, ".copilot/skills", ".claude/skills")
+GITHUB_SKILLS = ".github/skills"
+COPILOT_SKILLS = ".copilot/skills"
+CLAUDE_SKILLS = ".claude/skills"
+PROJECT_SKILL_DIRECTORIES: tuple[str, ...] = (SKILLS, GITHUB_SKILLS, CLAUDE_SKILLS)
+USER_SKILL_DIRECTORIES: tuple[str, ...] = (SKILLS, COPILOT_SKILLS, CLAUDE_SKILLS)
 
 #: One file per rule, in a directory we own. The suffix is how Copilot finds
 #: them, so it is not ours to choose.
@@ -100,10 +103,18 @@ ADAPTER = Adapter(
     summary="GitHub Copilot in VS Code, on this machine",
     has_a_machine=True,
     destinations={
-        (Kind.SKILL, Scope.USER): Destination(write=SKILLS, read=USER_SKILL_DIRECTORIES),
-        (Kind.SKILL, Scope.PROJECT): Destination(write=SKILLS, read=PROJECT_SKILL_DIRECTORIES),
-        (Kind.RULE, Scope.USER): Destination(write=USER_RULES),
-        (Kind.RULE, Scope.PROJECT): Destination(write=PROJECT_RULES),
+        (Kind.SKILL, Scope.USER): (
+            Destination(write=SKILLS, read=USER_SKILL_DIRECTORIES, variant="agents"),
+            Destination(write=COPILOT_SKILLS, read=USER_SKILL_DIRECTORIES, variant="copilot"),
+            Destination(write=CLAUDE_SKILLS, read=USER_SKILL_DIRECTORIES, variant="claude"),
+        ),
+        (Kind.SKILL, Scope.PROJECT): (
+            Destination(write=SKILLS, read=PROJECT_SKILL_DIRECTORIES, variant="agents"),
+            Destination(write=GITHUB_SKILLS, read=PROJECT_SKILL_DIRECTORIES, variant="github"),
+            Destination(write=CLAUDE_SKILLS, read=PROJECT_SKILL_DIRECTORIES, variant="claude"),
+        ),
+        (Kind.RULE, Scope.USER): (Destination(write=USER_RULES),),
+        (Kind.RULE, Scope.PROJECT): (Destination(write=PROJECT_RULES),),
     },
     rule_shape=RuleShape.DIRECTORY,
     rule_suffix=SUFFIX,

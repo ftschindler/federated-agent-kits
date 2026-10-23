@@ -57,15 +57,17 @@ class TestTheContractEveryAdapterKeeps:
 
     @EVERY
     def test_every_declared_path_is_relative_and_posix(self, adapter: Adapter):
-        for destination in adapter.destinations.values():
-            for declared in destination.directories:
-                assert not Path(declared).is_absolute()
-                assert "\\" not in declared
+        for offered in adapter.destinations.values():
+            for destination in offered:
+                for declared in destination.directories:
+                    assert not Path(declared).is_absolute()
+                    assert "\\" not in declared
 
     @EVERY
     def test_it_reads_everywhere_it_writes(self, adapter: Adapter):
-        for destination in adapter.destinations.values():
-            assert destination.write is None or destination.write in destination.directories
+        for offered in adapter.destinations.values():
+            for destination in offered:
+                assert destination.write is None or destination.write in destination.directories
 
     @EVERY
     def test_a_pointer_exists_exactly_when_the_shape_is_pointed(self, adapter: Adapter):
@@ -138,10 +140,10 @@ class TestWhereAPartWouldLand:
         target = adapter.target(Kind.RULE, Scope.PROJECT, "prose-style", tmp_path)
 
         assert target is not None
-        if adapter.rule_shape is RuleShape.SHARED_FILE:
+        if adapter.shape(Kind.RULE, Scope.PROJECT) is RuleShape.SHARED_FILE:
             assert target == tmp_path.joinpath(*destination.write.split("/"))
         else:
-            assert target.name == f"prose-style{adapter.rule_suffix}"
+            assert target.name == f"prose-style{adapter.suffix(Kind.RULE, Scope.PROJECT)}"
 
     def test_the_two_scopes_do_not_write_to_one_place(self, tmp_path: Path):
         for adapter in adapters.ADAPTERS:
@@ -218,13 +220,13 @@ class TestTheHarnessList:
     def test_detected_expands_to_whatever_this_machine_has(self, tmp_path: Path):
         (tmp_path / ".vscode").mkdir()
 
-        chosen, unknown = adapters.expand(["detected"], tmp_path)
+        chosen, unknown, _ = adapters.expand(["detected"], tmp_path)
 
         assert [adapter.name for adapter in chosen] == ["copilot-vscode"]
         assert unknown == ()
 
     def test_a_named_harness_arrives_whether_or_not_this_machine_has_it(self, tmp_path: Path):
-        chosen, unknown = adapters.expand(["opencode"], tmp_path)
+        chosen, unknown, _ = adapters.expand(["opencode"], tmp_path)
 
         assert [adapter.name for adapter in chosen] == ["opencode"]
         assert not adapters.BY_NAME["opencode"].detected(tmp_path)
@@ -233,25 +235,95 @@ class TestTheHarnessList:
     def test_naming_one_does_not_cost_you_the_others(self, tmp_path: Path):
         (tmp_path / ".vscode").mkdir()
 
-        chosen, _ = adapters.expand(["detected", "opencode"], tmp_path)
+        chosen, _, _ = adapters.expand(["detected", "opencode"], tmp_path)
 
         assert sorted(adapter.name for adapter in chosen) == ["copilot-vscode", "opencode"]
 
     def test_a_harness_both_named_and_detected_is_one_harness(self, tmp_path: Path):
         (tmp_path / ".vscode").mkdir()
 
-        chosen, _ = adapters.expand(["detected", "copilot-vscode", "copilot-vscode"], tmp_path)
+        chosen, _, _ = adapters.expand(["detected", "copilot-vscode", "copilot-vscode"], tmp_path)
 
         assert [adapter.name for adapter in chosen] == ["copilot-vscode"]
 
     def test_a_name_no_adapter_answers_to_comes_back_rather_than_raising(self, tmp_path: Path):
-        chosen, unknown = adapters.expand(["opencode", "emacs", "emacs"], tmp_path)
+        chosen, unknown, _ = adapters.expand(["opencode", "emacs", "emacs"], tmp_path)
 
         assert [adapter.name for adapter in chosen] == ["opencode"]
         assert unknown == ("emacs",)
 
     def test_an_empty_list_renders_for_nobody(self, tmp_path: Path):
-        assert adapters.expand([], tmp_path) == ((), ())
+        assert adapters.expand([], tmp_path) == ((), (), ())
+
+
+class TestChoosingBetweenTheDestinationsAHarnessOffers:
+    """DESIGN.md section 6: a manifest picks a door, and the adapter is what knows the doors."""
+
+    def test_a_harness_with_one_destination_offers_no_choice(self):
+        assert adapters.BY_NAME["opencode"].variants(Kind.RULE) == ()
+
+    def test_a_harness_with_several_names_them_default_first(self):
+        assert adapters.BY_NAME["copilot-ci"].variants(Kind.RULE) == ("agents-md", "instructions")
+
+    def test_choosing_nothing_is_the_adapter_untouched(self, tmp_path: Path):
+        adapter = adapters.BY_NAME["copilot-ci"]
+
+        assert adapter.choosing({}) is adapter
+
+    def test_choosing_one_puts_it_first_and_carries_its_shape(self, tmp_path: Path):
+        chosen = adapters.BY_NAME["copilot-ci"].choosing({Kind.RULE: "instructions"})
+
+        assert chosen.shape(Kind.RULE, Scope.PROJECT) is RuleShape.DIRECTORY
+        assert chosen.suffix(Kind.RULE, Scope.PROJECT) == ".instructions.md"
+        assert chosen.frontmatter(Kind.RULE, Scope.PROJECT) != {}
+        assert chosen.orders(Kind.RULE, Scope.PROJECT) is False
+        assert chosen.region(Kind.RULE, Scope.PROJECT, "prose-style") is None
+
+    def test_the_default_is_the_shared_file_and_keeps_the_order_promise(self):
+        adapter = adapters.BY_NAME["copilot-ci"]
+
+        assert adapter.shape(Kind.RULE, Scope.PROJECT) is RuleShape.SHARED_FILE
+        assert adapter.orders(Kind.RULE, Scope.PROJECT) is True
+        assert adapter.region(Kind.RULE, Scope.PROJECT, "prose-style") == "prose-style"
+
+    def test_a_choice_that_only_one_scope_has_leaves_the_other_on_its_default(self, tmp_path: Path):
+        """`variants` is a union across scopes, so a name may be missing from one of them.
+
+        Copilot in VS Code keeps user skills in `.copilot/skills` and a project's
+        in `.github/skills`, and neither name means anything in the other scope.
+        """
+        chosen = adapters.BY_NAME["copilot-vscode"].choosing({Kind.SKILL: "github"})
+
+        assert chosen.target(Kind.SKILL, Scope.PROJECT, "writing", tmp_path) == tmp_path / ".github/skills/writing"
+        assert chosen.target(Kind.SKILL, Scope.USER, "writing", tmp_path) == tmp_path / ".agents/skills/writing"
+
+    def test_the_doors_not_chosen_are_still_read_from(self):
+        """Choosing where to write narrows nothing about where a source may have left a kit."""
+        chosen = adapters.BY_NAME["copilot-ci"].choosing({Kind.SKILL: "github"})
+        offered = chosen.offers(Kind.SKILL, Scope.PROJECT)
+
+        assert offered[0].variant == "github"
+        assert sorted(door.variant for door in offered) == ["agents", "claude", "github"]
+
+    def test_a_name_no_adapter_offers_comes_back_rather_than_being_guessed_at(self, tmp_path: Path):
+        chosen, unknown, unoffered = adapters.expand(["copilot-ci"], tmp_path, {"copilot-ci": {Kind.RULE: "nonsense"}})
+
+        assert unknown == ()
+        assert [str(door) for door in unoffered] == ['copilot-ci sends rules through "nonsense"']
+        assert chosen[0].shape(Kind.RULE, Scope.PROJECT) is RuleShape.SHARED_FILE
+
+    def test_a_door_named_for_a_harness_that_is_not_in_the_list_is_nobody_s_business(self, tmp_path: Path):
+        _, _, unoffered = adapters.expand(["opencode"], tmp_path, {"copilot-ci": {Kind.RULE: "nonsense"}})
+
+        assert unoffered == ()
+
+    def test_every_offered_door_is_named_and_named_once(self):
+        """The contract that makes a choice writable: no two doors share a name, and none is blank."""
+        for adapter in adapters.ADAPTERS:
+            for offered in adapter.destinations.values():
+                names = [door.variant for door in offered]
+                assert len(offered) == 1 or all(names)
+                assert len(names) == len(set(names))
 
 
 class TestWhatDiscoveryIsTold:
@@ -284,7 +356,7 @@ SHARED = Adapter(
     name="fixture-shared",
     summary="a harness that takes rules as marker blocks in one file it does not own",
     has_a_machine=False,
-    destinations={(Kind.RULE, Scope.PROJECT): Destination(write="AGENTS.md")},
+    destinations={(Kind.RULE, Scope.PROJECT): (Destination(write="AGENTS.md"),)},
     rule_shape=RuleShape.SHARED_FILE,
 )
 

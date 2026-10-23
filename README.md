@@ -241,6 +241,17 @@ agent you cannot, and that difference decides everything else about where their 
 `akit list` reports which of them it found, for the machine it runs on. Detection is always by
 evidence on this disk, never by what a repository contains.
 
+**Where a harness reads a kind from several places, you pick.** Most do not, and a bare name
+in the list takes the default. Where there is a choice, the entry says so, and `akit list`
+names the alternatives:
+
+```sh
+uvx --from federated-agent-kits akit harness add copilot-ci --rules instructions
+```
+
+which writes `harnesses: [detected, {copilot-ci: {rules: instructions}}]`. Running it again
+with another name moves what that harness rendered, rather than leaving two copies behind.
+
 Rules differ in shape between harnesses, and `akit` absorbs that. Where a harness reads a
 directory of rules, each rule is a file of ours, with whatever frontmatter that harness needs
 to read it at all. Where it reads one file you also write in, such as opencode's `AGENTS.md`,
@@ -269,6 +280,11 @@ That one line changes what gets committed. The directories it reads leave the `.
 block, so the skills every other harness was reading privately go into the repository's
 history. That is the intended behaviour: a directory with two readers is committed if either
 of them commits, because git cannot ignore a directory halfway.
+
+Its rules go to `AGENTS.md`, which opencode reads as well, so one block serves both rather
+than each getting a copy. `--rules instructions` sends them to `.github/instructions/`
+instead, one file per rule with an `applyTo` glob, which is what to pick when a rule should
+apply to some paths and not others.
 
 Two things follow, and both ship with it.
 

@@ -289,6 +289,39 @@ class TestTheHarnessReport:
             "opencode",
         ]
 
+    def test_a_harness_with_a_choice_names_it_and_says_which_it_is_taking(
+        self, repository: Path, home: Path, tmp_path: Path
+    ):
+        """`akit list` is where somebody finds out there is a choice at all."""
+        manifest_at(
+            repository / ".akit.yaml",
+            "version: 1\nharnesses: [{copilot-ci: {rules: instructions}}]\n",
+        )
+
+        inventory = survey(repository, home, tmp_path)
+
+        entry = next(one for one in inventory.harnesses if one.name == "copilot-ci")
+        assert entry.doors[Kind.RULE] == ("agents-md", "instructions")
+        assert entry.sending == {Kind.RULE: "instructions"}
+
+    def test_a_harness_with_one_destination_per_kind_says_nothing_about_doors(
+        self, repository: Path, home: Path, tmp_path: Path
+    ):
+        manifest_at(repository / ".akit.yaml", "version: 1\n")
+
+        inventory = survey(repository, home, tmp_path)
+
+        assert next(one for one in inventory.harnesses if one.name == "opencode").doors == {}
+
+    def test_the_printed_report_names_the_one_in_use_and_the_rest(self, repository: Path, home: Path, tmp_path: Path):
+        manifest_at(repository / ".akit.yaml", "version: 1\nharnesses: [copilot-ci]\n")
+        inventory = survey(repository, home, tmp_path)
+
+        shown = io.StringIO()
+        listing.text(inventory, shown)
+
+        assert "takes rules through agents-md, and could take them through instructions" in shown.getvalue()
+
     def test_dropping_detected_pins_the_list(self, repository: Path, home: Path, kits: Path, tmp_path: Path):
         manifest_at(
             repository / ".akit.yaml",

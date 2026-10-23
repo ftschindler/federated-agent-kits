@@ -12,7 +12,8 @@ works and is the kind of thing somebody tidies up on a Friday.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from federated_agent_kits.adapters import copilot_ci, copilot_vscode, cursor_cloud, cursor_local, opencode
@@ -42,14 +43,45 @@ def detected(home: Path) -> tuple[Adapter, ...]:
     return tuple(adapter for adapter in ADAPTERS if adapter.detected(home))
 
 
-def expand(names: Sequence[str], home: Path) -> tuple[tuple[Adapter, ...], tuple[str, ...]]:
-    """A `harnesses:` list as adapters, and the names no adapter answers to.
+@dataclass(frozen=True)
+class Unoffered:
+    """A manifest sending a kind through a destination its harness does not have.
+
+    Three fields rather than a sentence, because the three callers word it
+    differently: `akit list` puts it on the harness's line, `akit doctor` makes
+    it a finding with a fix, and `akit render` refuses with it.
+    """
+
+    harness: str
+    kind: Kind
+    door: str
+
+    def __str__(self) -> str:
+        return f'{self.harness} sends {self.kind.value} through "{self.door}"'
+
+
+def expand(
+    names: Sequence[str],
+    home: Path,
+    doors: Mapping[str, Mapping[Kind, str]] | None = None,
+) -> tuple[tuple[Adapter, ...], tuple[str, ...], tuple[Unoffered, ...]]:
+    """A `harnesses:` list as adapters, the names no adapter answers to, and the doors none offers.
 
     `detected` expands in place, a named harness is taken unconditionally
     whether or not this machine has it, and the unknown names come back rather
     than raising: this is read by `akit list`, which reports a failure per line
     because it is what you run when something is already wrong.
+
+    **An adapter comes back having already made the manifest's choice.** A
+    harness that chose a door is that harness with the door first, so nothing
+    downstream has to carry the choice or know that one was made.
+
+    **A door no adapter offers comes back too, and is never guessed at.** The
+    harness is known and the name beside it is not, so rendering it anywhere
+    would be rendering it somewhere nobody asked for. `akit list` and `akit
+    doctor` report it; `akit render` refuses.
     """
+    picked = doors or {}
     chosen: dict[str, Adapter] = {}
     unknown: list[str] = []
     for name in names:
@@ -60,7 +92,17 @@ def expand(names: Sequence[str], home: Path) -> tuple[tuple[Adapter, ...], tuple
             chosen.setdefault(name, BY_NAME[name])
         elif name not in unknown:
             unknown.append(name)
-    return tuple(chosen.values()), tuple(unknown)
+    unoffered = tuple(
+        Unoffered(harness=name, kind=kind, door=door)
+        for name, adapter in chosen.items()
+        for kind, door in picked.get(name, {}).items()
+        if door not in adapter.variants(kind)
+    )
+    return (
+        tuple(adapter.choosing(picked.get(name, {})) for name, adapter in chosen.items()),
+        tuple(unknown),
+        unoffered,
+    )
 
 
 def machineless(chosen: Iterable[Adapter]) -> tuple[Adapter, ...]:
@@ -74,7 +116,11 @@ def machineless(chosen: Iterable[Adapter]) -> tuple[Adapter, ...]:
     return tuple(adapter for adapter in chosen if not adapter.has_a_machine)
 
 
-def named(names: Sequence[str], home: Path) -> tuple[tuple[Adapter, ...], tuple[str, ...]]:
+def named(
+    names: Sequence[str],
+    home: Path,
+    doors: Mapping[str, Mapping[Kind, str]] | None = None,
+) -> tuple[tuple[Adapter, ...], tuple[str, ...], tuple[Unoffered, ...]]:
     """The same expansion with `detected` dropped, which is what `--check` judges.
 
     A CI runner has none of the harnesses on your laptop installed, so a check
@@ -82,7 +128,7 @@ def named(names: Sequence[str], home: Path) -> tuple[tuple[Adapter, ...], tuple[
     judges instead is the part of the list that reads the same in every clone,
     which is the names somebody wrote down (DESIGN.md section 10).
     """
-    return expand([name for name in names if name != DETECTED], home)
+    return expand([name for name in names if name != DETECTED], home, doors)
 
 
 def source_directories(kind: Kind) -> tuple[str, ...]:
@@ -95,10 +141,8 @@ def source_directories(kind: Kind) -> tuple[str, ...]:
     """
     found: list[str] = []
     for adapter in ADAPTERS:
-        destination = adapter.destination(kind, Scope.PROJECT)
-        if destination is None:
-            continue
-        found.extend(entry for entry in destination.directories if entry not in found)
+        for destination in adapter.offers(kind, Scope.PROJECT):
+            found.extend(entry for entry in destination.directories if entry not in found)
     return tuple(found)
 
 
@@ -116,6 +160,7 @@ __all__ = [
     "Destination",
     "Pointer",
     "RuleShape",
+    "Unoffered",
     "detected",
     "expand",
     "git_root",

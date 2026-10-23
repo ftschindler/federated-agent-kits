@@ -294,6 +294,45 @@ class TestTheHarnessList:
 
         assert after.harnesses == ("detected",)
 
+    def test_choosing_a_destination_writes_a_mapping_entry(self):
+        after = editing.name_harness(parsed("version: 1\n"), "copilot-ci", {Kind.RULE: "instructions"})
+
+        assert after.harnesses == ("detected", "copilot-ci")
+        assert after.doors == {"copilot-ci": {Kind.RULE: "instructions"}}
+
+    def test_choosing_one_for_a_harness_already_listed_rewrites_its_entry(self):
+        """The same command sets a destination and moves one, so neither is a hand edit."""
+        before = editing.name_harness(parsed("version: 1\n"), "copilot-ci")
+
+        after = editing.name_harness(before, "copilot-ci", {Kind.RULE: "instructions"})
+
+        assert after.harnesses == ("detected", "copilot-ci")
+        assert after.doors == {"copilot-ci": {Kind.RULE: "instructions"}}
+
+    def test_both_kinds_are_written_in_the_order_the_manifest_spells_them(self):
+        after = editing.name_harness(
+            parsed("version: 1\n"), "copilot-ci", {Kind.RULE: "instructions", Kind.SKILL: "github"}
+        )
+
+        assert "skills: github" in manifests.dump(after)
+        assert after.doors == {"copilot-ci": {Kind.SKILL: "github", Kind.RULE: "instructions"}}
+
+    def test_dropping_one_that_chose_a_destination_takes_the_whole_entry(self):
+        before = editing.name_harness(parsed("version: 1\n"), "copilot-ci", {Kind.RULE: "instructions"})
+
+        after = editing.unname_harness(before, "copilot-ci")
+
+        assert after.harnesses == ("detected",)
+        assert after.doors == {}
+
+    def test_a_choice_taken_away_leaves_the_bare_name(self):
+        before = editing.name_harness(parsed("version: 1\n"), "copilot-ci", {Kind.RULE: "instructions"})
+
+        after = editing.name_harness(before, "copilot-ci")
+
+        assert after.harnesses == ("detected", "copilot-ci")
+        assert after.doors == {}
+
 
 def test_a_blank_manifest_is_the_version_and_nothing_else(tmp_path: Path):
     found = editing.blank(Scope.USER, tmp_path / "manifest.yaml")

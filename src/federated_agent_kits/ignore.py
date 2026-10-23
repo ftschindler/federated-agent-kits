@@ -75,6 +75,37 @@ def rewrite(text: str, directories: Iterable[str]) -> str:
     return "\n".join(kept) + "\n"
 
 
+def hides(root: Path, committed: Iterable[str]) -> bool:
+    """Whether this repository's block ignores something a machineless harness reads.
+
+    What `render --check` actually has to know, and narrower than "the block is
+    not the one I would have written". A check sees only the harnesses that
+    commit, because those are the ones that read the same in every clone, so
+    the block it could reconstruct is missing every line a harness on somebody's
+    laptop put there. Judging by equality would call a correct `.gitignore`
+    stale for the ordinary reason that a colleague has Copilot in VS Code
+    installed.
+
+    The failure worth catching is the one the block exists to prevent: a
+    directory the cloud agent reads, listed, so the rendered files are correct
+    and absent from the repository at the same time.
+    """
+    listed = set(block_of(root))
+    return any(f"{directory}/" in listed for directory in committed)
+
+
+def block_of(root: Path) -> list[str]:
+    """The lines inside this repository's markers, or none when there are none."""
+    path = root / GITIGNORE
+    if not path.is_file():
+        return []
+    lines = path.read_text(encoding="utf-8").replace("\r\n", "\n").split("\n")
+    stripped = [line.strip() for line in lines]
+    if BEGIN not in stripped or END not in stripped:
+        return []
+    return [line.strip() for line in lines[stripped.index(BEGIN) + 1 : stripped.index(END)]]
+
+
 def maintain(root: Path, directories: Iterable[str], *, writing: bool = True) -> bool:
     """Put the block in this repository's `.gitignore`, and say whether anything changed.
 
@@ -99,4 +130,4 @@ def maintain(root: Path, directories: Iterable[str], *, writing: bool = True) ->
     return True
 
 
-__all__ = ["BEGIN", "END", "GITIGNORE", "block", "maintain", "rewrite"]
+__all__ = ["BEGIN", "END", "GITIGNORE", "block", "block_of", "hides", "maintain", "rewrite"]

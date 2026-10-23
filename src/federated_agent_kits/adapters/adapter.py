@@ -21,7 +21,7 @@ back in and double it on the next pass.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from pathlib import Path
 
@@ -69,10 +69,39 @@ class Destination:
     `write` is `None` for a kind this harness takes but has nowhere to receive in
     this scope. A kind declined outright has no `Destination` at all, which is
     the difference between "not here" and "not at all".
+
+    **A harness may offer several, and then each one is named.** The name is what
+    a manifest writes to pick between them (DESIGN.md section 6), so it belongs
+    to the harness rather than to us: it is the directory or file in that
+    harness's own words, and it is a key somebody else has committed the moment
+    it ships. A harness offering one destination needs no name and declares none.
     """
 
     write: str | None
     read: tuple[str, ...] = ()
+
+    variant: str = ""
+    """What a manifest calls this one, and empty for a harness offering only one.
+
+    Never a path. A path in a committed manifest is what section 6 refuses, and
+    a path could not carry the four answers below in any case.
+    """
+
+    shape: RuleShape | None = None
+    """This destination's rule shape, when it differs from the adapter's default.
+
+    `None` means the adapter's own answer, which is the usual case and the one
+    every single-destination harness gives. The three fields below travel with
+    this one because they are one answer rather than four: a harness reading
+    `.github/instructions/` wants a directory, a suffix, and the `applyTo` that
+    decides whether the file loads at all, and the same harness reading
+    `AGENTS.md` wants marker blocks, no suffix and no frontmatter. Declaring
+    them separately would let an adapter describe a shape that cannot exist.
+    """
+
+    suffix: str | None = None
+    frontmatter: Mapping[str, str | bool] | None = None
+    orders: bool | None = None
 
     @property
     def directories(self) -> tuple[str, ...]:
@@ -86,6 +115,19 @@ class Destination:
         if self.write is None:
             return self.read
         return (self.write, *(entry for entry in self.read if entry != self.write))
+
+
+def _ordered(offered: tuple[Destination, ...], name: str | None) -> tuple[Destination, ...]:
+    """The same doors with the chosen one first, or unchanged when nothing was chosen.
+
+    Reordering rather than discarding, because the ones not chosen are still
+    places this harness reads a kit from, and the discovery walk that asks a
+    source what it holds has no business narrowing because somebody picked a
+    door to write through (DESIGN.md section 5).
+    """
+    if name is None:
+        return offered
+    return tuple(sorted(offered, key=lambda door: door.variant != name))
 
 
 def git_root(start: Path) -> Path | None:
@@ -112,8 +154,15 @@ class Adapter:
     has_a_machine: bool
     """False for a harness `akit` can never run on, which can only arrive by being named."""
 
-    destinations: Mapping[tuple[Kind, Scope], Destination]
-    """Question 1 and question 4, per scope. A missing kind is a declined kind."""
+    destinations: Mapping[tuple[Kind, Scope], tuple[Destination, ...]]
+    """Question 1 and question 4, per scope. A missing kind is a declined kind.
+
+    **The first one is what a manifest that says nothing gets**, and any after it
+    are the harness's other doors, named. Most harnesses have one door and
+    declare a one-entry tuple. The order is the answer rather than a separate
+    "default" field for the same reason the `harnesses:` list is: one place to
+    look, and no way to write down a default that is not among the choices.
+    """
 
     rule_shape: RuleShape
     rule_suffix: str = ".md"
@@ -169,9 +218,91 @@ class Adapter:
         return tuple(kind for kind in Kind if self.takes(kind))
 
     def destination(self, kind: Kind, scope: Scope) -> Destination | None:
-        return self.destinations.get((kind, scope))
+        """The one this harness uses here, which is the first it offers.
 
-    def shares_the_file(self, kind: Kind) -> bool:
+        Every caller outside this module asks only this, and goes on asking it
+        after a manifest has chosen: `choosing` hands back an adapter whose
+        chosen door is the first one, so the choice is made once rather than
+        carried through the renderer as an extra argument.
+        """
+        offered = self.offers(kind, scope)
+        return offered[0] if offered else None
+
+    def offers(self, kind: Kind, scope: Scope) -> tuple[Destination, ...]:
+        """Every door this harness has for this kind here, the default first."""
+        return self.destinations.get((kind, scope), ())
+
+    def variants(self, kind: Kind) -> tuple[str, ...]:
+        """Every name a manifest may pick for this kind, across both scopes, default first.
+
+        Empty for a harness offering one door, which is what makes "this harness
+        has nothing to choose" a sayable answer rather than a missing one.
+
+        **The union across scopes, and a name need not exist in both.** A
+        manifest chooses per kind, because what somebody wants to say is where
+        their rules go rather than where their rules go in each of two scopes.
+        Where the chosen name exists, it is used; where it does not, that scope
+        keeps its default, and the four answers below are read off whichever
+        door each scope ended up with rather than off one of them.
+        """
+        found: list[str] = []
+        for scope in Scope:
+            for destination in self.offers(kind, scope):
+                if destination.variant and destination.variant not in found:
+                    found.append(destination.variant)
+        return tuple(found)
+
+    def choosing(self, picked: Mapping[Kind, str]) -> Adapter:
+        """This harness with a manifest's choices applied, as an adapter like any other.
+
+        The whole of what choosing a destination does. Everything downstream -
+        the renderer, the ignore block, the leak refusal, `akit list` - asks the
+        same questions of the result that it asked before this existed, and gets
+        the chosen answers. That is what keeps a choice from becoming an extra
+        argument on every path through the renderer, and what keeps rule 7:
+        nothing outside an adapter learns that there was a choice, because a
+        manifest names a variant the adapter itself declared.
+
+        A name this adapter does not offer never arrives here. `expand` checks
+        first, because an unknown name is something to report to somebody rather
+        than something to resolve.
+        """
+        if not picked:
+            return self
+        return replace(
+            self,
+            destinations={key: _ordered(offered, picked.get(key[0])) for key, offered in self.destinations.items()},
+        )
+
+    def shape(self, kind: Kind, scope: Scope) -> RuleShape:
+        """Which of the three ways rules are taken here, which the door may override.
+
+        Asked per scope rather than per harness because a manifest may send a
+        repository's rules through one door and your own through another, and a
+        shape folded onto the adapter would then be wrong for one of them: a
+        rule written as a marker block into a path that is a directory is a
+        render that fails, and one written as a file into a path that is a
+        shared file is a render that quietly replaces somebody's `AGENTS.md`.
+        """
+        door = self.destination(kind, scope)
+        return self.rule_shape if door is None or door.shape is None else door.shape
+
+    def suffix(self, kind: Kind, scope: Scope) -> str:
+        """What a rule is called in a directory we own here."""
+        door = self.destination(kind, scope)
+        return self.rule_suffix if door is None or door.suffix is None else door.suffix
+
+    def frontmatter(self, kind: Kind, scope: Scope) -> Mapping[str, str | bool]:
+        """The keys every rule written through this door carries, whatever the source said."""
+        door = self.destination(kind, scope)
+        return self.rule_frontmatter if door is None or door.frontmatter is None else door.frontmatter
+
+    def orders(self, kind: Kind, scope: Scope) -> bool:
+        """Whether rules reach this harness here in the order the manifest put them."""
+        door = self.destination(kind, scope)
+        return self.orders_rules if door is None or door.orders is None else door.orders
+
+    def shares_the_file(self, kind: Kind, scope: Scope) -> bool:
         """Whether this kind lands inside a file somebody else owns.
 
         True for rules in the third shape and for nothing else. The two callers
@@ -179,9 +310,9 @@ class Adapter:
         all: one maintains the ignore block, the other prunes, and both would be
         wrong about `AGENTS.md`.
         """
-        return kind is Kind.RULE and self.rule_shape is RuleShape.SHARED_FILE
+        return kind is Kind.RULE and self.shape(kind, scope) is RuleShape.SHARED_FILE
 
-    def region(self, kind: Kind, name: str) -> str | None:
+    def region(self, kind: Kind, scope: Scope, name: str) -> str | None:
         """The marker id this part is written under, or `None` for a whole file.
 
         A region is what makes several rules one file: the record names the id
@@ -189,7 +320,7 @@ class Adapter:
         and withdrawal takes the block out rather than the host (DESIGN.md
         section 6).
         """
-        return name if self.shares_the_file(kind) else None
+        return name if self.shares_the_file(kind, scope) else None
 
     def detected(self, home: Path) -> bool:
         """Whether this harness has left something on this disk.
@@ -217,9 +348,9 @@ class Adapter:
         written = base.joinpath(*destination.write.split(SEPARATOR))
         if kind is Kind.SKILL:
             return written / name
-        if self.rule_shape is RuleShape.SHARED_FILE:
+        if self.shape(kind, scope) is RuleShape.SHARED_FILE:
             return written
-        return written / f"{name}{self.rule_suffix}"
+        return written / f"{name}{self.suffix(kind, scope)}"
 
 
 __all__ = ["SEPARATOR", "Adapter", "Destination", "Pointer", "RuleShape", "git_root"]
