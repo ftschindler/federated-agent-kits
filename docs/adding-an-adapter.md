@@ -1,7 +1,7 @@
 # Adding an adapter
 
 A harness is a thing that reads kits: opencode on your laptop, GitHub Copilot in VS Code,
-GitHub Copilot in CI, pi. Teaching this tool about one is a file in
+GitHub Copilot in CI, Cursor in either of its two forms, pi. Teaching this tool about one is a file in
 `src/federated_agent_kits/adapters/` and a line in the tuple that registers it. There is no
 third place, and a test fails if a change reaches one.
 
@@ -11,13 +11,24 @@ repeat each other: read this one with an adapter open beside it.
 
 ## Start by copying the nearest one
 
-Three adapters ship, and between them they cover every answer anybody has needed so far.
+Five adapters ship, and between them they cover every answer anybody has needed so far.
 
 | Copy | When your harness | File |
 | --- | --- | --- |
 | `copilot-vscode` | is installed on this machine and reads rules from a directory of its own | [`copilot_vscode.py`](../src/federated_agent_kits/adapters/copilot_vscode.py) |
+| `cursor-local` | is the same, and insists on its own suffix and a key that is not a string | [`cursor_local.py`](../src/federated_agent_kits/adapters/cursor_local.py) |
 | `opencode` | is installed on this machine and reads rules from an `AGENTS.md` you also write in | [`opencode.py`](../src/federated_agent_kits/adapters/opencode.py) |
 | `copilot-ci` | runs somewhere else and only ever sees what the repository commits | [`copilot_ci.py`](../src/federated_agent_kits/adapters/copilot_ci.py) |
+| `cursor-cloud` | is the same, and is the committed half of a product whose other half is here | [`cursor_cloud.py`](../src/federated_agent_kits/adapters/cursor_cloud.py) |
+
+**One product can be two harnesses, and usually is.** Copilot and Cursor each ship an
+editor you render on and a cloud agent you cannot, and the question that splits them is
+question 6: whether `akit render` can run where the harness reads. Everything else follows
+from the answer, so a single adapter spanning both would have to claim detection for a
+machine that is not there and write user-scope files nobody reads. Pair the names when you
+split one, the way `cursor-local` and `cursor-cloud` are paired: a bare `cursor` would read
+as the product rather than as one of its halves, and the next person would need a name that
+sounds like a subtype.
 
 Each is one `Adapter` value with a docstring saying where its paths came from. The value is
 frozen and nothing in it is computed at import time, so an adapter is read as a table rather
@@ -92,7 +103,12 @@ Two fields travel with the first shape. `rule_suffix` is what the harness insist
 is called, `.instructions.md` for Copilot and `.md` by default. `rule_frontmatter` is the
 keys every rule rendered for this harness carries whatever its source said; Copilot's
 `applyTo` is there because a `.instructions.md` file without it is discovered, listed, and
-never loaded.
+never loaded, and Cursor's `alwaysApply` is there for the same reason.
+
+A value may be a `bool`, and that is not a tidiness. `alwaysApply: true` is what Cursor
+reads and `alwaysApply: "true"` is a string it does not, so the renderer quotes a `str` and
+writes a `bool` bare. Quoting is the default because the string values are globs, and an
+unquoted `**` is YAML asking for an alias and failing.
 
 `orders_rules` says whether the harness reads our rules in the order the manifest lists them.
 True for a shared file, because the blocks are ours and sequential. False for a directory,
@@ -114,8 +130,8 @@ delete files we created and we do not edit a file we only added a line to.
 **Every adapter shipped today declines agents, and declining is an answer rather than a gap.**
 A kind with no `(kind, scope)` entry in `destinations` is declined: `adapter.takes` is False,
 `adapter.target` returns `None`, the kind is absent from `adapter.kinds`, and the CLI says so
-instead of failing. Nothing anywhere may crash on it, which is why all three adapters exercise
-that path rather than a fixture doing it.
+instead of failing. Nothing anywhere may crash on it, which is why every shipped adapter
+exercises that path rather than a fixture doing it.
 
 So leave `agent_frontmatter` and `agent_tools` empty, and leave `(Kind.AGENT, ...)` out of
 `destinations`. [T13](../IMPLEMENTATION.md#t13---agents) fills them in once three real agents
@@ -194,7 +210,14 @@ Add the module, then one line in
 [`adapters/__init__.py`](../src/federated_agent_kits/adapters/__init__.py):
 
 ```python
-ADAPTERS: tuple[Adapter, ...] = (opencode.ADAPTER, copilot_vscode.ADAPTER, copilot_ci.ADAPTER, pi.ADAPTER)
+ADAPTERS: tuple[Adapter, ...] = (
+    opencode.ADAPTER,
+    copilot_vscode.ADAPTER,
+    copilot_ci.ADAPTER,
+    cursor_local.ADAPTER,
+    cursor_cloud.ADAPTER,
+    pi.ADAPTER,
+)
 ```
 
 The third place is the contract test, which picks the new adapter up for free because it is
