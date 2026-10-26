@@ -845,7 +845,7 @@ PAPER = Adapter(
     name="paper",
     summary="a harness that takes no skills at all",
     has_a_machine=True,
-    destinations={(Kind.RULE, Scope.PROJECT): Destination(write="paper/rules")},
+    destinations={(Kind.RULE, Scope.PROJECT): (Destination(write="paper/rules"),)},
     rule_shape=RuleShape.DIRECTORY,
     evidence=(".paper",),
 )
@@ -855,6 +855,59 @@ PAPER = Adapter(
 def only_paper(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(adapters, "ADAPTERS", (PAPER,))
     monkeypatch.setattr(adapters, "BY_NAME", {PAPER.name: PAPER})
+
+
+#: A harness offering a second destination it has nowhere to put in this scope,
+#: which is `write=None`: a kind it takes and cannot receive (DESIGN.md section
+#: 4). No shipped adapter declares one, and the check for copies left where a
+#: destination moved has to walk past it rather than asking the disk about a
+#: path it does not have.
+NOWHERE = Adapter(
+    name="nowhere",
+    summary="a harness whose other destination has nowhere to write in this scope",
+    has_a_machine=True,
+    destinations={
+        (Kind.RULE, Scope.PROJECT): (
+            Destination(write="nowhere/rules", variant="ours"),
+            Destination(write=None, variant="theirs"),
+        )
+    },
+    rule_shape=RuleShape.DIRECTORY,
+    evidence=(".nowhere",),
+)
+
+
+@pytest.fixture
+def only_nowhere(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(adapters, "ADAPTERS", (NOWHERE,))
+    monkeypatch.setattr(adapters, "BY_NAME", {NOWHERE.name: NOWHERE})
+
+
+class TestWhatIsLeftWhereADestinationMoved:
+    def test_a_destination_with_nowhere_to_write_is_walked_past(
+        self, project: Path, places: render.Directories, kits: Path, only_nowhere: None
+    ):
+        subscribe(project / ".akit.yaml", f"version: 1\nharnesses: [nowhere]\n\nrules:\n- {kits}: prose-style\n")
+        render.render(project, places)
+
+        plan = render.plan(project, places, render.EVERYTHING, render.INSPECTING)
+
+        assert render.forsaken(plan) == ()
+
+    def test_a_shared_file_that_was_never_written_is_nothing_left_behind(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        """The host of a forsaken block may simply not be there, which is not a finding."""
+        subscribe(
+            project / ".akit.yaml",
+            f"version: 1\nharnesses: [{{copilot-ci: {{rules: instructions}}}}]\n\nrules:\n- {kits}: prose-style\n",
+        )
+        render.render(project, places)
+        assert not (project / "AGENTS.md").exists()
+
+        plan = render.plan(project, places, render.EVERYTHING, render.INSPECTING)
+
+        assert render.forsaken(plan) == ()
 
 
 class TestAHarnessThatDeclinesTheKind:

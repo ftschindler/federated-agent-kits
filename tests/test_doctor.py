@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 from collections import Counter
 from pathlib import Path
 
@@ -98,6 +99,24 @@ def subscribe(project: Path, body: str) -> Path:
 
 def one_skill(project: Path, kits: Path, *, harnesses: str = "detected") -> Path:
     return subscribe(project, f"version: 1\nharnesses: [{harnesses}]\n\nskills:\n  {kits}: [writing]\n")
+
+
+def one_rule(project: Path, kits: Path, *, harnesses: str) -> Path:
+    return subscribe(project, f"version: 1\nharnesses: [{harnesses}]\n\nrules:\n- {kits}: prose-style\n")
+
+
+def as_a_clone(project: Path, places: render.Directories) -> None:
+    """Throw both render records away, which is what cloning a repository gives you.
+
+    `.akit/` is in the ignore block, so the machine that rendered a committed
+    kit is the only one holding the record of it. Everybody else, the CI runner
+    included, sees the committed files and nothing explaining them, and that is
+    the setup a change of destination has to be caught in: with the record,
+    the next render withdraws the old copy by itself.
+    """
+    assert places.state is not None
+    shutil.rmtree(places.state, ignore_errors=True)
+    shutil.rmtree(project / record.DIRECTORY, ignore_errors=True)
 
 
 def report(project: Path, places: render.Directories) -> doctor.Report:
@@ -435,7 +454,7 @@ class TestAHarnessPointedAtADirectory:
             name="pointy",
             summary="a harness that has to be pointed at the directory it reads",
             has_a_machine=True,
-            destinations={(Kind.RULE, Scope.PROJECT): Destination(write="kits/rules")},
+            destinations={(Kind.RULE, Scope.PROJECT): (Destination(write="kits/rules"),)},
             rule_shape=RuleShape.POINTED,
             pointer={Scope.PROJECT: Pointer(config="pointy.json", key="rules")},
         )
@@ -479,6 +498,83 @@ class TestAHarnessPointedAtADirectory:
         one_skill(project, kits)
 
         assert "dangling-pointer" not in checks(report(project, places))
+
+
+class TestADestinationThatMoved:
+    """DESIGN.md section 6: what a changed destination leaves behind in a clone."""
+
+    def test_the_old_copy_is_reported_where_no_record_explains_it(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        one_rule(project, kits, harnesses="{copilot-ci: {rules: instructions}}")
+        render.render(project, places)
+        as_a_clone(project, places)
+        one_rule(project, kits, harnesses="copilot-ci")
+        render.render(project, places)
+
+        found = report(project, places)
+
+        entry = next(one for one in found.findings if one.check == "forsaken")
+        assert "prose-style.instructions.md" in entry.what
+        assert "akit harness add copilot-ci --rules instructions" in entry.fix
+
+    def test_a_block_left_in_a_shared_file_is_reported_as_a_block(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        """The other direction, where what is left behind is not a file to delete."""
+        one_rule(project, kits, harnesses="copilot-ci")
+        render.render(project, places)
+        as_a_clone(project, places)
+        one_rule(project, kits, harnesses="{copilot-ci: {rules: instructions}}")
+        render.render(project, places)
+
+        found = report(project, places)
+
+        entry = next(one for one in found.findings if one.check == "forsaken")
+        assert '"prose-style" block' in entry.what
+        assert "AGENTS.md" in entry.what
+
+    def test_a_destination_another_harness_still_writes_is_not_left_behind(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        """The case this would be wrong about if it asked the directory instead of the spot.
+
+        opencode reads the `AGENTS.md` that copilot-ci just stopped reading, so
+        the block is still written, still correct, and nobody's leftover.
+        """
+        one_rule(project, kits, harnesses="detected, {copilot-ci: {rules: instructions}}")
+        render.render(project, places)
+        as_a_clone(project, places)
+
+        found = report(project, places)
+
+        assert "forsaken" not in checks(found)
+
+    def test_a_destination_nothing_was_ever_rendered_to_is_not_a_finding(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        one_rule(project, kits, harnesses="copilot-ci")
+        render.render(project, places)
+        as_a_clone(project, places)
+
+        found = report(project, places)
+
+        assert "forsaken" not in checks(found)
+
+    def test_somebody_elses_file_in_that_directory_is_not_this_checks_business(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        """It asks per subscribed name, so a file nobody subscribed to is never one of these."""
+        one_rule(project, kits, harnesses="copilot-ci")
+        render.render(project, places)
+        as_a_clone(project, places)
+        theirs = project / ".github" / "instructions"
+        theirs.mkdir(parents=True)
+        (theirs / "theirs.instructions.md").write_text("mine, by hand\n", encoding="utf-8")
+
+        found = report(project, places)
+
+        assert "forsaken" not in checks(found)
 
 
 class TestWhatTheRepositoryCommits:
@@ -566,14 +662,47 @@ class TestWhatTheRepositoryCommits:
     def test_a_repository_that_commits_says_a_stale_block_once_rather_than_twice(
         self, project: Path, places: render.Directories, kits: Path
     ):
+        """The two checks divide the block between them rather than both claiming it.
+
+        A check judges a clone, where the only harnesses that read the same for
+        everybody are the ones that commit, so what it can say about a block is
+        whether it hides one of their directories. A deleted block hides
+        nothing and leaves private renders unignored, which is a fact about
+        this machine, so it is `doctor`'s own finding and not a stale commit.
+        """
         one_skill(project, kits, harnesses="detected, copilot-ci")
         render.render(project, places)
         (project / ignore.GITIGNORE).write_text("build/\n", encoding="utf-8")
 
         found = report(project, places)
 
-        assert "ignore-block" not in checks(found)
+        assert "ignore-block" in checks(found)
+        assert not any(ignore.GITIGNORE in entry.what for entry in found.findings if entry.check == "stale")
+
+    def test_a_block_hiding_what_the_cloud_agent_reads_is_a_stale_commit(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        """The half a clone can judge: the files would be correct and absent at once."""
+        one_skill(project, kits, harnesses="detected, copilot-ci")
+        render.render(project, places)
+        (project / ignore.GITIGNORE).write_text(f"{ignore.BEGIN}\n.agents/skills/\n{ignore.END}\n", encoding="utf-8")
+
+        found = report(project, places)
+
         assert any(ignore.GITIGNORE in entry.what for entry in found.findings if entry.check == "stale")
+
+    def test_a_destination_no_harness_offers_is_a_finding_rather_than_a_refusal(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        """`doctor` is the pass that reports it: a command that tells you what is wrong may not fail first."""
+        one_skill(project, kits, harnesses="{copilot-ci: {skills: nonsense}}")
+
+        found = report(project, places)
+
+        assert "unknown-door" in checks(found)
+        entry = next(one for one in found.findings if one.check == "unknown-door")
+        assert 'through "nonsense"' in entry.what
+        assert "akit harness add copilot-ci --skills" in entry.fix
 
     def test_a_directory_that_is_ignored_and_committed_at_the_same_time(
         self, project: Path, places: render.Directories, kits: Path

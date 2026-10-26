@@ -146,6 +146,14 @@ sections rather than several files with a registry.
 may have left a skill is a wider set, and a repository that is its own source makes the
 difference matter.
 
+**Questions 1 and 2 may have more than one answer each, and then each is named.** A harness
+that reads a kind from several places gets a destination per place, the first being what a
+manifest that says nothing gets, and the rest named so a manifest can pick one
+([§6](#choosing-between-the-destinations-a-harness-offers)). The answers to question 2 travel
+with the destination rather than with the harness, because one harness can offer a directory
+of ours and a file we share at the same time, and a shape folded onto the adapter would then
+be wrong for one of them. Most harnesses have one destination per kind and declare one.
+
 **Question 7 decides who gets rendered for**, and it is a question rather than a setting
 because of rule 8: nothing to configure after install. A harness you use has left something
 on this disk, `~/.config/opencode/`, `~/.pi/`, a VS Code profile, and the adapter knows
@@ -299,16 +307,24 @@ renamed on subscription still loads there.
 The cloud agent runs on GitHub's infrastructure, clones one repository and works in it. It is
 the harness with no machine, so **everything below has to be committed or it does not exist**.
 
-**Skills: a directory we own, committed.** It reads `.github/skills/`, `.claude/skills/` and
-`.agents/skills/`, each a directory of `<name>/SKILL.md`. A root-level `skills/` is not among
-them, which matters for a repository that is its own source: its hand-written `skills/` is
-not what the cloud agent reads, and the rendered copy in `.agents/skills/` is.
+**Skills: a directory we own, committed, and three of them to choose from.** It reads
+`.github/skills/`, `.claude/skills/` and `.agents/skills/`, each a directory of
+`<name>/SKILL.md`. `.agents/skills/` is the default because opencode and Copilot in VS Code
+read it too, so one copy serves three harnesses. A root-level `skills/` is not among them,
+which matters for a repository that is its own source: its hand-written `skills/` is not what
+the cloud agent reads, and the rendered copy in `.agents/skills/` is.
 
-**Rules: a directory we own, committed.** `.github/instructions/` takes one
-`*.instructions.md` per rule, with `applyTo` globs, and that is the shape we want everywhere.
-It also reads `.github/copilot-instructions.md`, any `AGENTS.md` in the tree with the nearest
-winning, and a root `CLAUDE.md` or `GEMINI.md`. We write to the directory and leave the rest
-alone.
+**Rules: two destinations, and this is the harness that made choosing one a feature.**
+`AGENTS.md` at the repository root is the default, and it is the third shape: marker blocks
+in a file opencode reads as well, so a repository rendering for both writes each rule once.
+`.github/instructions/` is the other, taking one `*.instructions.md` per rule with an
+`applyTo` glob, which is the first shape and the only one with room to scope a rule to paths.
+A manifest picks between them by name ([§6](#choosing-between-the-destinations-a-harness-offers)),
+and the default moved to `AGENTS.md` once the cloud agent had read it for a year.
+
+It also reads `.github/copilot-instructions.md`, and a root `CLAUDE.md` or `GEMINI.md`. We
+write to one of our two and leave the rest alone, because a destination is worth declaring
+only where somebody would choose it.
 
 **Agents: `.github/agents/<name>.agent.md`, committed.** `description` is required, `name`
 defaults to the filename, and `tools` and `mcp-servers` are optional. The prompt caps at
@@ -538,6 +554,61 @@ This key is mostly for a repository, where it decides what gets committed. Your 
 may carry it, and the reason is the narrower one: nothing at user scope is committed, so
 there is no machineless harness to name, and what a name buys you there is rendering for a
 harness `detected` does not find.
+
+### Choosing between the destinations a harness offers
+
+Some harnesses read a kind from several places. Copilot in CI takes rules from `AGENTS.md`
+and from `.github/instructions/`, and skills from any of three directories. Where there is a
+choice, it is yours, and an entry in the list becomes a mapping to say so:
+
+```yaml
+version: 1
+harnesses: [detected, {copilot-ci: {rules: instructions}}]
+```
+
+**A bare name takes the default, and almost every manifest should.** The default is the first
+destination the adapter declares, chosen so that the common setup needs nobody to decide
+anything. What a choice is for is the case where the defaults are wrong for one repository,
+and [§7](#rules-and-the-three-ways-a-harness-can-take-them) already said a preference is
+about which shape to pick when a harness offers several, not about which shapes we can build.
+
+**The name belongs to the harness, and is never a path.** A path in a committed manifest is
+what [§6](#what-a-repository-commits) refuses, and it could not carry the answer in any case:
+a destination is a shape, a filename suffix and the frontmatter that decides whether the file
+loads, not a string. So the adapter declares each one under a name, and the manifest names
+one of those. `akit list` says which names a harness offers and which it is taking.
+
+**A name no harness offers stops the render.** It is the one choice that is fatal rather than
+reported. An unknown harness renders nothing, which looks like nothing happening and is
+recoverable; a destination nobody offers would otherwise fall back to the default, and files
+would appear somewhere nobody named while the manifest said something else. `akit doctor`
+reports it with the offered names beside it, because a command whose job is to say what is
+wrong may not fail at the first thing it finds.
+
+**`akit harness add <name> --rules <where>` writes the entry, and rewrites it.** Naming a
+destination for a harness already in the list is how one is moved, so the same command sets a
+choice and changes it, and the render that follows withdraws from the destination it left.
+Neither spelling of the entry is something somebody has to know by hand.
+
+**Choices are per scope, like the list itself.** Neither file overrules the other, so a
+repository sending its rules to `AGENTS.md` says nothing about where yours go on this machine.
+A name that means something in only one scope, as the Copilot skills directories do, is used
+where it exists and leaves the other scope on its default.
+
+**Moving a destination leaves a copy behind in every clone, and that is reported.** On the
+machine that moved it, the record names the old copy and the next render withdraws it. Nobody
+else has that record: `.akit/` is ignored, so a colleague and a CI runner see a committed file
+with nothing explaining it, and a rule read twice from two places is the failure this whole
+section is about. `akit doctor` works it out from the doors instead of from a record: for each
+destination a harness offers and is not taking, what it *would* have written for the kits this
+manifest names. A path that exact, holding something no harness in play writes, is a copy a
+choice left behind.
+
+It is reported and never deleted, for the reason the orphan check gives: without a record this
+cannot tell its own output from a file somebody wrote by hand, and a committed file deleted on
+that guess is the mistake [§10](#10-commands) already made once. Asking per subscribed name
+rather than per directory is what keeps it quiet: somebody's own file in that directory was
+never going to match a name this manifest renders.
 
 ### Two files, one format
 
@@ -1034,7 +1105,17 @@ text out and nothing else ([§6](#what-a-render-leaves-behind)).
 opencode offered the second shape and then stopped loading the key that made it work, so
 `AGENTS.md` and the third shape are what both of its versions have in common
 ([§4](#what-opencode-looks-like)). A preference is about which shape to choose when a harness
-offers several, not about which ones we can afford to build.
+offers several, not about which ones we can afford to build. Copilot in CI is the harness
+that offers several, and
+[§6](#choosing-between-the-destinations-a-harness-offers) is where that preference is written
+down.
+
+**Preferring the first shape is a default and not a rule, and the third shape won a case.**
+Where two harnesses read the same shared file, a rule rendered into it is one block both read,
+and the second copy the first shape would have written is a second copy to keep in step. That
+is the same argument that puts skills in `.agents/skills/` rather than in a directory per
+harness, and it is why Copilot in CI defaults to `AGENTS.md` while still offering the
+directory to anyone who wants `applyTo`.
 
 **What a rule's frontmatter is for differs by shape, so the renderer decides the keys that
 decide whether a rule loads and the author keeps the rest.** A rule in a source is a markdown

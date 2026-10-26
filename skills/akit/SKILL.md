@@ -94,7 +94,22 @@ Then pick the command by what the person asked for:
 | a kit gone, and the files it wrote gone with it | `akit remove <name>` |
 | newer versions of what they already subscribe to | `akit update` |
 | a harness started or stopped being written for | `akit harness add <name>`, `akit harness remove <name>` |
+| a kind sent somewhere else, where that harness reads more than one place | `akit harness add <name> --rules <where>`, `--skills <where>` |
 | the files on disk to match the manifests again | `akit render` |
+
+**Some harnesses read a kind from more than one place, and `akit list` says
+which.** Where it offers a choice, the line names the destination it is taking
+and the ones it could take instead; where it does not, it says nothing and
+there is nothing to decide. `akit harness add <name> --rules <where>` sets the
+choice, and running it again with another name moves what that harness already
+rendered rather than leaving a second copy. A name the harness does not offer
+is refused before anything is written, and the refusal lists the ones it has.
+
+The default is the one to leave alone unless somebody says otherwise: where two
+harnesses read the same place, it is the one that lets a single copy serve both.
+Change it when a rule has to apply to some paths and not others, which only the
+destinations that take one file per rule can express. `akit help harnesses`
+names which is which.
 
 **When something is already wrong rather than missing, run `akit doctor`.** It
 changes nothing, names a command for every finding, and exits non-zero when it

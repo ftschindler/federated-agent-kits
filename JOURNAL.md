@@ -2005,3 +2005,115 @@ extending it needs a second definition of committed-ness. It is also largely sel
 once the block covers a global render root, what renders there is ignored, and what is
 ignored is not committed. What is left is content git was already tracking when `akit`
 arrived, which is exactly what the check above now names.
+
+## 2026-10-23 - The adapter was right about where it wrote and wrong about why
+
+Reading `copilot_ci.py` to answer a question about something else, a user asked whether the
+cloud agent really needs `.github/instructions/`, since it reads `AGENTS.md` the way opencode
+does. The docstring said every path in it had been checked against GitHub's documentation on
+2026-10-08, and it had been. The paths were right. The sentence around them was not:
+
+```text
+**Every path below was checked against GitHub's documentation on 2026-10-08**
+and all of them still stand: the three skills directories [...]; and
+`.github/instructions/*.instructions.md` with `applyTo` frontmatter
+```
+
+which reads as a complete list and is not one. GitHub's cloud agent has read `AGENTS.md`
+since a changelog entry in August 2025, alongside `.github/copilot-instructions.md`,
+`CLAUDE.md` and `GEMINI.md`. The adapter had picked one of five doors, correctly, and then
+written the check down in a way that made the choice invisible.
+
+**The cost of the invisible choice was two copies of every rule.** A repository rendering for
+opencode and for the cloud agent wrote each rule twice: a block in `AGENTS.md` and a file in
+`.github/instructions/`, same bytes, two places to keep in step. The skills half of the same
+adapter had got this right from the start, which is why `.agents/skills/` is the default
+there and why the second reader costs nothing.
+
+So the fix was not a path. It was that a destination had never been something a manifest
+could name, and [§4](DESIGN.md#4-adding-a-harness) question 1 had been read as asking for one
+answer when the honest answer is sometimes several. Three things followed from making the
+tuple the answer.
+
+**The shape belongs to the destination, not to the harness.** The first attempt folded the
+chosen destination's shape onto the adapter, which is fine until a manifest sends a
+repository's rules through one door and your own through another. Then one scope has
+`SHARED_FILE` and the other `DIRECTORY`, and whichever lost would have written marker blocks
+into a directory or a whole file over somebody's `AGENTS.md`. `shape`, `suffix`,
+`frontmatter` and `orders` became per-destination lookups taking `(kind, scope)`.
+
+**`expand` returning an already-chosen adapter is what kept the diff small.** The choice is
+made once, where the registry and the manifest meet, and `choosing` hands back an ordinary
+adapter with the chosen door first. The renderer, the ignore block, the leak refusal and
+`akit list` ask exactly the questions they asked before. The test that no engine module may
+name a harness caught the one place this leaked: an error message in `manifest.py` used
+`copilot-ci` as its example.
+
+**The check and `doctor` had been sharing one definition of a stale ignore block, and could
+not go on doing so.** `render --check` sees only the harnesses that commit, so the block it
+can reconstruct is missing every line a laptop harness put there. That was invisible while
+the cloud agent and Copilot in VS Code wrote to the same directory, and the moment the
+default moved to `AGENTS.md` a freshly rendered repository failed its own check:
+
+```text
+the akit block in /tmp/.../project/.gitignore is out of date
+```
+
+with nothing wrong with it. The block listed `.github/instructions/`, which Copilot in VS
+Code renders privately and a runner has never heard of. So the check now asks the narrower
+question it always meant: does the block hide a directory a machineless harness reads. The
+wider question, whether the block lists everything this machine renders, is a fact about this
+machine and became `doctor`'s alone.
+
+## 2026-10-23 - Changing a default is a migration, and the record is on the wrong machine
+
+Asked what migrating to the destination choice looks like, the answer for manifests was
+nothing: a bare name still parses, and the 1142 tests that existed passed unedited. The answer
+for files was one command, and then it was not.
+
+On the machine that renders, moving `copilot-ci` from `.github/instructions/` to `AGENTS.md`
+is `akit render` and a commit:
+
+```text
+ D .github/instructions/prose-style.instructions.md
+?? AGENTS.md
+```
+
+In a fresh clone it is not. `.akit/` is in the ignore block, so the record of what was written
+lives only where it was written. A colleague, or a CI runner, has the committed file and
+nothing explaining it:
+
+```text
+?? AGENTS.md          # and the old .instructions.md still tracked, unmentioned
+```
+
+and `akit doctor` said **"Nothing to report"**. The orphan check walks the directories a render
+owns, and the whole point of the case is a directory it stopped owning. Two copies of every
+rule, one of them frozen at whatever it said the day the default moved.
+
+Found by asking what a migration looks like rather than by running the suite, which had been
+green through all of it. The check that was missing is the one that asks the doors rather than
+the record: for each destination a harness offers and is not taking, what it would have written
+for the kits this manifest names. Three things that fell out of writing it:
+
+**The spot, not the directory.** The first cut asked whether the forsaken directory held
+anything. That reports a `.github/instructions/` somebody keeps by hand, and worse, it reports
+the `AGENTS.md` block that opencode still writes the moment `copilot-ci` moves off it. Asking
+for the exact path each subscribed name would have had, and skipping anything still in
+`plan.spots`, gets both right:
+
+```text
+harnesses: [detected, {copilot-ci: {rules: instructions}}]   ->   Nothing to report
+```
+
+because opencode still writes that block, so nobody left it behind.
+
+**A block is not a file.** Moving the other way leaves marker blocks in a host file that is
+never deleted, so "does the path exist" is the wrong question there and "is this id in the
+host" is the right one. The finding says so too: take the block out, markers and all, rather
+than delete the file.
+
+**The test fixture had the same blind spot the bug did.** `as_a_clone` first removed only the
+state directory, and the tests went on passing because the project's own `.akit/` was still
+sitting there doing the withdrawal. A clone has neither. The helper removing one of the two
+records was a scale model of the bug it was written to catch.

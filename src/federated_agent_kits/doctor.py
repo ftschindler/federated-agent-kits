@@ -60,11 +60,13 @@ TITLE: dict[str, str] = {
     "collision": "Two kits wanting one name",
     "subscription": "Subscriptions that could not be rendered",
     "unknown-harness": "Harness names no adapter answers to",
+    "unknown-door": "Destinations no harness offers",
     "harness-left-out": "Harnesses installed here and not rendered for",
     "harness-not-here": "Harnesses rendered for and not installed here",
     "edited": "Rendered copies edited by hand",
     "unexplained": "Rendered copies nothing explains any more",
     "orphan": "Renders no record knows about",
+    "forsaken": "Renders where a harness stopped reading",
     "authored-render": "Content of your own where renders go",
     "foreign-entry": "Record entries naming somewhere that record does not cover",
     "abandoned-record": "Records of a project with no manifest",
@@ -153,7 +155,7 @@ class Standing:
         return self.places.home if scope is Scope.USER else self.root
 
     def harnesses(self, scope: Scope) -> tuple[Adapter, ...]:
-        return adapters.expand(self.merged.harnesses(scope), self.places.home)[0]
+        return adapters.expand(self.merged.harnesses(scope), self.places.home, self.merged.doors(scope))[0]
 
 
 def _unreadable(standing: Standing) -> list[Finding]:
@@ -356,6 +358,37 @@ def _unexplained_finding(child: Path) -> Finding:
     )
 
 
+def _forsaken(standing: Standing) -> list[Finding]:
+    """A copy left where a harness offers a destination it is no longer taking.
+
+    The failure a changed destination has in a clone rather than on the machine
+    that changed it, and the one nothing else here would notice: the orphan
+    check walks the directories a render owns, and the whole point of this one
+    is a directory it stopped owning.
+    """
+    if standing.plan is None:
+        return []
+    return [_forsaken_finding(left) for left in render.forsaken(standing.plan)]
+
+
+def _forsaken_finding(left: render.Forsaken) -> Finding:
+    """What to do about it, which differs for a file of ours and a block in somebody's."""
+    moved = f"`akit harness add {left.harness} --{left.kind.value} {left.door}` puts them back there"
+    if left.region is None:
+        return Finding(
+            check="forsaken",
+            what=f"{left.path} is where {left.harness} read {left.kind.value} before this project "
+            f"sent them somewhere else, and it is still there",
+            fix=f"delete it and commit that, so nothing reads a copy nothing writes any more; {moved}",
+        )
+    return Finding(
+        check="forsaken",
+        what=f'the "{left.region}" block in {left.path} is left from when {left.harness} read '
+        f"{left.kind.value} there, and nothing writes it any more",
+        fix=f"take that block out of {left.path} and commit that, markers and all; {moved}",
+    )
+
+
 def _foreign(standing: Standing) -> list[Finding]:
     """A record naming a file outside the root that record answers for.
 
@@ -475,15 +508,34 @@ def _escaping_paths(standing: Standing) -> list[Finding]:
 
 
 def _harness_names(standing: Standing) -> list[Finding]:
-    """A `harnesses:` list naming something no adapter answers to, which nothing else validates."""
+    """A `harnesses:` list naming something no adapter answers to, which nothing else validates.
+
+    Two shapes of the same mistake. A name no adapter answers to is a harness
+    that renders nothing; a door no adapter offers is a harness that would
+    render somewhere nobody asked for, so `akit render` refuses it outright and
+    this is where somebody finds out which name was wrong.
+    """
     found: list[Finding] = []
     for scope in standing.scopes:
-        for name in adapters.expand(standing.merged.harnesses(scope), standing.places.home)[1]:
+        _, missing, unoffered = adapters.expand(
+            standing.merged.harnesses(scope), standing.places.home, standing.merged.doors(scope)
+        )
+        for name in missing:
             found.append(
                 Finding(
                     check="unknown-harness",
                     what=f'{SCOPE_NAMED[scope]} names the harness "{name}", and no adapter answers to it',
                     fix=f"run `akit harness remove {name}`, and `akit list` to see the harnesses this build knows",
+                )
+            )
+        for door in unoffered:
+            found.append(
+                Finding(
+                    check="unknown-door",
+                    what=f"{SCOPE_NAMED[scope]} sends {door.harness}'s {door.kind.value} "
+                    f'through "{door.door}", which it does not offer',
+                    fix=f"run `akit help harnesses` for the ones {door.harness} offers, then "
+                    f"`akit harness add {door.harness} --{door.kind.value} <name>` to write one",
                 )
             )
     return found
@@ -602,7 +654,7 @@ def _block_findings(standing: Standing, block: render.Ignored) -> list[Finding]:
                 fix="run `akit render --global --gitignore`, which writes that block and nothing else new",
             )
         ]
-    if _commits_renders(standing):
+    if _commits_renders(standing) and block.hides:
         return []
     return [
         Finding(
@@ -656,7 +708,9 @@ def _commits_renders(standing: Standing) -> bool:
     """
     if standing.merged.project is None:
         return False
-    named = adapters.named(standing.merged.harnesses(Scope.PROJECT), standing.places.home)[0]
+    named = adapters.named(
+        standing.merged.harnesses(Scope.PROJECT), standing.places.home, standing.merged.doors(Scope.PROJECT)
+    )[0]
     return bool(adapters.machineless(named))
 
 
@@ -670,7 +724,11 @@ def _committed_render(standing: Standing) -> list[Finding]:
     """
     if standing.root is None or standing.merged.project is None:
         return []
-    named = adapters.machineless(adapters.named(standing.merged.harnesses(Scope.PROJECT), standing.places.home)[0])
+    named = adapters.machineless(
+        adapters.named(
+            standing.merged.harnesses(Scope.PROJECT), standing.places.home, standing.merged.doors(Scope.PROJECT)
+        )[0]
+    )
     if not named:
         return []
     listed = joined(adapter.name for adapter in named)
@@ -714,6 +772,7 @@ CHECKS: tuple[Callable[[Standing], list[Finding]], ...] = (
     _not_reading,
     _rendered_files,
     _orphans,
+    _forsaken,
     _foreign,
     _abandoned_record,
     _pointers,

@@ -20,6 +20,7 @@ block created here is created in the shape its kind demands.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -325,12 +326,18 @@ def repin(found: Manifest, *, kind: Kind, key: str, pin: str, comment: str | Non
     return _reparsed(found)
 
 
-def name_harness(found: Manifest, name: str) -> Manifest:
+def name_harness(found: Manifest, name: str, doors: Mapping[Kind, str] | None = None) -> Manifest:
     """Add a harness to the list, writing the list out when it was only implied.
 
     An absent `harnesses:` means `[detected]`, so the first `harness add` has to
     write both names: dropping the implied one would turn every harness on this
     machine off as a side effect of naming one more.
+
+    **A harness that chose a destination is a mapping entry rather than a
+    name**, and choosing one for a harness already listed rewrites that entry
+    in place. So `akit harness add copilot-ci --rules instructions` is how a
+    choice is changed as well as how it is made, and neither spelling of the
+    entry is something somebody has to know to write by hand.
     """
     document = found.document
     if "harnesses" not in document:
@@ -338,9 +345,40 @@ def name_harness(found: Manifest, name: str) -> Manifest:
         listed.fa.set_flow_style()
         document["harnesses"] = listed
     named = document["harnesses"]
-    if name not in [str(entry) for entry in named]:
-        named.append(name)
+    written = _harness_entry(name, doors)
+    for index, entry in enumerate(named):
+        if _harness_named(entry) == name:
+            named[index] = written
+            return _reparsed(found)
+    named.append(written)
     return _reparsed(found)
+
+
+def _harness_named(entry: object) -> str:
+    """The harness one list entry names, whichever of the two spellings it is."""
+    if isinstance(entry, CommentedMap) and len(entry) == 1:
+        return str(next(iter(entry)))
+    return str(entry)
+
+
+def _harness_entry(name: str, doors: Mapping[Kind, str] | None) -> str | CommentedMap:
+    """One list entry: a bare name, or the mapping a harness that chose becomes.
+
+    Flow style for the same reason the list itself is written that way: this is
+    a short fact about one harness, and a block mapping three levels deep is a
+    file somebody has to read carefully to change by hand.
+    """
+    if not doors:
+        return name
+    chosen = CommentedMap()
+    for kind in Kind:
+        if kind in doors:
+            chosen[kind.value] = doors[kind]
+    written = CommentedMap()
+    written[name] = chosen
+    chosen.fa.set_flow_style()
+    written.fa.set_flow_style()
+    return written
 
 
 def unname_harness(found: Manifest, name: str) -> Manifest:
@@ -352,7 +390,7 @@ def unname_harness(found: Manifest, name: str) -> Manifest:
         document["harnesses"] = listed
     named = document["harnesses"]
     for index, entry in enumerate(named):
-        if str(entry) == name:
+        if _harness_named(entry) == name:
             del named[index]
             break
     return _reparsed(found)

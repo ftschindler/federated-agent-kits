@@ -30,12 +30,26 @@ best-documented agent format of the four, `.github/agents/<name>.agent.md` with
 a required `description` and a 30,000-character cap, and T13 is where that is
 filled in. Until then the path is written down here and nowhere else.
 
-**Every path below was checked against GitHub's documentation on 2026-10-08**
-and all of them still stand: the three skills directories, each holding
-`<name>/SKILL.md`; `.github/instructions/*.instructions.md` with `applyTo`
-frontmatter; and the agent path and its cap. A root-level `skills/` is not among
-the directories it reads, which is what a repository that is its own source has
-to know: its hand-written `skills/` is not what the cloud agent sees, and the
+**This harness reads rules from more than one place, and that is why it is the
+adapter with doors.** `.github/instructions/*.instructions.md` with `applyTo`
+frontmatter is one of them; `AGENTS.md` at the repository root is another, and
+GitHub's cloud agent has read it since August 2025. `.github/copilot-instructions.md`,
+`CLAUDE.md` and `GEMINI.md` are three more that nothing here writes, because a
+door is worth declaring only when somebody would choose it.
+
+**`AGENTS.md` is the default, and the reason is one copy rather than two.**
+opencode reads the same file, so a repository rendering for both harnesses
+writes each rule once and both read it, which is what `.agents/skills/` already
+does for skills (DESIGN.md section 7). The `.github/instructions` door keeps
+what that costs: `applyTo` exists only in the first shape, so a repository that
+wants its rules scoped to paths picks `instructions` and gets a directory of
+files back.
+
+**Every path below was checked against GitHub's documentation on 2026-10-23.**
+The three skills directories, each holding `<name>/SKILL.md`; both rule doors;
+and the agent path and its cap. A root-level `skills/` is not among the
+directories it reads, which is what a repository that is its own source has to
+know: its hand-written `skills/` is not what the cloud agent sees, and the
 rendered copy in `.agents/skills/` is.
 """
 
@@ -47,10 +61,21 @@ from federated_agent_kits.rules import APPLY_TO, EVERYTHING
 
 #: The shared directory, which is also where opencode and Copilot in VS Code
 #: write, and the two harness-specific ones a source may equally have used.
+#: Each is a door a manifest may pick, because all three are directories this
+#: harness reads and a repository that keeps its skills in `.github/` has a
+#: reason to want them there.
 SKILLS = ".agents/skills"
-SKILL_DIRECTORIES: tuple[str, ...] = (SKILLS, ".github/skills", ".claude/skills")
+GITHUB_SKILLS = ".github/skills"
+CLAUDE_SKILLS = ".claude/skills"
+SKILL_DIRECTORIES: tuple[str, ...] = (SKILLS, GITHUB_SKILLS, CLAUDE_SKILLS)
 
-#: One file per rule, in a directory we own, committed.
+#: One file both this harness and opencode read, and the default. Rules written
+#: here are marker blocks in a file somebody else also writes in, which is the
+#: third shape and the one `opencode.py` explains.
+AGENTS_RULES = "AGENTS.md"
+
+#: One file per rule, in a directory we own, committed. The first shape, and
+#: what this adapter wrote into before `AGENTS.md` was the default.
 RULES = ".github/instructions"
 SUFFIX = ".instructions.md"
 
@@ -62,9 +87,11 @@ AGENTS = ".github/agents"
 SUFFIX_AGENT = ".agent.md"
 PROMPT_LIMIT = 30_000
 
-#: The same frontmatter Copilot in VS Code needs, for the same reason: a
-#: `.instructions.md` file with neither `applyTo` nor `description` waits to be
-#: attached by hand, and a rule nobody attaches is a rule that never runs.
+#: The frontmatter the `.github/instructions` door needs, for the reason Copilot
+#: in VS Code needs it: a `.instructions.md` file with neither `applyTo` nor
+#: `description` waits to be attached by hand, and a rule nobody attaches is a
+#: rule that never runs. The `AGENTS.md` door carries none, because a `---`
+#: block inside somebody's prose is a horizontal rule.
 FRONTMATTER = {APPLY_TO: EVERYTHING}
 
 ADAPTER = Adapter(
@@ -72,12 +99,25 @@ ADAPTER = Adapter(
     summary="GitHub Copilot in CI, which reads only what the repository commits",
     has_a_machine=False,
     destinations={
-        (Kind.SKILL, Scope.PROJECT): Destination(write=SKILLS, read=SKILL_DIRECTORIES),
-        (Kind.RULE, Scope.PROJECT): Destination(write=RULES),
+        (Kind.SKILL, Scope.PROJECT): (
+            Destination(write=SKILLS, read=SKILL_DIRECTORIES, variant="agents"),
+            Destination(write=GITHUB_SKILLS, read=SKILL_DIRECTORIES, variant="github"),
+            Destination(write=CLAUDE_SKILLS, read=SKILL_DIRECTORIES, variant="claude"),
+        ),
+        (Kind.RULE, Scope.PROJECT): (
+            Destination(write=AGENTS_RULES, variant="agents-md"),
+            Destination(
+                write=RULES,
+                variant="instructions",
+                shape=RuleShape.DIRECTORY,
+                suffix=SUFFIX,
+                frontmatter=FRONTMATTER,
+                orders=False,
+            ),
+        ),
     },
-    rule_shape=RuleShape.DIRECTORY,
-    rule_suffix=SUFFIX,
-    rule_frontmatter=FRONTMATTER,
+    rule_shape=RuleShape.SHARED_FILE,
+    orders_rules=True,
 )
 
 __all__ = ["ADAPTER"]

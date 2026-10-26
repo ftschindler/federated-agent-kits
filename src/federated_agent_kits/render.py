@@ -192,6 +192,15 @@ class Ignored(NamedTuple):
     changed: bool
     maintained: bool
 
+    hides: bool = False
+    """Whether the block on disk ignores a directory a machineless harness reads.
+
+    The half of a drifted block that a clone can judge, and so the half
+    `render --check` calls stale. `changed` is the whole of it and is a fact
+    about this machine, because the block also covers harnesses installed here
+    that a runner has never heard of (DESIGN.md section 6).
+    """
+
 
 def _ignore_state(found: Ignored) -> str:
     """The verb for this block, which depends on whether we were allowed to write it."""
@@ -308,7 +317,7 @@ class Outcome:
             found.append(f"{counted(len(self.unexplained), 'committed file')} nothing subscribes to any more")
             found.extend(f"  {path}" for path in self.unexplained)
         for found_block in self.ignored:
-            if found_block.changed and found_block.maintained:
+            if found_block.hides and found_block.maintained:
                 found.append(f"the akit block in {found_block.root / ignore.GITIGNORE} is out of date")
         return tuple(found)
 
@@ -540,6 +549,31 @@ def _check_names(named: Sequence[str] | None, flag: str) -> None:
         raise UsageError(f"{flag} names a harness no adapter knows: {', '.join(unknown)}.\n  Known harnesses: {known}.")
 
 
+def _refuse_unoffered(unoffered: Sequence[adapters.Unoffered], *, refusing: bool) -> None:
+    """A manifest sending a kind through a door its harness does not have, refused.
+
+    The one place a choice is fatal rather than reported. An unknown harness
+    renders nothing, which is visible as nothing happening; an unknown door
+    would render into whatever the default happened to be, which is files
+    appearing somewhere nobody named and an agent reading the wrong ones. So
+    this stops before anything is written, the way the leak refusal does
+    (DESIGN.md section 6).
+
+    **`akit doctor` is the pass that does not refuse**, because a command whose
+    whole job is to tell you what is wrong should not fail at the first thing
+    it finds. It walks the same plan with the defaults in place and reports the
+    door as a finding with a fix beside it.
+    """
+    if not unoffered or not refusing:
+        return
+    listed = "\n".join(f"    {door}" for door in unoffered)
+    raise RefusalError(
+        f"a manifest chooses a destination the harness does not offer:\n{listed}\n"
+        "  Nothing was written, because the alternative is rendering somewhere nobody asked for.\n"
+        "  Run `akit help harnesses` for the destinations each harness offers."
+    )
+
+
 @dataclass(frozen=True)
 class _Pass:
     """One render, so the six things every subscription needs travel together."""
@@ -764,11 +798,11 @@ def _plan_rule(walk: _Pass, wanted: _Wanted, writes: dict[Spot, _Target]) -> tup
         target = adapter.target(wanted.subscription.kind, wanted.scope, wanted.name, walk.anchor(adapter, wanted.scope))
         if target is None:
             continue
-        region = adapter.region(wanted.subscription.kind, wanted.name)
+        region = adapter.region(wanted.subscription.kind, wanted.scope, wanted.name)
         written = (
             rules.as_block(data, name=wanted.name)
             if region is not None
-            else rules.as_file(data, name=wanted.name, keys=adapter.rule_frontmatter)
+            else rules.as_file(data, name=wanted.name, keys=adapter.frontmatter(wanted.subscription.kind, wanted.scope))
         )
         spot = (located(target), region)
         problem = (None if region is not None else _linked(spot[0], wanted.name)) or _spot_wanted(
@@ -892,11 +926,11 @@ def _plan_note(walk: _Pass, referring: Sequence[_Referring], writes: dict[Spot, 
             target = adapter.target(Kind.RULE, scope, renames_.RENAMES, walk.anchor(adapter, scope))
             if target is None:
                 continue
-            region = adapter.region(Kind.RULE, renames_.RENAMES)
+            region = adapter.region(Kind.RULE, scope, renames_.RENAMES)
             written = (
                 rules.as_block(data, name=renames_.RENAMES, ours=True)
                 if region is not None
-                else rules.as_file(data, name=renames_.RENAMES, keys=adapter.rule_frontmatter, ours=True)
+                else rules.as_file(data, name=renames_.RENAMES, keys=adapter.frontmatter(Kind.RULE, scope), ours=True)
             )
             spot = (located(target), region)
             for entry in here:
@@ -1224,7 +1258,7 @@ def _directories(picked: Iterable[Adapter], walk: _Pass, scopes: Sequence[Scope]
         for adapter in picked:
             for kind in RENDERED:
                 destination = adapter.destination(kind, scope)
-                if destination is None or destination.write is None or adapter.shares_the_file(kind):
+                if destination is None or destination.write is None or adapter.shares_the_file(kind, scope):
                     continue
                 found.setdefault(walk.anchor(adapter, scope), set()).add(destination.write)
     return found
@@ -1352,6 +1386,7 @@ def ignore_block(
     wanted = list(explained)
     found: dict[Path, set[str]] = {}
     maintained: set[Path] = set()
+    hiding: dict[Path, bool] = {}
     root = manifest.worktree_root(walk.start)
     if root is not None and Scope.PROJECT in scopes:
         committed = _committed(walk.chosen.get(Scope.PROJECT, ()), Scope.PROJECT)
@@ -1367,6 +1402,7 @@ def ignore_block(
             listed.add(f"{record.DIRECTORY}/")
         found[root] = listed
         maintained.add(root)
+        hiding[root] = ignore.hides(root, committed)
     for directory in _global_directories(walk, scopes):
         above = manifest.worktree_root(directory)
         if above is None or above in maintained:
@@ -1378,6 +1414,7 @@ def ignore_block(
             root=where,
             listed=tuple(sorted(listed)),
             changed=ignore.maintain(where, listed, writing=walk.writing and allowed),
+            hides=hiding.get(where, False),
             maintained=allowed,
         )
         for where, listed in sorted(found.items())
@@ -1400,6 +1437,81 @@ def _global_directories(walk: _Pass, scopes: Sequence[Scope]) -> list[Path]:
         for base, written in _directories(walk.chosen.get(Scope.USER, ()), walk, (Scope.USER,)).items()
         for relative in sorted(written)
     ]
+
+
+class Forsaken(NamedTuple):
+    """A render still sitting where a harness used to read, and no longer does.
+
+    What a change of destination leaves behind in a clone. On the machine that
+    rendered it, the record names the old copy and the next render withdraws it;
+    a colleague and a CI runner have no record, because `.akit/` is ignored, so
+    the committed copy stays where it is and nothing accounts for it. The agent
+    then reads the kit twice, and the copy nobody writes any more never changes
+    again (DESIGN.md section 6).
+
+    Reported rather than deleted, for the reason the orphan check gives: without
+    a record this cannot tell its own output from a file somebody wrote by hand,
+    and deleting a committed file on that guess is what issue #30 was about.
+    """
+
+    path: Path
+    region: str | None
+    harness: str
+    kind: Kind
+    door: str
+
+    @property
+    def spot(self) -> Spot:
+        return (self.path, self.region)
+
+
+def _still_there(spot: Spot) -> bool:
+    """Whether the thing a forsaken destination wrote is still on disk.
+
+    A whole file or directory answers by existing. A marker block answers only
+    by being in its host, because the host is a file somebody else owns and its
+    being there says nothing about ours.
+    """
+    path, region = spot
+    if region is None:
+        return path.exists()
+    if not path.is_file():
+        return False
+    return region in rules.blocks_in(path.read_text(encoding="utf-8").replace("\r\n", "\n"))
+
+
+def forsaken(plan: Plan) -> tuple[Forsaken, ...]:
+    """Every copy left where a harness offers a destination it is no longer taking.
+
+    Worked out from the doors themselves rather than from a record: for each
+    destination a harness has and is not using, what it *would* have written for
+    the kits this manifest names. A path that exact, holding something, that no
+    harness in play writes any more, is a copy left behind by a choice that
+    moved. Anything else in that directory is somebody's own and is not this
+    check's business, which is what asking per subscribed name buys.
+    """
+    found: list[Forsaken] = []
+    wanted = plan.spots
+    for entry in plan.entries:
+        kind = entry.subscription.kind
+        scope = entry.subscription.scope
+        for adapter in plan.chosen.get(scope, ()):
+            for door in adapter.offers(kind, scope)[1:]:
+                other = adapter.choosing({kind: door.variant})
+                target = other.target(kind, scope, entry.name, plan.walk.anchor(other, scope))
+                if target is None:
+                    continue
+                left = Forsaken(
+                    path=located(target),
+                    region=other.region(kind, scope, entry.name),
+                    harness=adapter.name,
+                    kind=kind,
+                    door=door.variant,
+                )
+                if left.spot in wanted or left in found or not _still_there(left.spot):
+                    continue
+                found.append(left)
+    return tuple(found)
 
 
 def escaping(merged: Merged, root: Path | None) -> tuple[str, ...]:
@@ -1617,7 +1729,8 @@ def plan(start: Path, places: Directories, choices: Choices = EVERYTHING, mode: 
     unknown: list[str] = []
     for scope in choices.scopes:
         expand = adapters.named if mode.checking else adapters.expand
-        picked, missing = expand(merged.harnesses(scope), places.home)
+        picked, missing, unoffered = expand(merged.harnesses(scope), places.home, merged.doors(scope))
+        _refuse_unoffered(unoffered, refusing=mode.writing or mode.checking)
         chosen[scope] = _narrow(
             adapters.machineless(picked) if mode.checking else picked, choices.only, choices.without
         )

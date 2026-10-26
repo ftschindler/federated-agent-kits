@@ -66,9 +66,12 @@ harnesses:
 """
 
 #: What the harness reads, which is the only evidence that the render landed.
+#: The rule lands in `AGENTS.md` because that is the destination `copilot-ci`
+#: takes rules through unless a manifest names the other one, and this manifest
+#: names a harness and nothing else, which is the line the README promises.
 EXPECTED = (
     Path(".agents") / "skills" / KIT / "SKILL.md",
-    Path(".github") / "instructions" / f"{KIT}.instructions.md",
+    Path("AGENTS.md"),
 )
 
 

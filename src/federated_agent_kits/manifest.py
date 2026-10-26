@@ -26,6 +26,7 @@ ground.
 from __future__ import annotations
 
 import io
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -143,6 +144,16 @@ class Manifest:
     path: Path | None
     subscriptions: tuple[Subscription, ...]
     harnesses: tuple[str, ...]
+
+    doors: Mapping[str, Mapping[Kind, str]]
+    """Which destination a named harness takes each kind through, where it said.
+
+    Empty for almost every manifest, because almost every harness offers one
+    destination and almost everybody wants it. A name absent from here is a
+    harness taking its adapter's default, which is what a bare name has always
+    meant (DESIGN.md section 6).
+    """
+
     document: CommentedMap = field(repr=False)
 
     def of_kind(self, kind: Kind) -> tuple[Subscription, ...]:
@@ -399,18 +410,27 @@ def parse(text: str, *, scope: Scope, path: Path | None = None) -> Manifest:
                     )
                 )
 
+    harnesses, doors = _harnesses(document, path)
     return Manifest(
         scope=scope,
         path=path,
         subscriptions=tuple(subscriptions),
-        harnesses=_harnesses(document, path),
+        harnesses=harnesses,
+        doors=doors,
         document=document,
     )
 
 
-def _harnesses(document: CommentedMap, path: Path | None) -> tuple[str, ...]:
+def _harnesses(document: CommentedMap, path: Path | None) -> tuple[tuple[str, ...], dict[str, dict[Kind, str]]]:
+    """The harness list as names, and the doors any of them chose.
+
+    Two values because almost nothing downstream cares about the second. A name
+    is what the list has always been and what every membership test, report and
+    withdrawal still asks for, so an entry that chose a door is a name like any
+    other plus an entry in a mapping the adapters consult (DESIGN.md section 6).
+    """
     if "harnesses" not in document:
-        return DEFAULT_HARNESSES
+        return DEFAULT_HARNESSES, {}
     named = document["harnesses"]
     if not isinstance(named, CommentedSeq):
         raise ManifestError(
@@ -419,7 +439,61 @@ def _harnesses(document: CommentedMap, path: Path | None) -> tuple[str, ...]:
             "`harnesses:` is not a list",
             "Write `harnesses: [detected]`, adding any further name beside it. The list is the whole answer.",
         )
-    return tuple(str(name) for name in named)
+    names: list[str] = []
+    chosen: dict[str, dict[Kind, str]] = {}
+    for index, entry in enumerate(named):
+        line = _line_of(named, index)
+        if not isinstance(entry, CommentedMap):
+            names.append(str(entry))
+            continue
+        if len(entry) != 1:
+            raise ManifestError(
+                path,
+                line,
+                "a harness entry names more than one harness",
+                "Give each harness its own entry, as `- <harness>: {rules: <where>}`.",
+            )
+        name = str(next(iter(entry)))
+        names.append(name)
+        chosen[name] = _doors(entry[name], name, path, line)
+    return tuple(names), chosen
+
+
+def _doors(declared: object, name: str, path: Path | None, line: int) -> dict[Kind, str]:
+    """Which door one harness takes each kind through, as the manifest wrote it.
+
+    The kinds are spelled the way the rest of the file spells them, because a
+    manifest with `skills:` at the top and `skill:` here would be two names for
+    one thing. Which names are valid for a harness is the adapter's answer and
+    not this module's, so an unknown one is reported later rather than raised
+    here: this file may not import the registry that imports it.
+    """
+    if not isinstance(declared, CommentedMap):
+        raise ManifestError(
+            path,
+            line,
+            f"`{name}:` is not a mapping of kinds to doors",
+            f"Write `- {name}: {{rules: <where>}}`, or just `- {name}` to take its default.",
+        )
+    picked: dict[Kind, str] = {}
+    for key, value in declared.items():
+        kind = next((one for one in Kind if one.value == str(key)), None)
+        if kind is None:
+            raise ManifestError(
+                path,
+                line,
+                f"`{name}:` names `{key}`, which is not a kind",
+                f"The kinds are {', '.join(one.value for one in Kind)}.",
+            )
+        if not isinstance(value, str):
+            raise ManifestError(
+                path,
+                line,
+                f"`{name}: {{{key}: ...}}` is not a name",
+                "A door is named by the harness it belongs to. Run `akit help harnesses` for the ones each offers.",
+            )
+        picked[kind] = value
+    return picked
 
 
 def dump(manifest: Manifest) -> str:
@@ -508,6 +582,16 @@ class Merged:
         """
         manifest = self.user if scope is Scope.USER else self.project
         return DEFAULT_HARNESSES if manifest is None else manifest.harnesses
+
+    def doors(self, scope: Scope) -> Mapping[str, Mapping[Kind, str]]:
+        """The doors chosen in one scope's file, which govern that scope's render.
+
+        Per scope for the reason the list above is: neither file overrules the
+        other, so a repository choosing `AGENTS.md` for its own rules says
+        nothing about where yours go on this machine.
+        """
+        manifest = self.user if scope is Scope.USER else self.project
+        return {} if manifest is None else manifest.doors
 
     def collisions(self) -> dict[tuple[Kind, str], tuple[Subscription, ...]]:
         """Every rendered name wanted by more than one subscription.
