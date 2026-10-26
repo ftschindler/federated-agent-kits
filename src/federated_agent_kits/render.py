@@ -1439,6 +1439,81 @@ def _global_directories(walk: _Pass, scopes: Sequence[Scope]) -> list[Path]:
     ]
 
 
+class Forsaken(NamedTuple):
+    """A render still sitting where a harness used to read, and no longer does.
+
+    What a change of destination leaves behind in a clone. On the machine that
+    rendered it, the record names the old copy and the next render withdraws it;
+    a colleague and a CI runner have no record, because `.akit/` is ignored, so
+    the committed copy stays where it is and nothing accounts for it. The agent
+    then reads the kit twice, and the copy nobody writes any more never changes
+    again (DESIGN.md section 6).
+
+    Reported rather than deleted, for the reason the orphan check gives: without
+    a record this cannot tell its own output from a file somebody wrote by hand,
+    and deleting a committed file on that guess is what issue #30 was about.
+    """
+
+    path: Path
+    region: str | None
+    harness: str
+    kind: Kind
+    door: str
+
+    @property
+    def spot(self) -> Spot:
+        return (self.path, self.region)
+
+
+def _still_there(spot: Spot) -> bool:
+    """Whether the thing a forsaken destination wrote is still on disk.
+
+    A whole file or directory answers by existing. A marker block answers only
+    by being in its host, because the host is a file somebody else owns and its
+    being there says nothing about ours.
+    """
+    path, region = spot
+    if region is None:
+        return path.exists()
+    if not path.is_file():
+        return False
+    return region in rules.blocks_in(path.read_text(encoding="utf-8").replace("\r\n", "\n"))
+
+
+def forsaken(plan: Plan) -> tuple[Forsaken, ...]:
+    """Every copy left where a harness offers a destination it is no longer taking.
+
+    Worked out from the doors themselves rather than from a record: for each
+    destination a harness has and is not using, what it *would* have written for
+    the kits this manifest names. A path that exact, holding something, that no
+    harness in play writes any more, is a copy left behind by a choice that
+    moved. Anything else in that directory is somebody's own and is not this
+    check's business, which is what asking per subscribed name buys.
+    """
+    found: list[Forsaken] = []
+    wanted = plan.spots
+    for entry in plan.entries:
+        kind = entry.subscription.kind
+        scope = entry.subscription.scope
+        for adapter in plan.chosen.get(scope, ()):
+            for door in adapter.offers(kind, scope)[1:]:
+                other = adapter.choosing({kind: door.variant})
+                target = other.target(kind, scope, entry.name, plan.walk.anchor(other, scope))
+                if target is None:
+                    continue
+                left = Forsaken(
+                    path=located(target),
+                    region=other.region(kind, scope, entry.name),
+                    harness=adapter.name,
+                    kind=kind,
+                    door=door.variant,
+                )
+                if left.spot in wanted or left in found or not _still_there(left.spot):
+                    continue
+                found.append(left)
+    return tuple(found)
+
+
 def escaping(merged: Merged, root: Path | None) -> tuple[str, ...]:
     """Every path a committed manifest names that leaves its own repository.
 

@@ -595,6 +595,21 @@ repository sending its rules to `AGENTS.md` says nothing about where yours go on
 A name that means something in only one scope, as the Copilot skills directories do, is used
 where it exists and leaves the other scope on its default.
 
+**Moving a destination leaves a copy behind in every clone, and that is reported.** On the
+machine that moved it, the record names the old copy and the next render withdraws it. Nobody
+else has that record: `.akit/` is ignored, so a colleague and a CI runner see a committed file
+with nothing explaining it, and a rule read twice from two places is the failure this whole
+section is about. `akit doctor` works it out from the doors instead of from a record: for each
+destination a harness offers and is not taking, what it *would* have written for the kits this
+manifest names. A path that exact, holding something no harness in play writes, is a copy a
+choice left behind.
+
+It is reported and never deleted, for the reason the orphan check gives: without a record this
+cannot tell its own output from a file somebody wrote by hand, and a committed file deleted on
+that guess is the mistake [§10](#10-commands) already made once. Asking per subscribed name
+rather than per directory is what keeps it quiet: somebody's own file in that directory was
+never going to match a name this manifest renders.
+
 ### Two files, one format
 
 One manifest holds what is true of you, and lives in the per-platform user config directory.

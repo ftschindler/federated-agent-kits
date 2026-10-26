@@ -66,6 +66,7 @@ TITLE: dict[str, str] = {
     "edited": "Rendered copies edited by hand",
     "unexplained": "Rendered copies nothing explains any more",
     "orphan": "Renders no record knows about",
+    "forsaken": "Renders where a harness stopped reading",
     "authored-render": "Content of your own where renders go",
     "foreign-entry": "Record entries naming somewhere that record does not cover",
     "abandoned-record": "Records of a project with no manifest",
@@ -354,6 +355,37 @@ def _unexplained_finding(child: Path) -> Finding:
             "leave it alone if you wrote it by hand, which looks identical from here; "
             "`akit render --prune` deletes it, and lists what it found and asks first"
         ),
+    )
+
+
+def _forsaken(standing: Standing) -> list[Finding]:
+    """A copy left where a harness offers a destination it is no longer taking.
+
+    The failure a changed destination has in a clone rather than on the machine
+    that changed it, and the one nothing else here would notice: the orphan
+    check walks the directories a render owns, and the whole point of this one
+    is a directory it stopped owning.
+    """
+    if standing.plan is None:
+        return []
+    return [_forsaken_finding(left) for left in render.forsaken(standing.plan)]
+
+
+def _forsaken_finding(left: render.Forsaken) -> Finding:
+    """What to do about it, which differs for a file of ours and a block in somebody's."""
+    moved = f"`akit harness add {left.harness} --{left.kind.value} {left.door}` puts them back there"
+    if left.region is None:
+        return Finding(
+            check="forsaken",
+            what=f"{left.path} is where {left.harness} read {left.kind.value} before this project "
+            f"sent them somewhere else, and it is still there",
+            fix=f"delete it and commit that, so nothing reads a copy nothing writes any more; {moved}",
+        )
+    return Finding(
+        check="forsaken",
+        what=f'the "{left.region}" block in {left.path} is left from when {left.harness} read '
+        f"{left.kind.value} there, and nothing writes it any more",
+        fix=f"take that block out of {left.path} and commit that, markers and all; {moved}",
     )
 
 
@@ -740,6 +772,7 @@ CHECKS: tuple[Callable[[Standing], list[Finding]], ...] = (
     _not_reading,
     _rendered_files,
     _orphans,
+    _forsaken,
     _foreign,
     _abandoned_record,
     _pointers,

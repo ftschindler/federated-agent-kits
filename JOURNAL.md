@@ -2064,3 +2064,56 @@ Code renders privately and a runner has never heard of. So the check now asks th
 question it always meant: does the block hide a directory a machineless harness reads. The
 wider question, whether the block lists everything this machine renders, is a fact about this
 machine and became `doctor`'s alone.
+
+## 2026-10-23 - Changing a default is a migration, and the record is on the wrong machine
+
+Asked what migrating to the destination choice looks like, the answer for manifests was
+nothing: a bare name still parses, and the 1142 tests that existed passed unedited. The answer
+for files was one command, and then it was not.
+
+On the machine that renders, moving `copilot-ci` from `.github/instructions/` to `AGENTS.md`
+is `akit render` and a commit:
+
+```text
+ D .github/instructions/prose-style.instructions.md
+?? AGENTS.md
+```
+
+In a fresh clone it is not. `.akit/` is in the ignore block, so the record of what was written
+lives only where it was written. A colleague, or a CI runner, has the committed file and
+nothing explaining it:
+
+```text
+?? AGENTS.md          # and the old .instructions.md still tracked, unmentioned
+```
+
+and `akit doctor` said **"Nothing to report"**. The orphan check walks the directories a render
+owns, and the whole point of the case is a directory it stopped owning. Two copies of every
+rule, one of them frozen at whatever it said the day the default moved.
+
+Found by asking what a migration looks like rather than by running the suite, which had been
+green through all of it. The check that was missing is the one that asks the doors rather than
+the record: for each destination a harness offers and is not taking, what it would have written
+for the kits this manifest names. Three things that fell out of writing it:
+
+**The spot, not the directory.** The first cut asked whether the forsaken directory held
+anything. That reports a `.github/instructions/` somebody keeps by hand, and worse, it reports
+the `AGENTS.md` block that opencode still writes the moment `copilot-ci` moves off it. Asking
+for the exact path each subscribed name would have had, and skipping anything still in
+`plan.spots`, gets both right:
+
+```text
+harnesses: [detected, {copilot-ci: {rules: instructions}}]   ->   Nothing to report
+```
+
+because opencode still writes that block, so nobody left it behind.
+
+**A block is not a file.** Moving the other way leaves marker blocks in a host file that is
+never deleted, so "does the path exist" is the wrong question there and "is this id in the
+host" is the right one. The finding says so too: take the block out, markers and all, rather
+than delete the file.
+
+**The test fixture had the same blind spot the bug did.** `as_a_clone` first removed only the
+state directory, and the tests went on passing because the project's own `.akit/` was still
+sitting there doing the withdrawal. A clone has neither. The helper removing one of the two
+records was a scale model of the bug it was written to catch.

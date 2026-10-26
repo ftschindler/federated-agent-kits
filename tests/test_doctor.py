@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import io
 import json
+import shutil
 from collections import Counter
 from pathlib import Path
 
@@ -98,6 +99,24 @@ def subscribe(project: Path, body: str) -> Path:
 
 def one_skill(project: Path, kits: Path, *, harnesses: str = "detected") -> Path:
     return subscribe(project, f"version: 1\nharnesses: [{harnesses}]\n\nskills:\n  {kits}: [writing]\n")
+
+
+def one_rule(project: Path, kits: Path, *, harnesses: str) -> Path:
+    return subscribe(project, f"version: 1\nharnesses: [{harnesses}]\n\nrules:\n- {kits}: prose-style\n")
+
+
+def as_a_clone(project: Path, places: render.Directories) -> None:
+    """Throw both render records away, which is what cloning a repository gives you.
+
+    `.akit/` is in the ignore block, so the machine that rendered a committed
+    kit is the only one holding the record of it. Everybody else, the CI runner
+    included, sees the committed files and nothing explaining them, and that is
+    the setup a change of destination has to be caught in: with the record,
+    the next render withdraws the old copy by itself.
+    """
+    assert places.state is not None
+    shutil.rmtree(places.state, ignore_errors=True)
+    shutil.rmtree(project / record.DIRECTORY, ignore_errors=True)
 
 
 def report(project: Path, places: render.Directories) -> doctor.Report:
@@ -479,6 +498,83 @@ class TestAHarnessPointedAtADirectory:
         one_skill(project, kits)
 
         assert "dangling-pointer" not in checks(report(project, places))
+
+
+class TestADestinationThatMoved:
+    """DESIGN.md section 6: what a changed destination leaves behind in a clone."""
+
+    def test_the_old_copy_is_reported_where_no_record_explains_it(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        one_rule(project, kits, harnesses="{copilot-ci: {rules: instructions}}")
+        render.render(project, places)
+        as_a_clone(project, places)
+        one_rule(project, kits, harnesses="copilot-ci")
+        render.render(project, places)
+
+        found = report(project, places)
+
+        entry = next(one for one in found.findings if one.check == "forsaken")
+        assert "prose-style.instructions.md" in entry.what
+        assert "akit harness add copilot-ci --rules instructions" in entry.fix
+
+    def test_a_block_left_in_a_shared_file_is_reported_as_a_block(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        """The other direction, where what is left behind is not a file to delete."""
+        one_rule(project, kits, harnesses="copilot-ci")
+        render.render(project, places)
+        as_a_clone(project, places)
+        one_rule(project, kits, harnesses="{copilot-ci: {rules: instructions}}")
+        render.render(project, places)
+
+        found = report(project, places)
+
+        entry = next(one for one in found.findings if one.check == "forsaken")
+        assert '"prose-style" block' in entry.what
+        assert "AGENTS.md" in entry.what
+
+    def test_a_destination_another_harness_still_writes_is_not_left_behind(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        """The case this would be wrong about if it asked the directory instead of the spot.
+
+        opencode reads the `AGENTS.md` that copilot-ci just stopped reading, so
+        the block is still written, still correct, and nobody's leftover.
+        """
+        one_rule(project, kits, harnesses="detected, {copilot-ci: {rules: instructions}}")
+        render.render(project, places)
+        as_a_clone(project, places)
+
+        found = report(project, places)
+
+        assert "forsaken" not in checks(found)
+
+    def test_a_destination_nothing_was_ever_rendered_to_is_not_a_finding(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        one_rule(project, kits, harnesses="copilot-ci")
+        render.render(project, places)
+        as_a_clone(project, places)
+
+        found = report(project, places)
+
+        assert "forsaken" not in checks(found)
+
+    def test_somebody_elses_file_in_that_directory_is_not_this_checks_business(
+        self, project: Path, places: render.Directories, kits: Path
+    ):
+        """It asks per subscribed name, so a file nobody subscribed to is never one of these."""
+        one_rule(project, kits, harnesses="copilot-ci")
+        render.render(project, places)
+        as_a_clone(project, places)
+        theirs = project / ".github" / "instructions"
+        theirs.mkdir(parents=True)
+        (theirs / "theirs.instructions.md").write_text("mine, by hand\n", encoding="utf-8")
+
+        found = report(project, places)
+
+        assert "forsaken" not in checks(found)
 
 
 class TestWhatTheRepositoryCommits:
