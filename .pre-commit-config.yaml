@@ -124,6 +124,9 @@ repos:
     types_or: [text]
     # ATTENTION: this schema version MUST match the markdownlint-cli2 rev above.
     args: ["--schemafile", "https://raw.githubusercontent.com/DavidAnson/markdownlint-cli2/v0.23.2/schema/markdownlint-cli2-config-schema.json"]
+  - id: check-metaschema
+    name: Validate the manifest schema we publish
+    files: ^schema/.*\.schema\.json$
 
 # ---- repo-local invariant guards -------------------------------------
 
@@ -134,7 +137,7 @@ repos:
   # resolve an import reports that instead of the error you wanted.
   - id: ty
     name: Type check src/ and tests/
-    entry: uvx --with pytest --with ruamel.yaml --with platformdirs ty check src tests
+    entry: uvx --with pytest --with ruamel.yaml --with platformdirs --with jsonschema ty check src tests
     language: system
     pass_filenames: false
     files: \.py$

@@ -27,10 +27,21 @@ from pathlib import Path
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
 from federated_agent_kits import manifest as manifests
+from federated_agent_kits import schema
 from federated_agent_kits.exits import UsageError
 from federated_agent_kits.manifest import Kind, Manifest, Scope, Subscription
 
-EMPTY = f"version: {manifests.SUPPORTED_VERSION}\n"
+
+def empty() -> str:
+    """The text of a manifest that is not there yet: the schema line, and the version.
+
+    The schema line is written here and nowhere else. A file `akit` creates is a
+    file nobody has an opinion about yet, so pointing an editor at the schema
+    costs nothing; a file somebody already owns is one this tool only ever edits
+    where it was asked to (DESIGN.md section 6), and a header appearing in a diff
+    nobody asked for is exactly the surprise that rule is against.
+    """
+    return f"{schema.header()}\nversion: {manifests.SUPPORTED_VERSION}\n"
 
 
 @dataclass(frozen=True)
@@ -46,7 +57,7 @@ class Chosen:
 
 def blank(scope: Scope, path: Path) -> Manifest:
     """A manifest with nothing in it but the version, for a file that is not there yet."""
-    return manifests.parse(EMPTY, scope=scope, path=path)
+    return manifests.parse(empty(), scope=scope, path=path)
 
 
 def _read_or_blank(path: Path, scope: Scope) -> Chosen:
@@ -403,6 +414,7 @@ __all__ = [
     "Wanted",
     "blank",
     "choose",
+    "empty",
     "name_harness",
     "repin",
     "subscribe",

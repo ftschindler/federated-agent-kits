@@ -59,7 +59,7 @@ akit = "federated_agent_kits.cli:run"
 packages = ["src/federated_agent_kits"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src", "tests", "README.md", "LICENSE", "DESIGN.md"]
+include = ["src", "tests", "schema", "README.md", "LICENSE", "DESIGN.md"]
 
 [tool.coverage.run]
 branch = true

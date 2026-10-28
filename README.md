@@ -166,6 +166,40 @@ colleague gets what the repository committed rather than whatever `main` holds t
 disposable, and `akit` deletes a rendered copy only while its bytes are still the ones it
 wrote, so anything you changed by hand survives and gets named rather than overwritten.
 
+### Validating one
+
+**The manifest format is published as a JSON Schema**, so an editor underlines a mistake as
+you make it and a pre-commit hook fails a commit that carries one. A manifest `akit` creates
+is written with the line that points an editor at it:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ftschindler/federated-agent-kits/v0.21.0/schema/akit-manifest.schema.json
+version: 1
+```
+
+and a file you started by hand takes the same line. The URL names a tag rather than a branch,
+so what it means does not change overnight: a release publishes the schema for the format that
+release reads.
+
+Checking a committed `.akit.yaml` without an editor is one more hook:
+
+```yaml
+- repo: https://github.com/python-jsonschema/check-jsonschema
+  rev: 0.38.2
+  hooks:
+  - id: check-jsonschema
+    files: ^\.akit\.yaml$
+    args:
+    - --schemafile
+    - https://raw.githubusercontent.com/ftschindler/federated-agent-kits/v0.21.0/schema/akit-manifest.schema.json
+```
+
+**The schema sees one file and nothing beyond it.** Whether a source exists, whether a kit is
+really in it, whether a pin resolves and whether two subscriptions render to one name are
+questions about something other than this file, and `akit doctor` is what answers them. `akit`
+itself never reads the schema either: it has its own reader, and what that refuses it refuses
+with a line and a fix.
+
 ## The commands
 
 ```text

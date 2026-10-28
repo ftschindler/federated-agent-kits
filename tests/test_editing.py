@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from federated_agent_kits import editing
+from federated_agent_kits import editing, schema
 from federated_agent_kits import manifest as manifests
 from federated_agent_kits.exits import UsageError
 from federated_agent_kits.manifest import Kind, Scope
@@ -334,11 +334,11 @@ class TestTheHarnessList:
         assert after.doors == {}
 
 
-def test_a_blank_manifest_is_the_version_and_nothing_else(tmp_path: Path):
+def test_a_blank_manifest_is_the_schema_line_and_the_version(tmp_path: Path):
     found = editing.blank(Scope.USER, tmp_path / "manifest.yaml")
 
     assert found.subscriptions == ()
-    assert manifests.dump(found) == "version: 1\n"
+    assert manifests.dump(found) == f"{schema.header()}\nversion: 1\n"
 
 
 class TestAddingBesideARenamedKit:
