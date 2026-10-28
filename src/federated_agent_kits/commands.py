@@ -384,7 +384,15 @@ TOPICS: tuple[Topic, ...] = (
             "\n"
             "One more key, `harnesses:`, says who gets rendered for. It is a list of names,\n"
             "and an entry may be a mapping where a harness reads a kind from more than one\n"
-            "place: `{copilot-ci: {rules: instructions}}`. See `akit help harnesses`."
+            "place: `{copilot-ci: {rules: instructions}}`. See `akit help harnesses`.\n"
+            "\n"
+            "The format is published as a JSON Schema, so an editor can underline a mistake\n"
+            "as you make it and a `check-jsonschema` hook can fail a commit that carries one.\n"
+            "A manifest this command creates is written with the\n"
+            "`# yaml-language-server: $schema=` line that points at it, and a file you started\n"
+            "by hand takes the same line. Nothing in `akit` reads it: this is the reader, and\n"
+            "what it refuses it refuses with a line and a fix. The README has the two lines\n"
+            "to paste."
         ),
         following="akit list, which reads both manifests and tells you which scope each entry came from",
         see_also=("sources", "harnesses"),

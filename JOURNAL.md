@@ -2117,3 +2117,48 @@ than delete the file.
 state directory, and the tests went on passing because the project's own `.akit/` was still
 sitting there doing the withdrawal. A clone has neither. The helper removing one of the two
 records was a scale model of the bug it was written to catch.
+
+## 2026-10-28 - Two descriptions of one format, and the one that cannot say where
+
+The manifest format had one reader, `manifest.py`, and nothing an editor could consult. So a
+typo in `.akit.yaml` was found by running a command, which is late, and a pull request could
+commit one.
+
+Publishing `schema/akit-manifest.schema.json` closes that, and the interesting part was
+deciding what the schema is allowed to be for. Validating with it at read time looked like
+the tidy answer and is not: the parser refuses with a line and a fix, and jsonschema refuses
+with an instance path.
+
+```text
+.akit.yaml:4: `rules:` is written as a mapping, which has no order
+  Write rules as a list, `- owner/repo: prose-style`, because order decides which rule wins.
+```
+
+against
+
+```text
+$.rules: {'owner/repo': 'prose-style'} is not of type 'array'
+```
+
+The second is what an editor shows while you type, which is worth having, and what a command
+should say once you have run it. So the schema is published and never imported, and `akit`
+takes no dependency on it.
+
+**What that leaves is drift, and it is the whole risk.** Two descriptions of one format
+disagree quietly: a shape the parser takes and the schema underlines is a false positive in
+somebody's editor, and the reverse is a file that validates and then fails. So
+`tests/test_manifest_schema.py` runs one corpus through both, and writing it found the edge
+immediately: three of the parser's refusals are not facts about the file at all. A name
+subscribed to twice, a pin that does not resolve, a destination no harness offers. They are
+absent from the corpus with a paragraph saying why, rather than being a mismatch somebody
+later files down by loosening the test.
+
+**The `$schema` line names a tag, which is a decision about somebody else's file.** A URL on
+`main` would change what an editor says about a manifest nobody touched. So the line `akit`
+writes names the tag of the build that wrote it, and a source tree that was never installed
+falls back to `main` rather than publishing `v0+unknown`, which is a 404 shaped like a
+version.
+
+And it is written into a manifest `akit` creates and into no other. Everything else here goes
+through a round-tripper whose entire job is giving back the file it was handed; a tool that
+added a header to a file somebody owns would be the thing that rule exists to prevent.

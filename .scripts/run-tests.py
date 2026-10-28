@@ -82,6 +82,12 @@ def command_for(marker: str, extra: list[str]) -> list[str]:
         "pytest",
         "--with",
         "pytest-cov",
+        # The one test dependency that is not a test runner: `tests/test_manifest_schema.py`
+        # runs the corpus through the published schema as well as through the
+        # parser, so the two descriptions of the manifest format cannot drift.
+        # `akit` itself never imports it (see `schema.py`).
+        "--with",
+        "jsonschema",
         *retries,
         "--with",
         str(REPO_ROOT),

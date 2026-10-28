@@ -671,6 +671,33 @@ about something gets the last word on its own ground. Within each file the order
 you wrote. This is the one place the two manifests form a single sequence, and it costs
 nothing elsewhere: the other two kinds have no order to merge.
 
+### Validated before `akit` runs
+
+The format is published as a JSON Schema, at `schema/akit-manifest.schema.json`, so that an
+editor underlines a mistake as it is made and a `check-jsonschema` hook fails a commit that
+carries one. That is the whole of what it is for.
+
+**Nothing in `akit` reads it.** The parser is the reader, and every refusal it makes names a
+line and the thing to type instead, which is better than anything a validator says about an
+instance path. A second reader would be a second, worse-worded answer to the same mistakes,
+and a dependency taken on for no behaviour.
+
+**The URL names a tag rather than a branch.** A `$schema` line is pasted into a file somebody
+owns, and a schema that moved under them would change what their editor says about a file they
+did not touch. So a release publishes the schema for the format that release reads, and the
+line `akit` writes into a manifest it creates names its own tag.
+
+Writing that line is the one thing `akit` does to a manifest that nobody asked for, and it is
+confined to a file that does not exist yet. A file somebody already owns is only ever edited
+where it was pointed, which is what the round-tripper is for; a header appearing in a diff
+nobody asked for is exactly what that rule is against.
+
+**The schema describes one file and nothing beyond it.** Whether a source exists, whether a
+kit is in it, whether a pin resolves, and whether two subscriptions render to one name are all
+facts about something other than this file, and they stay with the parser, `akit add` and
+`akit doctor`. A test runs one corpus of manifests through both readers, so a shape one takes
+and the other refuses fails the suite rather than somebody's editor.
+
 ### Finding them
 
 Yours is at a fixed place, looked up per platform. Nothing searches for it.

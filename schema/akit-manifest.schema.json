@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/ftschindler/federated-agent-kits/main/schema/akit-manifest.schema.json",
+  "title": "akit manifest",
+  "description": "What a machine or a repository subscribes to: the global manifest in your platform's config directory, or the .akit.yaml beside a repository's .git. The schema describes the shape of one file and nothing beyond it: whether a source exists, whether a kit is in it, whether a pin resolves and whether two subscriptions render to one name are questions akit answers, not questions a validator can.",
+  "type": "object",
+  "required": ["version"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "description": "The manifest format. One version exists; a file naming another is refused rather than read optimistically.",
+      "const": 1
+    },
+    "harnesses": {
+      "description": "Who gets rendered for. Absent means [detected], which is every harness found on this machine. `detected` is a name like any other in the list, so naming one more harness does not turn the rest off.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/harness" }
+    },
+    "skills": {
+      "description": "Skills, as a mapping of source key to the kits wanted from it. A mapping rather than a list, because two skills cannot contradict each other and their order is therefore noise.",
+      "$ref": "#/$defs/block"
+    },
+    "rules": {
+      "description": "Rules, as a list of single-source entries. The one kind with an order: two rules can contradict each other, and the order they are listed in is what decides which wins.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "minProperties": 1,
+        "maxProperties": 1,
+        "additionalProperties": { "$ref": "#/$defs/kits" }
+      }
+    },
+    "agents": {
+      "description": "Agent definitions, as a mapping of source key to the kits wanted from it.",
+      "$ref": "#/$defs/block"
+    }
+  },
+  "$defs": {
+    "block": {
+      "description": "One kind's subscriptions, keyed by source. A key names a git repository in any of the forms `akit help sources` lists, and may carry a `#<commit>` pin.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/kits" }
+    },
+    "kits": {
+      "description": "What is wanted from one source: a kit name, a kit that needs more than its name, a list of either, or \"*\" for every kit of this kind the source holds.",
+      "anyOf": [
+        { "$ref": "#/$defs/name" },
+        { "$ref": "#/$defs/renamed" },
+        {
+          "type": "array",
+          "items": {
+            "anyOf": [{ "$ref": "#/$defs/name" }, { "$ref": "#/$defs/renamed" }]
+          }
+        }
+      ]
+    },
+    "name": {
+      "description": "A kit as its source calls it, or \"*\" for every kit of this kind.",
+      "type": "string",
+      "minLength": 1
+    },
+    "renamed": {
+      "description": "A kit installed under a different name, which is what two sources shipping one name is solved with.",
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "as": {
+          "description": "What this kit is called once it is on disk. It goes onto the rendered directory and into the copied SKILL.md header.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "harness": {
+      "description": "One harness, as a bare name taking its default destinations, or as a mapping naming a destination for a kind it reads from more than one place.",
+      "anyOf": [
+        { "type": "string", "minLength": 1 },
+        {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 1,
+          "additionalProperties": { "$ref": "#/$defs/doors" }
+        }
+      ]
+    },
+    "doors": {
+      "description": "Which destination one harness takes each kind through. A kind left out takes that adapter's default, which is what a bare name has always meant. Which destination names a harness offers is the adapter's answer: `akit list` names them.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "skills": { "type": "string", "minLength": 1 },
+        "rules": { "type": "string", "minLength": 1 },
+        "agents": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

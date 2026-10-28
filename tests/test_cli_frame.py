@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from federated_agent_kits import cli, commands, subscribing
+from federated_agent_kits import cli, commands, schema, subscribing
 from federated_agent_kits.cli import build_parser, dispatch, main, show_topic, version
 from federated_agent_kits.commands import COMMANDS, Command, unimplemented
 from federated_agent_kits.exits import AkitError, Exit, NotImplementedYetError, RefusalError, UsageError
@@ -77,7 +77,7 @@ class TestVersion:
         def missing(_name: str) -> str:
             raise PackageNotFoundError(_name)
 
-        monkeypatch.setattr(cli, "installed_version", missing)
+        monkeypatch.setattr(schema, "installed_version", missing)
         assert version() == "0+unknown"
 
     def test_the_flag_prints_it(self, capsys: pytest.CaptureFixture[str]) -> None:

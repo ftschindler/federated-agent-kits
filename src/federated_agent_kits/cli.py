@@ -19,8 +19,6 @@ import json
 import sys
 import textwrap
 from collections.abc import Callable, Sequence
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as installed_version
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -28,13 +26,13 @@ from federated_agent_kits import discovering, doctor, listing, render, subscribi
 from federated_agent_kits.commands import COMMANDS, TOPICS, TOPICS_BY_NAME, Argument, Command
 from federated_agent_kits.exits import AkitError, Exit, NotImplementedYetError
 from federated_agent_kits.manifest import Kind
+from federated_agent_kits.schema import version
 from federated_agent_kits.styling import Style
 
 #: The verbs that edit a manifest and then render. One branch rather than four,
 #: because what differs between them is their arguments and not their shape.
 WRITING = frozenset({"add", "remove", "harness", "update"})
 
-DISTRIBUTION = "federated-agent-kits"
 WIDTH = 88
 
 PROLOGUE = """\
@@ -42,19 +40,6 @@ Subscribe to kits - skills, rules and agent definitions - from wherever they liv
 write them where each harness looks. A source is an ordinary git repository; the file you
 edit is the only copy, and everything rendered is generated and disposable.
 """
-
-
-def version() -> str:
-    """What `--version` prints, read from the installed metadata rather than a constant.
-
-    One number, in `pyproject.toml`, written by the release job. A constant here
-    would be a second place to forget, and the skill's own `VERSION` file (T11)
-    is written from the same number so the two cannot disagree.
-    """
-    try:
-        return installed_version(DISTRIBUTION)
-    except PackageNotFoundError:  # a source tree that was never installed
-        return "0+unknown"
 
 
 def wrap(text: str) -> str:
