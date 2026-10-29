@@ -297,6 +297,49 @@ repository and sometimes one folder inside it, and sometimes several folders at 
 `applyTo` glob resolves against that workspace root too, so a rule written for `src/**` stops
 matching when somebody opens the subfolder instead.
 
+### What the GitHub Copilot app looks like
+
+The GitHub Copilot app is GitHub's desktop client, generally available since June 2026 on
+macOS, Linux and Windows. It runs its sessions through a Copilot CLI it bundles, which is
+what makes it a third Copilot harness rather than a second name for either of the two above:
+it has a machine, unlike the cloud agent, and its paths are the CLI's rather than the
+editor's.
+
+| The Copilot app | Repository | User-wide |
+| --- | --- | --- |
+| Rules | root `AGENTS.md`, `.github/instructions/*.instructions.md`, `.github/copilot-instructions.md`, `CLAUDE.md` | `~/.copilot/instructions/` |
+| Skills | `.agents/skills/`, `.github/skills/`, `.claude/skills/` | `~/.agents/skills/`, `~/.copilot/skills/` |
+| Agents | not documented for this surface | not documented for this surface |
+
+**That table was observed rather than read.** The bundled CLI has `skill list` and
+`instruction list`, which report what a session would load, and a throwaway repository
+holding every candidate path at once is a cheaper and better answer than GitHub's own
+documentation, which is thinner here and warns that supported locations depend on the
+surface. A harness that can be asked should be asked ([§4](#4-adding-a-harness), question 1).
+
+**Rules are the same two doors as the other Copilot harnesses**, `AGENTS.md` by default so
+that one block serves this harness and opencode, and `.github/instructions/` for a rule that
+wants an `applyTo` glob. `.github/copilot-instructions.md` and `CLAUDE.md` are read and are
+not doors, the answer [§6](#choosing-between-the-destinations-a-harness-offers) gives for
+every destination nobody would choose.
+
+**Your own rules land where `copilot-vscode` already sends them.** The app, the CLI and the
+editor's Copilot harness all read `~/.copilot/instructions/`, so the two adapters write one
+file rather than a copy each. There is no personal `AGENTS.md` in the discovery set, so that
+scope has one destination and nothing to choose between.
+
+**Skills are two personal directories here and three in the editor.** The CLI names
+`~/.copilot/skills/` and `~/.agents/skills/` and no Claude directory, so this adapter has no
+`claude` door at user scope even though `copilot_vscode.py` does. Copying the neighbour's
+table would have invented a path, which is the silent half of being wrong.
+
+**Question 7 is the one the install settled, and two obvious answers are unusable.**
+`/usr/bin/github` and `/usr/lib/GitHub Copilot/` are outside a home directory, and
+`~/.cache/copilot-desktop-gh-<version>/` carries a version that exact-path evidence cannot
+match. `~/.copilot/` is shared with the CLI and with the editor's harness, so it identifies
+nothing. The Tauri application directory, `com.github.githubapp` under each platform's
+application data, is app-specific and is what the adapter declares.
+
 ### What pi looks like
 
 pi is about as cheap as an adapter gets.

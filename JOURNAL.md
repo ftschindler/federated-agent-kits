@@ -2222,3 +2222,57 @@ regression: every one was a test using `copilot-vscode` as the stand-in for "a
 directory-shaped harness". They now name its `instructions` door, which is a better test than
 the one before it, because it says which shape it means instead of relying on a default that
 could move again.
+
+## 2026-10-29 - The harness that could be asked, and the three answers that were unusable
+
+A sixth adapter, for the GitHub Copilot app. The paths were the easy half and question 7 was
+not, which is the reverse of the last three.
+
+**The app answers questions about itself, and that beat reading the documentation.** It is a
+Tauri desktop client that runs sessions through a Copilot CLI it bundles and launches as a
+server, which is visible in `ps` as
+
+```text
+~/.cache/github-copilot-sdk/cli/1.0.95-3/copilot --server --stdio --no-auto-update
+```
+
+and that CLI has `skill list` and `instruction list`. Both report discovery rather than
+describing it. Against a throwaway repository holding `AGENTS.md`, `CLAUDE.md`,
+`.github/copilot-instructions.md`, `.github/instructions/`, `.github/github-app.yml` and all
+three skill directories at once, every skill directory came back and four rule locations did.
+GitHub's own documentation is thinner than that and explicitly warns that supported locations
+depend on the surface, so the probe was both cheaper and more trustworthy. Where a harness
+ships an inspection command, that is the source to use.
+
+**`.github/github-app.yml` did not come back, and is not a door.** It is the app's own
+repository configuration, with an `instructions` key the user is asked to accept, and it sits
+above the session layer the CLI reports. Rendering into it would mean a YAML-key editor, a
+second in-place writer of a file somebody owns. Not needed, because the ordinary rule paths
+are read.
+
+**Three plausible pieces of evidence for question 7 are unusable, each for a different
+reason.** `/usr/bin/github` and `/usr/lib/GitHub Copilot/` are real and are outside a home
+directory, which is all `evidence` can describe. `~/.cache/copilot-desktop-gh-2.102.0/` is
+under one and carries a version in its name, and `detected()` is `exists()` on an exact path
+with no globbing. `~/.copilot/` is under one and is stable and is shared with the CLI and
+with the editor's Copilot harness, so it identifies no single harness. What is left is the
+Tauri application directory, `~/.local/share/com.github.githubapp` here, with the Windows and
+macOS spellings beside it. The Linux entry was seen on this machine, the Windows one comes
+from a published teardown, and the macOS one is derived from the application identifier and
+has not been seen; the docstring says which is which rather than presenting three paths as
+equally checked.
+
+**A test caught prose, and the fix made it say what it meant.**
+`test_the_adapter_is_imported_in_exactly_one_place` searched for the literal string
+`"import copilot_ci"`, which stopped matching when `copilot_app` sorted ahead of it on the
+same import line. Broadening it to any mention of the module then failed on the new adapter's
+docstring, which names `copilot_ci.py` as the place some research is written down - exactly
+the prose that class's own docstring already excuses. It now parses the imports with `ast`,
+which is the assertion that was always meant: an engine module may not *import* an adapter,
+and an adapter's docstring may point at a neighbour.
+
+**One asymmetry with `copilot-vscode` is deliberate.** That adapter offers a `claude` door
+for personal skills; this one does not, because the CLI names exactly two personal locations
+and `~/.claude/skills/` is not among them. Copying the neighbouring table wholesale would
+have shipped a path nobody reads, which fails silently, and the project scope does read all
+three.

@@ -259,18 +259,20 @@ and nobody you share the repository with sees it.
 your repository commits, so there is nothing on this disk to detect and it arrives only by
 being named. From then on what it reads is committed, which the next section is about.
 
-Five adapters ship today:
+Six adapters ship today:
 
 | Harness | Kind | Takes |
 | --- | --- | --- |
 | opencode | on this machine | skills, rules |
 | GitHub Copilot in VS Code | on this machine | skills, rules |
+| The GitHub Copilot app | on this machine | skills, rules |
 | Cursor, on this machine | on this machine | skills, rules |
 | GitHub Copilot in CI | no machine, so named | skills, rules |
 | Cursor's cloud agents | no machine, so named | skills, rules |
 
-Copilot and Cursor are each two rows, because each ships an editor you render on and a cloud
-agent you cannot, and that difference decides everything else about where their files go.
+Copilot is three rows and Cursor two, because a product is not a harness: Copilot ships an
+editor extension, a desktop app and a cloud agent, and they disagree about paths and about
+whether `akit render` can run where they read.
 
 `akit list` reports which of them it found, for the machine it runs on. Detection is always by
 evidence on this disk, never by what a repository contains.
@@ -286,8 +288,8 @@ uvx --from federated-agent-kits akit harness add copilot-ci --rules instructions
 which writes `harnesses: [detected, {copilot-ci: {rules: instructions}}]`. Running it again
 with another name moves what that harness rendered, rather than leaving two copies behind.
 
-**Both Copilot harnesses take rules through `AGENTS.md` by default**, which opencode reads as
-well, so a repository rendering for all three writes each rule once instead of three times.
+**All three Copilot harnesses take rules through `AGENTS.md` by default**, which opencode reads as
+well, so a repository rendering for all of them writes each rule once instead of four times.
 `--rules instructions` is what to pick when a rule should apply to some paths and not others,
 because the `applyTo` glob that scopes it exists only in `.github/instructions/`.
 

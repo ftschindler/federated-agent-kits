@@ -11,11 +11,12 @@ repeat each other: read this one with an adapter open beside it.
 
 ## Start by copying the nearest one
 
-Five adapters ship, and between them they cover every answer anybody has needed so far.
+Six adapters ship, and between them they cover every answer anybody has needed so far.
 
 | Copy | When your harness | File |
 | --- | --- | --- |
 | `copilot-vscode` | is installed on this machine, and offers two doors for rules with different shapes behind them | [`copilot_vscode.py`](../src/federated_agent_kits/adapters/copilot_vscode.py) |
+| `copilot-app` | is a desktop client of somebody else's, which you can ask what it reads | [`copilot_app.py`](../src/federated_agent_kits/adapters/copilot_app.py) |
 | `cursor-local` | is the same, and insists on its own suffix and a key that is not a string | [`cursor_local.py`](../src/federated_agent_kits/adapters/cursor_local.py) |
 | `opencode` | is installed on this machine and reads rules from an `AGENTS.md` you also write in | [`opencode.py`](../src/federated_agent_kits/adapters/opencode.py) |
 | `copilot-ci` | runs somewhere else and only ever sees what the repository commits | [`copilot_ci.py`](../src/federated_agent_kits/adapters/copilot_ci.py) |
@@ -249,6 +250,7 @@ ADAPTERS: tuple[Adapter, ...] = (
     copilot_ci.ADAPTER,
     cursor_local.ADAPTER,
     cursor_cloud.ADAPTER,
+    copilot_app.ADAPTER,
     pi.ADAPTER,
 )
 ```

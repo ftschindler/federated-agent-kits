@@ -16,7 +16,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from federated_agent_kits.adapters import copilot_ci, copilot_vscode, cursor_cloud, cursor_local, opencode
+from federated_agent_kits.adapters import copilot_app, copilot_ci, copilot_vscode, cursor_cloud, cursor_local, opencode
 from federated_agent_kits.adapters.adapter import Adapter, Destination, Pointer, RuleShape, git_root
 from federated_agent_kits.manifest import Kind, Scope
 
@@ -25,6 +25,7 @@ from federated_agent_kits.manifest import Kind, Scope
 ADAPTERS: tuple[Adapter, ...] = (
     opencode.ADAPTER,
     copilot_vscode.ADAPTER,
+    copilot_app.ADAPTER,
     copilot_ci.ADAPTER,
     cursor_local.ADAPTER,
     cursor_cloud.ADAPTER,
