@@ -233,7 +233,7 @@ Copilot insists on fixed paths, so everything is written where it looks.
 
 | Copilot in VS Code | Repository | User-wide |
 | --- | --- | --- |
-| Rules | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md`, root `AGENTS.md` | profile data for Local, `~/.copilot/instructions/` for Agent Host |
+| Rules | root `AGENTS.md`, `.github/instructions/*.instructions.md`, `.github/copilot-instructions.md` | profile data for Local, `~/.copilot/instructions/` for Copilot |
 | Skills | `.agents/skills/`, `.github/skills/`, `.claude/skills/` | `~/.agents/skills/`, `~/.copilot/skills/`, `~/.claude/skills/` |
 | Agents | `.github/agents/*.agent.md`, `.claude/agents/` | `~/.copilot/agents/`, or profile data |
 
@@ -261,6 +261,21 @@ falling back to the directory when there is none - and opencode v2 derives the i
 the path instead. The useful summary is that the frontmatter name is what a skill *is*
 almost everywhere, which is why [§7](#skills) writes it over when a subscription renames one.
 
+**Rules have two destinations here, and the default is the one opencode shares.** The
+Copilot harness discovers a workspace-root `AGENTS.md` as a repository instruction, so a
+repository rendering for this harness and for opencode writes each rule once rather than
+twice, which is the argument [§7](#one-copy-where-the-bytes-agree-one-per-harness-where-they-do-not)
+already makes for `.agents/skills/`. `.github/instructions/` stays on offer as the other
+door, because it is the only one of the two with room to scope a rule to paths.
+
+**`chat.useAgentsMdFile` is not the reason, and it is the plausible wrong one.** That setting
+defaults to on and governs the *Local* harness; VS Code's settings reference says outright
+that it does not control Copilot's instruction discovery. The editor hosts two harnesses with
+separate discovery, and the adapter here names the Copilot one, so the setting is the wrong
+evidence for the right conclusion. What settles it is the harness itself: `copilot
+instruction list`, in a checkout holding all of them, reports `AGENTS.md`,
+`.github/copilot-instructions.md` and `CLAUDE.md` as repository instructions.
+
 **A rule with no frontmatter is discovered and never loaded.** `.github/instructions/` holds
 Copilot's *targeted* instructions: such a file is attached automatically when its `applyTo`
 glob matches a file being changed, or on demand when its `description` matches the task, and
@@ -269,10 +284,13 @@ carries `applyTo: '**'`, which is the documented way to match everything. Render
 alone leaves the files in place and the agent behaving as if they were never there, which is
 question 6's whole point.
 
-Two settings would make either kind the second shape and neither is usable.
+Two settings would make either kind the second shape and neither is what to use.
 `chat.instructionsFilesLocations` and `chat.agentSkillsLocations` both take absolute and `~`
-paths, and the documentation marks both deprecated and says only the Local agent honours
-them, so neither Agent Host nor the cloud agent would see anything we wrote there.
+paths, and both are current rather than deprecated: the first now defaults to four entries,
+`~/.copilot/instructions` among them. They are editor settings, though, forwarded to a
+harness VS Code is hosting and inherited by no other client, so pointing one at a directory
+of ours would be a rule the Copilot CLI and the Copilot app could not see. The native
+location is written to instead, which is the same conclusion by a better route.
 
 Question 6 is the awkward one. VS Code anchors on the open workspace, which is usually the
 repository and sometimes one folder inside it, and sometimes several folders at once. An

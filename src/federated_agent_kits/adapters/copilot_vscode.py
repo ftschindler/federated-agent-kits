@@ -19,23 +19,52 @@ personal counterparts. Writing to the one directory opencode also reads is what
 makes a skill wanted by two harnesses one copy rather than two
 (DESIGN.md section 7).
 
-**Rules are the first shape**: `.github/instructions/*.instructions.md`, one file
-per rule, so removing one rule is a deleted file rather than an edit to a file
-holding its neighbours.
+**Rules have two doors, and a repository's go through `AGENTS.md` by default.**
+The Copilot harness discovers a workspace-root `AGENTS.md` as a repository
+instruction, alongside `.github/copilot-instructions.md` and `CLAUDE.md`, which
+`copilot instruction list` reports for a checkout holding all three. So this
+harness and opencode read one file, and a repository rendering for both writes
+each rule once rather than twice. That is the reason `copilot-ci` gives for the
+same default, and it holds here for the same two readers (DESIGN.md section 7).
+
+**`chat.useAgentsMdFile` is not why, and reaching for it is the trap.** That
+setting defaults to on and governs the *Local* harness, and VS Code's own
+settings reference says it does not control Copilot's instruction discovery.
+The two harnesses inside the editor have separate discovery, and this adapter
+names the Copilot one, so the setting is the wrong evidence for the right
+answer.
+
+`.github/instructions/` is the other door, taking one `*.instructions.md` per
+rule. It stays offered rather than being replaced, because it is the only one of
+the two with room to scope a rule to paths: a marker block inside somebody's
+`AGENTS.md` cannot carry an `applyTo` glob, so a rule that wants one picks
+`--rules instructions` and gets a directory of files back.
 
 Two things about that directory are not paths and are easy to miss. A file there
 is a *targeted* instruction: it loads when its `applyTo` glob matches a file
 being changed, or when its `description` matches the task, and with neither it
-waits to be attached by hand. So T6 writes `applyTo: "**"` into every rule it
-renders here, or renders rules that are never read. And Copilot's documentation
-declines to promise any order between them, so nothing here is prefixed or
-renamed to imply one (DESIGN.md section 7).
+waits to be attached by hand. So every rule rendered through that door carries
+`applyTo: "**"`, or they are rules that are never read. And Copilot's
+documentation declines to promise any order between them, so nothing there is
+prefixed or renamed to imply one, which is why that door answers `orders=False`
+while `AGENTS.md` answers True (DESIGN.md section 7).
 
-Two settings would make either kind the second shape and neither is usable.
-`chat.instructionsFilesLocations` and `chat.agentSkillsLocations` both take
-absolute and `~` paths, and both are deprecated and honoured only by the Local
-agent, so neither Agent Host nor the cloud agent would read anything we wrote
-there.
+**Your own rules have one door and it is not `AGENTS.md`.** There is no personal
+file here that opencode also reads, so the sharing that decides the project
+default has nothing to divide. `~/.copilot/instructions/` is what the Copilot
+harness reads, and VS Code documents it as the Copilot user location and ships
+it in the default `chat.instructionsFilesLocations`. It is a directory of ours
+in the first shape, and it is unnamed because a destination with no alternative
+is not a choice anybody makes.
+
+`chat.instructionsFilesLocations` would make rules the second shape and it is
+still not what to use. It is current rather than deprecated, and its default now
+carries `~/.copilot/instructions` among four entries, but it is a VS Code editor
+setting: the editor forwards those locations to a harness it is hosting, and no
+other client inherits them. Pointing it at a directory of ours would be a rule
+the Copilot CLI and the Copilot app could not see, which is the whole reason the
+native location is written to instead. `chat.agentSkillsLocations` is the same
+argument for skills.
 
 Question 6 is the awkward one and it is not solved here. VS Code anchors on the
 open workspace, which is usually the repository, sometimes one folder inside it,
@@ -66,6 +95,10 @@ USER_SKILL_DIRECTORIES: tuple[str, ...] = (SKILLS, COPILOT_SKILLS, CLAUDE_SKILLS
 PROJECT_RULES = ".github/instructions"
 USER_RULES = ".copilot/instructions"
 SUFFIX = ".instructions.md"
+
+#: The other project door, and the default: one file opencode reads as well, so
+#: a rule rendered for both harnesses is one block rather than two copies.
+AGENTS_RULES = "AGENTS.md"
 
 #: The frontmatter every rule rendered here carries, whatever its source said.
 #: `applyTo` decides whether the file is read: with neither it nor a
@@ -113,12 +146,29 @@ ADAPTER = Adapter(
             Destination(write=GITHUB_SKILLS, read=PROJECT_SKILL_DIRECTORIES, variant="github"),
             Destination(write=CLAUDE_SKILLS, read=PROJECT_SKILL_DIRECTORIES, variant="claude"),
         ),
-        (Kind.RULE, Scope.USER): (Destination(write=USER_RULES),),
-        (Kind.RULE, Scope.PROJECT): (Destination(write=PROJECT_RULES),),
+        (Kind.RULE, Scope.USER): (
+            Destination(
+                write=USER_RULES,
+                shape=RuleShape.DIRECTORY,
+                suffix=SUFFIX,
+                frontmatter=FRONTMATTER,
+                orders=False,
+            ),
+        ),
+        (Kind.RULE, Scope.PROJECT): (
+            Destination(write=AGENTS_RULES, variant="agents-md"),
+            Destination(
+                write=PROJECT_RULES,
+                variant="instructions",
+                shape=RuleShape.DIRECTORY,
+                suffix=SUFFIX,
+                frontmatter=FRONTMATTER,
+                orders=False,
+            ),
+        ),
     },
-    rule_shape=RuleShape.DIRECTORY,
-    rule_suffix=SUFFIX,
-    rule_frontmatter=FRONTMATTER,
+    rule_shape=RuleShape.SHARED_FILE,
+    orders_rules=True,
     evidence=EVIDENCE,
 )
 

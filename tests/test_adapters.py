@@ -166,18 +166,29 @@ class TestWhereAPartWouldLand:
 
     def test_a_rule_wanted_by_several_harnesses_is_not_one_copy(self, tmp_path: Path):
         # A rule is translated per harness, so the shape decides the path. The
-        # two Copilot harnesses agree on `.github/instructions/` because they
-        # read the same files from the same checkout, and the two Cursor
-        # harnesses agree on `.cursor/rules/` for the same reason; opencode does
-        # not, and that is the whole reason rules are not written once for
-        # everybody.
+        # three harnesses that read `AGENTS.md` agree on it by default, which is
+        # the point of that default; the two Cursor harnesses agree on
+        # `.cursor/rules/` because they read the same files from the same
+        # checkout. Nothing lands in `.github/instructions/` unless a manifest
+        # asks for it, which is what the next test is about.
         written = {adapter.target(Kind.RULE, Scope.PROJECT, "prose-style", tmp_path) for adapter in adapters.ADAPTERS}
 
         assert written == {
             tmp_path / "AGENTS.md",
-            tmp_path / ".github" / "instructions" / "prose-style.instructions.md",
             tmp_path / ".cursor" / "rules" / "prose-style.mdc",
         }
+
+    def test_the_copilot_harnesses_both_offer_the_instructions_door(self, tmp_path: Path):
+        # The cost of the default above: an `applyTo` glob exists only in the
+        # first shape, so a rule that wants one has somewhere to go in both of
+        # the harnesses that read that directory.
+        chosen = {Kind.RULE: "instructions"}
+        written = {
+            adapters.BY_NAME[name].choosing(chosen).target(Kind.RULE, Scope.PROJECT, "prose-style", tmp_path)
+            for name in ("copilot-vscode", "copilot-ci")
+        }
+
+        assert written == {tmp_path / ".github" / "instructions" / "prose-style.instructions.md"}
 
 
 class TestDetection:

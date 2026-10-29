@@ -2162,3 +2162,63 @@ version.
 And it is written into a manifest `akit` creates and into no other. Everything else here goes
 through a round-tripper whose entire job is giving back the file it was handed; a tool that
 added a header to a file somebody owns would be the thing that rule exists to prevent.
+
+## 2026-10-29 - The right conclusion reached by evidence that did not hold
+
+[#56](https://github.com/ftschindler/federated-agent-kits/issues/56) said `copilot-vscode`
+should offer the `AGENTS.md` door that `copilot-ci` got in
+[#52](https://github.com/ftschindler/federated-agent-kits/pull/52), and gave a reason:
+
+> VS Code reads a workspace-root `AGENTS.md` and has since 1.104, with
+> `chat.useAgentsMdFile` defaulting to on. So the door exists and the adapter does not offer
+> it.
+
+The conclusion is right and that reason is not. `chat.useAgentsMdFile` does default to on,
+and VS Code's settings reference says it controls attaching a workspace-root `AGENTS.md` in
+**Local-harness** sessions, and that it does not control Copilot's instruction discovery. The
+editor hosts two harnesses that discover separately, and this adapter names the Copilot one,
+so the setting is evidence about the harness we did not write an adapter for.
+
+What settles it is the harness answering for itself. The GitHub Copilot app ships a Copilot
+CLI and runs sessions through it, and that CLI has an `instruction list` subcommand that
+reports discovery rather than documenting it. In a throwaway repository holding every
+candidate path at once:
+
+```text
+Repository instructions:
+  • .github/copilot-instructions.md
+  • AGENTS.md
+  • CLAUDE.md
+
+Working directory instructions:
+  • probe.instructions.md
+      from .github/instructions/probe.instructions.md
+```
+
+So the door exists, and now it is on offer, defaulting to `AGENTS.md` for the reason
+`copilot_ci.py` already gives: one block serves opencode and both Copilot harnesses instead
+of three copies of one rule.
+
+Two things came out of the same probe and are worth the same paragraph each.
+
+**The user scope does not follow the project scope, and #56 was right to ask.** There is no
+personal `AGENTS.md` in the discovery set at all, so the sharing that decides the project
+default has nothing to divide. `~/.copilot/instructions/` stays the only user-scope
+destination, unnamed, and overrides all four shape fields because the adapter's default is
+now the shared file.
+
+**A claim in the adapter and in [DESIGN.md](DESIGN.md) had gone stale without failing.** Both
+said `chat.instructionsFilesLocations` and `chat.agentSkillsLocations` were deprecated and
+honoured only by the Local agent. The first is current, and its default now carries four
+entries with `~/.copilot/instructions` among them. The conclusion it was supporting survives
+for a different reason - they are editor settings that no other client inherits, so a rule
+sent through one is a rule the CLI and the app cannot see - but the sentence as written was
+wrong, and nothing in the suite could have noticed. That is the standing argument for
+re-reading a harness's documentation when a task touches its paths, and the third time in a
+month it has paid.
+
+The cost of the change was fifteen unit failures and four `cli` ones, none of them a
+regression: every one was a test using `copilot-vscode` as the stand-in for "a
+directory-shaped harness". They now name its `instructions` door, which is a better test than
+the one before it, because it says which shape it means instead of relying on a default that
+could move again.

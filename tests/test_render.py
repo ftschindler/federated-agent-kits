@@ -514,7 +514,7 @@ class TestATargetThatIsAlreadyALink:
     def test_a_rule_written_as_a_file_of_ours_is_refused_the_same_way(
         self, project: Path, places: render.Directories, kits: Path, tmp_path: Path, monkeypatch
     ):
-        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {kits}: prose-style\n")
+        subscribe(project / ".akit.yaml", f"version: 1\n{INSTRUCTIONS_DOOR}\nrules:\n- {kits}: prose-style\n")
         target = project / ".github" / "instructions" / "prose-style.instructions.md"
         linked(target, tmp_path / "somewhere.md", monkeypatch)
 
@@ -1271,6 +1271,12 @@ class TestTheCommandLine:
 
 INSTRUCTIONS = Path(".github") / "instructions"
 
+#: What a manifest writes to send Copilot's rules through the directory
+#: door rather than through `AGENTS.md`, which is the default. Every test
+#: below about the first shape needs it, because the harnesses this fake
+#: home has installed both take rules as a shared file unless asked.
+INSTRUCTIONS_DOOR = "harnesses: [detected, {copilot-vscode: {rules: instructions}}]\n"
+
 
 def agents_md(root: Path) -> str:
     path = root / "AGENTS.md"
@@ -1295,7 +1301,7 @@ class TestWhereARuleLands:
     def test_a_directory_shaped_harness_gets_one_file_per_rule(
         self, project: Path, places: render.Directories, kits: Path
     ):
-        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {kits}: prose-style\n")
+        subscribe(project / ".akit.yaml", f"version: 1\n{INSTRUCTIONS_DOOR}\nrules:\n- {kits}: prose-style\n")
 
         render.render(project, places)
 
@@ -1304,7 +1310,7 @@ class TestWhereARuleLands:
     def test_a_copilot_rule_carries_apply_to_and_the_body_it_was_given(
         self, project: Path, places: render.Directories, kits: Path
     ):
-        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {kits}: prose-style\n")
+        subscribe(project / ".akit.yaml", f"version: 1\n{INSTRUCTIONS_DOOR}\nrules:\n- {kits}: prose-style\n")
 
         render.render(project, places)
 
@@ -1338,6 +1344,7 @@ class TestWhereARuleLands:
             project / ".akit.yaml",
             f"""
             version: 1
+            harnesses: [detected, {{copilot-vscode: {{rules: instructions}}}}]
 
             rules:
             - {kits}:
@@ -1368,8 +1375,8 @@ class TestWhereARuleLands:
 class TestTheOrderTwoRulesAreReadIn:
     """The one promise rules have, and exactly how far it reaches (DESIGN.md section 7)."""
 
-    def manifest(self, project: Path, source: Path, first: str, second: str) -> None:
-        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {source}: [{first}, {second}]\n")
+    def manifest(self, project: Path, source: Path, first: str, second: str, door: str = "") -> None:
+        subscribe(project / ".akit.yaml", f"version: 1\n{door}\nrules:\n- {source}: [{first}, {second}]\n")
 
     def test_a_shared_file_gets_the_manifest_order(self, project: Path, places: render.Directories, two_rules: Path):
         self.manifest(project, two_rules, "tabs", "spaces")
@@ -1405,7 +1412,7 @@ class TestTheOrderTwoRulesAreReadIn:
     def test_a_directory_shaped_harness_is_only_promised_that_both_arrived(
         self, project: Path, places: render.Directories, two_rules: Path
     ):
-        self.manifest(project, two_rules, "tabs", "spaces")
+        self.manifest(project, two_rules, "tabs", "spaces", door=INSTRUCTIONS_DOOR)
 
         render.render(project, places)
 
@@ -1415,7 +1422,7 @@ class TestTheOrderTwoRulesAreReadIn:
     def test_nothing_is_prefixed_or_renamed_to_imply_an_order(
         self, project: Path, places: render.Directories, two_rules: Path
     ):
-        self.manifest(project, two_rules, "tabs", "spaces")
+        self.manifest(project, two_rules, "tabs", "spaces", door=INSTRUCTIONS_DOOR)
 
         render.render(project, places)
 
@@ -1430,7 +1437,7 @@ class TestAFileWeShareWithTheUser:
 
     @pytest.fixture
     def rendered(self, project: Path, places: render.Directories, kits: Path) -> Path:
-        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {kits}: prose-style\n")
+        subscribe(project / ".akit.yaml", f"version: 1\n{INSTRUCTIONS_DOOR}\nrules:\n- {kits}: prose-style\n")
         render.render(project, places)
         return project / "AGENTS.md"
 
@@ -1545,10 +1552,10 @@ class TestOneRuleGoingToBothShapesAtOnce:
     def test_removing_it_deletes_the_file_and_closes_up_the_shared_one(
         self, project: Path, places: render.Directories, two_rules: Path
     ):
-        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {two_rules}: [tabs, spaces]\n")
+        subscribe(project / ".akit.yaml", f"version: 1\n{INSTRUCTIONS_DOOR}\nrules:\n- {two_rules}: [tabs, spaces]\n")
         render.render(project, places)
 
-        subscribe(project / ".akit.yaml", f"version: 1\n\nrules:\n- {two_rules}: [spaces]\n")
+        subscribe(project / ".akit.yaml", f"version: 1\n{INSTRUCTIONS_DOOR}\nrules:\n- {two_rules}: [spaces]\n")
         render.render(project, places)
 
         assert not (project / INSTRUCTIONS / "tabs.instructions.md").exists()

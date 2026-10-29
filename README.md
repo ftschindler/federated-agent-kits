@@ -286,6 +286,11 @@ uvx --from federated-agent-kits akit harness add copilot-ci --rules instructions
 which writes `harnesses: [detected, {copilot-ci: {rules: instructions}}]`. Running it again
 with another name moves what that harness rendered, rather than leaving two copies behind.
 
+**Both Copilot harnesses take rules through `AGENTS.md` by default**, which opencode reads as
+well, so a repository rendering for all three writes each rule once instead of three times.
+`--rules instructions` is what to pick when a rule should apply to some paths and not others,
+because the `applyTo` glob that scopes it exists only in `.github/instructions/`.
+
 Rules differ in shape between harnesses, and `akit` absorbs that. Where a harness reads a
 directory of rules, each rule is a file of ours, with whatever frontmatter that harness needs
 to read it at all. Where it reads one file you also write in, such as opencode's `AGENTS.md`,
