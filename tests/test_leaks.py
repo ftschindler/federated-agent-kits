@@ -442,7 +442,7 @@ class TestTheNoteLeaksLikeWhatItExplains:
         self, project: Path, places: render.Directories, referring_kits: str, tmp_path: Path
     ):
         make_public(project, tmp_path)
-        self.subscribe_renamed(project, places, referring_kits, "detected, copilot-ci")
+        self.subscribe_renamed(project, places, referring_kits, "detected, {copilot-ci: {rules: instructions}}")
         classify(places, referring_kits, Privacy.PRIVATE)
 
         with pytest.raises(LeakError):
@@ -453,7 +453,7 @@ class TestTheNoteLeaksLikeWhatItExplains:
     def test_the_same_note_renders_into_the_employers_own_repository(
         self, project: Path, places: render.Directories, referring_kits: str
     ):
-        self.subscribe_renamed(project, places, referring_kits, "detected, copilot-ci")
+        self.subscribe_renamed(project, places, referring_kits, "detected, {copilot-ci: {rules: instructions}}")
         classify(places, referring_kits, Privacy.PRIVATE)
 
         outcome = render.render(project, places)

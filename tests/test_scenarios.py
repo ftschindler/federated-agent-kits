@@ -111,7 +111,7 @@ def agents_md(project: Path) -> str:
     return path.read_text(encoding="utf-8") if path.is_file() else ""
 
 
-def set_rename(project: Path, source: str, rename: str | None) -> None:
+def set_rename(project: Path, source: str, rename: str | None, door: str = "") -> None:
     """Rewrite the manifest the way somebody editing it by hand would.
 
     By hand rather than through a command, because there is no verb for changing
@@ -120,8 +120,10 @@ def set_rename(project: Path, source: str, rename: str | None) -> None:
     """
     skill = "[writing]" if rename is None else f"\n  - name: writing\n    as: {rename}"
     rule = "writing" if rename is None else f"\n    name: writing\n    as: {rename}"
+    harnesses = f"harnesses: [{door}]\n" if door else ""
     (project / ".akit.yaml").write_text(
-        f"version: 1\n\nskills:\n  {source}: {skill}\n\nrules:\n- {source}: {rule}\n", encoding="utf-8"
+        f"version: 1\n{harnesses}\nskills:\n  {source}: {skill}\n\nrules:\n- {source}: {rule}\n",
+        encoding="utf-8",
     )
 
 
@@ -224,15 +226,19 @@ class TestTheNoteOverASequence:
             assert "Keep this." in agents_md(project)
 
     def test_a_directory_shaped_harness_gains_and_loses_the_file(self, machine: Machine, project: Path, remote: str):
+        # Through Copilot's instructions door, because the harnesses this fake
+        # home detects take rules as a shared file unless a manifest says
+        # otherwise, and the first shape is what this test is about.
+        door = "detected, {copilot-vscode: {rules: instructions}}"
         machine.home.run("add", remote, "writing", "--project", cwd=project)
         written = project / INSTRUCTIONS / "akit-renames.instructions.md"
         assert not written.exists()
 
-        set_rename(project, remote, "felix-writing")
+        set_rename(project, remote, "felix-writing", door=door)
         machine.home.run("render", cwd=project)
         assert written.is_file()
 
-        set_rename(project, remote, None)
+        set_rename(project, remote, None, door=door)
         machine.home.run("render", cwd=project)
         assert not written.exists()
 

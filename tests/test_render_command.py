@@ -103,13 +103,16 @@ def subscribed_to_the_rule(machine: Machine, name: str, source: str) -> Path:
 
     `copilot-vscode` is named rather than detected because this fake home has
     only opencode installed, and naming a harness is how you render for one
-    this machine does not have (DESIGN.md section 6).
+    this machine does not have (DESIGN.md section 6). It is named *through its
+    instructions door*, because both harnesses take rules as a shared file by
+    default and two shapes are the whole point here.
     """
     return repository(
         machine,
         name,
         source,
-        f"version: 1\nharnesses: [detected, copilot-vscode]\n\nrules:\n- {source}: prose-style\n",
+        f"version: 1\nharnesses: [detected, {{copilot-vscode: {{rules: instructions}}}}]\n\n"
+        f"rules:\n- {source}: prose-style\n",
     )
 
 

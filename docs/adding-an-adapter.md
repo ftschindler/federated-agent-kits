@@ -15,7 +15,7 @@ Five adapters ship, and between them they cover every answer anybody has needed 
 
 | Copy | When your harness | File |
 | --- | --- | --- |
-| `copilot-vscode` | is installed on this machine and reads rules from a directory of its own | [`copilot_vscode.py`](../src/federated_agent_kits/adapters/copilot_vscode.py) |
+| `copilot-vscode` | is installed on this machine, and offers two doors for rules with different shapes behind them | [`copilot_vscode.py`](../src/federated_agent_kits/adapters/copilot_vscode.py) |
 | `cursor-local` | is the same, and insists on its own suffix and a key that is not a string | [`cursor_local.py`](../src/federated_agent_kits/adapters/cursor_local.py) |
 | `opencode` | is installed on this machine and reads rules from an `AGENTS.md` you also write in | [`opencode.py`](../src/federated_agent_kits/adapters/opencode.py) |
 | `copilot-ci` | runs somewhere else and only ever sees what the repository commits | [`copilot_ci.py`](../src/federated_agent_kits/adapters/copilot_ci.py) |
@@ -116,9 +116,14 @@ renderer already does; what your adapter supplies is the path of the host file i
 belongs to the destination rather than to the adapter. `rule_shape`, `rule_suffix`,
 `rule_frontmatter` and `orders_rules` on the adapter describe its default destination; a
 `Destination` may override each of them with `shape`, `suffix`, `frontmatter` and `orders`.
-Copilot in CI does: `AGENTS.md` is the shared-file shape with no frontmatter, and
+Both Copilot harnesses do: `AGENTS.md` is the shared-file shape with no frontmatter, and
 `.github/instructions/` is the directory shape with a suffix and an `applyTo`. Override all
 four or none, because a shape without its suffix is a shape that cannot be rendered.
+
+**A scope with one destination overrides them too, when it disagrees with the adapter.**
+`copilot-vscode` is the case: its project default is the shared file, and your own rules have
+only `~/.copilot/instructions/`, which is the directory shape. That destination carries no
+`variant`, because it is not a choice anybody makes, and still overrides all four fields.
 
 `RuleShape.POINTED` is a directory we own that the harness has to be pointed at once, by one
 key in a config somebody owns. **No adapter shipping today answers this way and there is no

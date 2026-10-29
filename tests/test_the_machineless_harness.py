@@ -141,7 +141,7 @@ class TestTheIgnoreBlockIsTheInverseOfWhatIsCommitted:
 
         render.render(project, places)
 
-        assert block(project) == [".agents/skills/", ".akit/", ".github/instructions/"]
+        assert block(project) == [".agents/skills/", ".akit/"]
 
     def test_naming_it_takes_the_committed_directories_out(self, project: Path, places: render.Directories, kits: str):
         # A directory with two readers is committed if either of them commits,
@@ -151,7 +151,7 @@ class TestTheIgnoreBlockIsTheInverseOfWhatIsCommitted:
 
         render.render(project, places)
 
-        assert block(project) == [".akit/", ".github/instructions/"]
+        assert block(project) == [".akit/"]
 
     def test_the_record_stays_in_whatever_else_leaves(self, project: Path, places: render.Directories, kits: str):
         # It is the one entry that is not a rendered kit: machine state sitting
@@ -171,7 +171,7 @@ class TestTheIgnoreBlockIsTheInverseOfWhatIsCommitted:
         subscribe(project, places, kits)
         render.render(project, places)
 
-        assert block(project) == [".agents/skills/", ".akit/", ".github/instructions/"]
+        assert block(project) == [".agents/skills/", ".akit/"]
 
     def test_a_users_own_lines_survive_the_flip_in_their_own_order(
         self, project: Path, places: render.Directories, kits: str

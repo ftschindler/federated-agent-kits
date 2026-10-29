@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 from git_environment import FIXED_AUTHOR, git, local_remote
 
-from federated_agent_kits import cache, render, subscribing
+from federated_agent_kits import cache, record, render, subscribing
 from federated_agent_kits import manifest as manifests
 from federated_agent_kits.cache import CacheError, RefKind, UnreachableError
 from federated_agent_kits.cli import build_parser, dispatch
@@ -529,7 +529,10 @@ class TestHarness:
         outcome = subscribing.harness(world.call(), action="add", name="copilot-vscode")
 
         assert manifests.read(world.manifest, scope=Scope.PROJECT).harnesses == ("detected", "copilot-vscode")
-        assert (world.project / ".github" / "instructions" / "prose-style.instructions.md").exists()
+        written = record.load(record.project_location(world.project)).written
+        attributed = {name for entry in written for name in entry.harnesses}
+        assert "copilot-vscode" in attributed
+        assert (world.project / "AGENTS.md").is_file()
         assert outcome.changed
 
     def test_naming_it_twice_changes_nothing(self, world: World):

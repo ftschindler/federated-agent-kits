@@ -99,11 +99,14 @@ def places(tmp_path: Path, home: Path) -> render.Directories:
     )
 
 
-def manifest_with(project: Path, kits: Path, *, rename: str | None, rule: bool = True) -> Path:
+def manifest_with(project: Path, kits: Path, *, rename: str | None, rule: bool = True, door: str | None = None) -> Path:
     """The repository subscribing to the skill, renamed or not, and to its rule."""
     skill = f'["{rename and "*"}"]' if False else ""
     entry = "[writing]" if rename is None else f"\n  - name: writing\n    as: {rename}"
-    body = f"version: 1\n\nskills:\n  {kits}: {entry}\n"
+    body = "version: 1\n\n"
+    if door is not None:
+        body += f"harnesses: [detected, {{copilot-vscode: {{rules: {door}}}}}]\n\n"
+    body += f"skills:\n  {kits}: {entry}\n"
     if rule:
         rule_entry = "writing" if rename is None else f"\n    name: writing\n    as: {rename}"
         body += f"\nrules:\n- {kits}: {rule_entry}\n"
@@ -260,7 +263,7 @@ class TestWhenARenameIsWrittenDown:
     def test_a_directory_shaped_harness_gets_the_note_as_a_file(
         self, project: Path, places: render.Directories, kits: Path
     ):
-        manifest_with(project, kits, rename="felix-writing")
+        manifest_with(project, kits, rename="felix-writing", door="instructions")
 
         render.render(project, places)
 
