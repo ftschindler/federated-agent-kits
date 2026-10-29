@@ -212,6 +212,11 @@ class TestListInAFakeHome:
                 reads rules in the order the manifest lists them
                 takes skills through agents, and could take them through copilot, claude and github
                 takes rules through agents-md, and could take them through instructions
+            [ ] copilot-app     not detected on this machine
+                takes skills and rules, and is in no manifest's harness list
+                reads rules in the order the manifest lists them
+                takes skills through agents, and could take them through copilot, github and claude
+                takes rules through agents-md, and could take them through instructions
             [ ] cursor-local    not detected on this machine
                 takes skills and rules, and is in no manifest's harness list
                 promises no order between rules, so two that contradict are a coin toss
@@ -333,6 +338,7 @@ class TestListInAFakeHome:
         assert {entry["name"] for entry in payload["harnesses"]} == {
             "opencode",
             "copilot-vscode",
+            "copilot-app",
             "copilot-ci",
             "cursor-local",
             "cursor-cloud",

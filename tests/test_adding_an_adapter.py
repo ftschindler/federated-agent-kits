@@ -132,6 +132,7 @@ class TestTheDiffBudget:
         assert inside == [
             "__init__.py",
             "adapter.py",
+            "copilot_app.py",
             "copilot_ci.py",
             "copilot_vscode.py",
             "cursor_cloud.py",

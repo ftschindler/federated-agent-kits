@@ -13,6 +13,7 @@ reason.
 
 from __future__ import annotations
 
+import ast
 import io
 from pathlib import Path
 
@@ -523,6 +524,17 @@ class TestTheHooksOtherRepositoriesPin:
         assert parsed.check is True
 
 
+def imported(path: Path) -> set[str]:
+    """Every name this module imports, which is the half of a mention that binds."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return {
+        alias.name.rpartition(".")[2] or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import | ast.ImportFrom)
+        for alias in node.names
+    }
+
+
 class TestTheSecondAdaptersDiffBudget:
     """Rule 7 of DESIGN.md section 3, checked rather than remembered.
 
@@ -556,10 +568,15 @@ class TestTheSecondAdaptersDiffBudget:
         return Path(__file__).parent.parent / "src" / "federated_agent_kits"
 
     def test_the_adapter_is_imported_in_exactly_one_place(self):
+        # The import statements rather than the words "import copilot_ci",
+        # which stopped matching the moment a sixth adapter sorted ahead of it
+        # on the same line. An adapter's docstring may name a neighbour, which
+        # is the prose this class's docstring already excuses; an engine module
+        # importing one is what rule 7 forbids.
         importing = [
             path.relative_to(self.source()).as_posix()
             for path in sorted(self.source().rglob("*.py"))
-            if "import copilot_ci" in path.read_text(encoding="utf-8")
+            if "copilot_ci" in imported(path)
         ]
 
         assert importing == ["adapters/__init__.py"]
