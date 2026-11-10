@@ -29,7 +29,7 @@ from __future__ import annotations
 import os
 import subprocess
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 
@@ -116,6 +116,23 @@ class UnreachableError(CacheError):
     and must not do that for a branch name somebody mistyped (DESIGN.md section
     10, "Offline, `add` therefore works for a source you already have").
     """
+
+
+class MissingRefError(CacheError):
+    """A remote that answered, and said it has no branch or tag by that name.
+
+    Its own type because `update` reads it as news rather than as a typo: a
+    branch a subscription followed and that is now gone is usually a pull
+    request that was merged, and what to do next is `update`'s question.
+    """
+
+    def __init__(self, source: SourceKey, ref: str) -> None:
+        self.ref = ref
+        super().__init__(
+            source,
+            f"the source has no branch or tag called `{ref}`",
+            "Check the name, or pin to a commit instead. `akit list` shows what you are on now.",
+        )
 
 
 class Privacy(StrEnum):
@@ -431,7 +448,11 @@ def resolve(
             "this source is not in the cache" if not cached else f"the cache does not hold the commit {pin}",
             "This command does not fetch. Run `akit render` for this source while online.",
         )
-    privacy = None if cached else _fetch(source, destination)
+    # A pinned key is cloned from the default branch and handed its commit by
+    # name. The branch in the key may be gone by now - a merged pull request's
+    # usually is - and the commit is what a pin means, not where it came from.
+    cloned = source if pin is None else replace(source, ref=None)
+    privacy = None if cached else _fetch(cloned, destination)
     if pin is not None:
         _checkout(source, destination, pin)
     return Resolved(
@@ -441,6 +462,10 @@ def resolve(
         privacy=privacy,
         fetched=True,
     )
+
+
+#: Where a name that is a full ref already starts. Asked about as written.
+REFS = "refs/"
 
 
 class RefKind(StrEnum):
@@ -520,6 +545,13 @@ def _ls_remote(source: SourceKey, destination: Path, ref: str | None) -> tuple[s
             )
         _, target, _ = first.split(maxsplit=2)
         return _ls_remote(source, destination, target.removeprefix("refs/heads/"))
+    if ref.startswith(REFS):
+        # A full ref name, which is how a pull request's head is reached without
+        # a forge: `refs/pull/16/head`. It moves like a branch does.
+        seen = _asked(source, destination, "origin", ref)
+        if ref in seen:
+            return ref, RefKind.BRANCH, seen[ref]
+        raise MissingRefError(source, ref)
     seen = _asked(source, destination, "origin", f"refs/heads/{ref}", f"refs/tags/{ref}", f"refs/tags/{ref}^{{}}")
     # The peeled tag first: an annotated tag's own object is not the commit, and
     # pinning to it would record a hash nothing can be checked out as a tree.
@@ -530,11 +562,53 @@ def _ls_remote(source: SourceKey, destination: Path, ref: str | None) -> tuple[s
     ):
         if name in seen:
             return ref, kind, seen[name]
-    raise CacheError(
-        source,
-        f"the source has no branch or tag called `{ref}`",
-        "Check the name, or pin to a commit instead. `akit list` shows what you are on now.",
-    )
+    raise MissingRefError(source, ref)
+
+
+def settle(source: SourceKey) -> SourceKey:
+    """A `/tree/` key whose branch could hold a slash, read the way the remote reads it.
+
+    `/tree/feat/x/skills` is asked about once: every reading of it, longest
+    first, against the branches and tags the remote has. The first one it holds
+    wins, and the key comes back spelled with that branch's slashes escaped, so
+    that the manifest it is written into reads it the same way offline. A remote
+    holding none of them leaves the key as parsing read it, and the clone that
+    follows says what was missing.
+    """
+    candidates = source.tree_branches()
+    if not candidates:
+        return source
+    patterns = [f"refs/{space}/{name}" for name in candidates for space in ("heads", "tags")]
+    found = git("ls-remote", source.url, *patterns, anonymous=True, check=False)
+    if found.returncode != 0:
+        found = git("ls-remote", source.url, *patterns, anonymous=False, check=False)
+    held = {line.partition("\t")[2].strip() for line in found.stdout.splitlines()}
+    for name in candidates:
+        if f"refs/heads/{name}" in held or f"refs/tags/{name}" in held:
+            return source.with_branch(name)
+    return source
+
+
+def contains(source: SourceKey, commit: str, tip: str, *, cache_root: Path | None = None) -> bool:
+    """Whether `commit` is in the history of `tip`, in this source's clone.
+
+    The one question `update` asks of history rather than of a single commit,
+    so it is the one place a shallow clone is deepened all the way: a merge
+    commit's ancestry is only visible with the commits between. A commit from a
+    fork is fetched by name first, which forges that share objects across a
+    fork network allow. Anything that cannot be fetched is not contained, which
+    is the answer that stops `update` rather than moving a pin.
+    """
+    destination = location(source, cache_root=cache_root)
+    shallow = git("rev-parse", "--is-shallow-repository", cwd=destination, anonymous=True, check=False)
+    if shallow.stdout.strip() == "true":
+        _over_the_network(destination, "fetch", "--unshallow", "--quiet", "origin")
+    if not _holds(destination, commit):
+        _over_the_network(destination, "fetch", "--quiet", "origin", commit)
+    if not _holds(destination, commit):
+        return False
+    found = git("merge-base", "--is-ancestor", commit, tip, cwd=destination, anonymous=True, check=False)
+    return found.returncode == 0
 
 
 def refresh(
@@ -550,7 +624,10 @@ def refresh(
     moved and handed the commits to answer with.
     """
     destination = location(source, cache_root=cache_root)
-    privacy = None if (destination / ".git").exists() else _fetch(source, destination)
+    # Cloned from the default branch: the remote is asked about `ref` next, and
+    # a branch that has gone should be reported as gone rather than as a source
+    # that could not be cloned.
+    privacy = None if (destination / ".git").exists() else _fetch(replace(source, ref=None), destination)
     name, kind, commit = _ls_remote(source, destination, ref)
     if not _holds(destination, commit):
         _deepen(source, destination, commit)
@@ -563,6 +640,24 @@ def refresh(
         kind=kind,
         privacy=privacy,
     )
+
+
+def object_id(source: SourceKey, commit: str, path: str, *, cache_root: Path | None = None) -> str | None:
+    """git's id for what sits at `path` in `commit`, or `None` where nothing does.
+
+    An id names content and nothing else, so two clones holding the same files
+    at the same path answer with the same id whatever history led there.
+    """
+    found = git(
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        f"{commit}:{path}",
+        cwd=location(source, cache_root=cache_root),
+        anonymous=True,
+        check=False,
+    )
+    return found.stdout.strip() or None
 
 
 def difference(source: SourceKey, old: str, new: str, paths: Sequence[str], *, cache_root: Path | None = None) -> str:
@@ -597,14 +692,18 @@ def difference(source: SourceKey, old: str, new: str, paths: Sequence[str], *, c
 __all__ = [
     "CacheError",
     "Fetched",
+    "MissingRefError",
     "Privacy",
     "RefKind",
     "Resolved",
     "UnreachableError",
+    "contains",
     "difference",
     "git",
     "location",
+    "object_id",
     "refresh",
     "resolve",
     "root",
+    "settle",
 ]

@@ -74,6 +74,13 @@ into the same cache everything else reads, so the `akit add` you run next needs 
 `--verbose` adds what each kit says it is for, and `--json` carries the path each one sits at
 inside the repository.
 
+**A pull request works in place of a source**, so a kit can be tried before it merges:
+`akit add https://github.com/org/repo/pull/16 writing`. `akit` asks GitHub once which branch
+that is, through `gh` or a `GH_TOKEN`, and subscribes to the branch. Once the branch is
+deleted and its kits have landed in the target, `akit update` follows the target instead,
+and says so. When it cannot confirm they landed, it stops and names
+`akit update writing --to main`.
+
 **The `--from` is not decoration.** The distribution is `federated-agent-kits` and the command
 inside it is `akit`. `uvx` reads its first argument as a distribution, so naming only the
 command asks PyPI for a project called `akit`, which belongs to somebody else. If you run this

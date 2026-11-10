@@ -41,7 +41,7 @@ def empty() -> str:
     where it was asked to (DESIGN.md section 6), and a header appearing in a diff
     nobody asked for is exactly the surprise that rule is against.
     """
-    return f"{schema.header()}\nversion: {manifests.SUPPORTED_VERSION}\n"
+    return f"{schema.header()}\nversion: {manifests.BASELINE}\n"
 
 
 @dataclass(frozen=True)
@@ -301,7 +301,10 @@ def unsubscribe(found: Manifest, subscription: Subscription) -> Manifest:
     if not block:
         del document[kind.value]
         document.ca.items.pop(kind.value, None)
-    return _reparsed(found)
+    left = _reparsed(found)
+    if any(entry.source == subscription.source for entry in left.subscriptions):
+        return left
+    return forget_source(left, subscription.source)
 
 
 def _rename_key(node: CommentedMap, old: str, new: str) -> None:
@@ -326,14 +329,63 @@ def _rename_key(node: CommentedMap, old: str, new: str) -> None:
 
 def repin(found: Manifest, *, kind: Kind, key: str, pin: str, comment: str | None = None) -> Manifest:
     """Move one key's commit, and say in the comment what it now follows."""
+    source, _ = manifests.split_pin(key)
+    return rekey(found, kind=kind, key=key, to=f"{source}{manifests.PIN}{pin}", comment=comment)
+
+
+def rekey(found: Manifest, *, kind: Kind, key: str, to: str, comment: str | None = None) -> Manifest:
+    """Replace one key, pin included, with the kits under it and its place in the block kept.
+
+    What `update` does when the branch a key followed has landed somewhere
+    else: the source changes as well as the commit, and nothing else does.
+    """
     block = found.document[kind.value]
     entry = _entry_for(block, key)
     if entry is None:  # pragma: no cover - the caller read this key out of this file
         raise UsageError(f"{found.path}: `{key}` is not in this manifest")
     node, at = entry
-    source, _ = manifests.split_pin(at)
-    _rename_key(node, at, f"{source}{manifests.PIN}{pin}")
-    _comment(node, f"{source}{manifests.PIN}{pin}", comment)
+    _rename_key(node, at, to)
+    _comment(node, to, comment)
+    return _reparsed(found)
+
+
+def describe_source(found: Manifest, source: str, origin: manifests.Origin) -> Manifest:
+    """Write what is known about one source under `sources:`, raising the file's version to hold it.
+
+    Placed before `harnesses:` for the reason a kind block is: the harness list
+    reads as the file's footer.
+    """
+    document = found.document
+    document["version"] = max(document["version"], manifests.SOURCES_VERSION)
+    block = document.get(manifests.SOURCES)
+    if not isinstance(block, CommentedMap):
+        block = CommentedMap()
+        keys = [str(key) for key in document]
+        position = keys.index("harnesses") if "harnesses" in keys else len(keys)
+        document.insert(position, manifests.SOURCES, block)
+    about = CommentedMap()
+    if origin.pull_request is not None:
+        about[manifests.PULL_REQUEST] = origin.pull_request
+    if origin.merges_into is not None:
+        about[manifests.MERGES_INTO] = origin.merges_into
+    block[source] = about
+    return _reparsed(found)
+
+
+def forget_source(found: Manifest, source: str) -> Manifest:
+    """Take one source out of `sources:`, and the block with it when it was the last.
+
+    The version stays where it is. Lowering it would be a second edit to a line
+    nobody asked about, and a file at version 2 with no `sources:` is valid.
+    """
+    document = found.document
+    block = document.get(manifests.SOURCES)
+    if not isinstance(block, CommentedMap) or source not in block:
+        return found
+    del block[source]
+    if not block:
+        del document[manifests.SOURCES]
+        document.ca.items.pop(manifests.SOURCES, None)
     return _reparsed(found)
 
 
@@ -414,8 +466,11 @@ __all__ = [
     "Wanted",
     "blank",
     "choose",
+    "describe_source",
     "empty",
+    "forget_source",
     "name_harness",
+    "rekey",
     "repin",
     "subscribe",
     "unname_harness",

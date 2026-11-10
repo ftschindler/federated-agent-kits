@@ -266,7 +266,7 @@ class TestTheRefusals:
     """
 
     def test_a_malformed_manifest_is_not_a_refusal(self) -> None:
-        assert refusal("version: 2\n").exit_code == Exit.ERROR
+        assert refusal("version: 3\n").exit_code == Exit.ERROR
 
     def test_an_unknown_kind(self) -> None:
         error = refusal("version: 1\nprompts:\n  a/b: [x]\n")
@@ -284,7 +284,7 @@ class TestTheRefusals:
         assert (error.line, "written as a list" in error.problem) == (2, True)
 
     def test_a_version_this_build_does_not_know(self) -> None:
-        assert refusal("version: 2\n").line == 1
+        assert refusal("version: 3\n").line == 1
 
     def test_no_version_at_all(self) -> None:
         assert "no `version:` key" in refusal("skills:\n  a/b: [x]\n").problem
@@ -346,7 +346,7 @@ class TestTheRefusals:
     def test_every_refusal_carries_a_fix(self) -> None:
         # A check that says what is wrong and not what to do is a check people
         # work around by rewriting the file.
-        for text in ("", "version: 2\n", "version: 1\nprompts: {}\n", "version: 1\nrules:\n  a/b: x\n"):
+        for text in ("", "version: 3\n", "version: 1\nprompts: {}\n", "version: 1\nrules:\n  a/b: x\n"):
             assert refusal(text).fix.strip()
 
 

@@ -26,7 +26,7 @@ from ruamel.yaml import YAML
 
 from federated_agent_kits import editing
 from federated_agent_kits import schema as published
-from federated_agent_kits.manifest import SUPPORTED_VERSION, ManifestError, Scope, parse
+from federated_agent_kits.manifest import READABLE, SUPPORTED_VERSION, ManifestError, Scope, parse
 
 pytestmark = pytest.mark.unit
 
@@ -68,6 +68,15 @@ rules:
 """,
     "a path source, which has no pin": "version: 1\nskills:\n  ./kits: writing\n",
     "an empty block, which a withdrawal can leave behind for a moment": "version: 1\nskills: {}\nrules: []\n",
+    "version 2 without anything only it can hold": "version: 2\n",
+    "a pull request being followed": """version: 2
+skills:
+  https://github.com/fork/repo/tree/feat%2Fx#9f2c1ab: writing  # frozen: feat/x, 2026-11-10
+sources:
+  https://github.com/fork/repo/tree/feat%2Fx:
+    pr: owner/repo#16
+    merges-into: https://github.com/owner/repo/tree/main
+""",
 }
 
 #: Every refusal in `manifest.py` that is a fact about this file alone. Each of
@@ -77,7 +86,7 @@ REFUSED: dict[str, str] = {
     "an empty file": "",
     "a document that is a list": "- version: 1\n",
     "no version": "skills:\n  owner/repo: writing\n",
-    "a version this build does not read": "version: 2\n",
+    "a version this build does not read": "version: 3\n",
     "a key a manifest does not have": "version: 1\nharness: [detected]\n",
     "rules written as a mapping, which has no order": "version: 1\nrules:\n  owner/repo: prose-style\n",
     "skills written as a list": "version: 1\nskills:\n- owner/repo: writing\n",
@@ -95,6 +104,11 @@ skills:
     "a harness entry that is not a mapping of kinds": "version: 1\nharnesses:\n- {copilot-ci: instructions}\n",
     "a harness naming something that is not a kind": "version: 1\nharnesses:\n- {copilot-ci: {prompts: instructions}}\n",
     "a destination that is not a name": "version: 1\nharnesses:\n- {copilot-ci: {rules: [instructions]}}\n",
+    "sources at version 1": "version: 1\nsources:\n  owner/repo:\n    pr: owner/repo#1\n",
+    "sources that is a list": "version: 2\nsources:\n- owner/repo\n",
+    "a source that says nothing": "version: 2\nsources:\n  owner/repo: {}\n",
+    "a source carrying a key it has no use for": "version: 2\nsources:\n  owner/repo:\n    branch: main\n",
+    "a pull request that is not a string": "version: 2\nsources:\n  owner/repo:\n    pr: [16]\n",
 }
 
 
@@ -132,7 +146,8 @@ def test_both_readers_refuse_the_same_malformed_files(text: str, validator: Vali
 
 def test_the_schema_pins_the_version_this_build_reads() -> None:
     document = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
-    assert document["properties"]["version"]["const"] == SUPPORTED_VERSION
+    assert document["properties"]["version"]["enum"] == list(READABLE)
+    assert max(READABLE) == SUPPORTED_VERSION
 
 
 def test_the_published_url_names_the_file_that_is_in_this_repository() -> None:

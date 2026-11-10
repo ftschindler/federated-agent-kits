@@ -296,9 +296,14 @@ COMMANDS: tuple[Command, ...] = (
             "pin for some names under a key and not others, and it writes nothing at all "
             "when the fetch fails."
         ),
-        examples=("akit update", "akit update fkb"),
+        examples=("akit update", "akit update fkb", "akit update fkb --to main"),
         arguments=(
             Argument(("name",), "The subscription to update; all of them when omitted", nargs="?"),
+            Argument(
+                ("--to",),
+                "Follow this branch from now on, in the repository a pull request merges into",
+                metavar="BRANCH",
+            ),
             *SCOPE_FLAGS,
         ),
         following="akit list, to confirm the new pins",
@@ -386,6 +391,11 @@ TOPICS: tuple[Topic, ...] = (
             "and an entry may be a mapping where a harness reads a kind from more than one\n"
             "place: `{copilot-ci: {rules: instructions}}`. See `akit help harnesses`.\n"
             "\n"
+            "A last key, `sources:`, is written by `akit add` of a pull request and needs\n"
+            "`version: 2`. Under each source key it records `pr:`, the pull request, and\n"
+            "`merges-into:`, the branch it lands on, so that `akit update` can follow the\n"
+            "kit there once the pull request's branch is gone. See `akit help sources`.\n"
+            "\n"
             "The format is published as a JSON Schema, so an editor can underline a mistake\n"
             "as you make it and a `check-jsonschema` hook can fail a commit that carries one.\n"
             "A manifest this command creates is written with the\n"
@@ -405,6 +415,15 @@ TOPICS: tuple[Topic, ...] = (
             "it. It needs no manifest, no registration and no cooperation, and it never\n"
             "learns that you subscribed. A key names one in five forms: a forge shorthand, a\n"
             "forge URL, a git URL, a URL into a subdirectory, or a path on this disk.\n"
+            "\n"
+            "`akit add` and `akit discover` also take a GitHub pull request URL,\n"
+            "`https://github.com/org/repo/pull/16`. They ask GitHub once, through `gh` or a\n"
+            "`GH_TOKEN`, which branch it is and where it merges, and subscribe to that branch.\n"
+            "From then on `akit update` follows the branch, and once the branch is deleted\n"
+            "and its kits are found in the target, follows the target instead. When they\n"
+            "are not, it stops and names `akit update <name> --to <branch>`. A branch with a\n"
+            "slash in it is written `/tree/feat%2Fx/<directory>`, and `add` writes it that way\n"
+            "for you.\n"
             "\n"
             "Parts are found by walking the fixed directories for each kind, three levels\n"
             "deep, plus whatever directories an installed adapter declares. A part nearer the\n"

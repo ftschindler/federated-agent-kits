@@ -22,14 +22,14 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, TextIO
 
 from federated_agent_kits import adapters, cache, discovery, manifest, record, sources
 from federated_agent_kits.adapters import Adapter
 from federated_agent_kits.exits import AkitError, Exit
-from federated_agent_kits.manifest import Kind, Merged, Scope, Subscription
+from federated_agent_kits.manifest import Kind, Merged, Origin, Scope, Subscription
 from federated_agent_kits.reporting import (
     INDENT,
     KIND_TITLE,
@@ -109,6 +109,9 @@ class Line:
     found: tuple[Found, ...]
     problem: str | None
     """What went wrong on this line alone. Everything else still printed."""
+
+    origin: Origin = field(default_factory=Origin)
+    """What the manifest says about the source beyond its key: the pull request it follows."""
 
 
 @dataclass(frozen=True)
@@ -327,7 +330,9 @@ def survey(
     written = record.load_all(start, state_root=state_root)
     harnesses, chosen = _harness_lines(merged, home)
     reading = _Reading(start=start, home=home, cache_root=cache_root, written=written, chosen=chosen)
-    lines = tuple(reading.line(subscription) for subscription in merged.subscriptions)
+    lines = tuple(
+        replace(reading.line(subscription), origin=merged.origin(subscription)) for subscription in merged.subscriptions
+    )
     collisions = tuple(
         Collision(kind=kind, name=name, wanted_by=wanted)
         for (kind, name), wanted in sorted(merged.collisions().items())
@@ -395,6 +400,9 @@ def _print_by_source(lines: tuple[Line, ...], out: TextIO, style: Style) -> None
         print(f"From {style.source(source)}{pin}:", file=out)
         if where:
             print(f"{INDENT}read from {style.place(where)}", file=out)
+        followed = together[0].origin
+        if followed.pull_request is not None:
+            print(f"{INDENT}pull request {followed.pull_request}, merging into {followed.merges_into}", file=out)
         for line in together:
             kind = line.subscription.kind
             for part in line.found:
@@ -528,6 +536,8 @@ def payload(inventory: Inventory) -> dict[str, Any]:
                 "resolved_to": None if line.where is None else str(line.where),
                 "commit": line.commit,
                 "problem": line.problem,
+                "pull_request": line.origin.pull_request,
+                "merges_into": line.origin.merges_into,
                 "parts": [
                     {
                         "name": part.name,

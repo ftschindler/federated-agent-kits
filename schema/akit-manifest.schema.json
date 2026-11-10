@@ -8,8 +8,8 @@
   "additionalProperties": false,
   "properties": {
     "version": {
-      "description": "The manifest format. One version exists; a file naming another is refused rather than read optimistically.",
-      "const": 1
+      "description": "The manifest format. Version 2 adds `sources:` and nothing else, and akit writes 1 until a file needs it, so an older akit can still read what this one wrote. A file naming any other version is refused rather than read optimistically.",
+      "enum": [1, 2]
     },
     "harnesses": {
       "description": "Who gets rendered for. Absent means [detected], which is every harness found on this machine. `detected` is a name like any other in the list, so naming one more harness does not turn the rest off.",
@@ -33,9 +33,35 @@
     "agents": {
       "description": "Agent definitions, as a mapping of source key to the kits wanted from it.",
       "$ref": "#/$defs/block"
+    },
+    "sources": {
+      "description": "What is known about a source beyond its key, keyed by the source key without its pin. Written by `akit add` of a pull request so that every later command knows what the forge said without asking it again. Needs `version: 2`.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/origin" }
     }
   },
+  "dependentSchemas": {
+    "sources": { "properties": { "version": { "const": 2 } } }
+  },
   "$defs": {
+    "origin": {
+      "description": "Where a source came from and where it is going.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "pr": {
+          "description": "The pull request this source's branch belongs to, as `owner/repo#16`.",
+          "type": "string",
+          "minLength": 1
+        },
+        "merges-into": {
+          "description": "The source key of the branch the pull request merges into. `akit update` moves a subscription there once its own branch is deleted and its kits are found in this one.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
     "block": {
       "description": "One kind's subscriptions, keyed by source. A key names a git repository in any of the forms `akit help sources` lists, and may carry a `#<commit>` pin.",
       "type": "object",
