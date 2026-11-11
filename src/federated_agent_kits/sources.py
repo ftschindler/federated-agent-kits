@@ -21,11 +21,11 @@ directory to look in, which is discovery's business and not the cache's.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 from federated_agent_kits.exits import AkitError
 
@@ -38,6 +38,12 @@ DEFAULT_FORGE = "github.com"
 #: which splits into these two in order.
 TREE = "tree"
 GITLAB_SEPARATOR = "-"
+
+#: The segment GitHub puts before a pull request's number, and the one GitLab
+#: puts before a merge request's. The first is turned into its branch by
+#: `forges.py`; the second is refused with the branch-shaped URL to use instead.
+PULL = "pull"
+MERGE_REQUESTS = "merge_requests"
 
 #: Suffixes that make a URL a file rather than a repository. A manifest records
 #: which revision you have, and none of these has one: updating a `SKILL.md` at
@@ -116,9 +122,46 @@ class SourceKey:
     subdirectory: str | None = None
     """The directory inside the source a key selected, or `None` for the whole of it."""
 
+    tree: str | None = None
+    """Everything after `/tree/`, kept where it could split more than one way.
+
+    A branch may hold a slash and a URL cannot say where the branch ends and the
+    directory begins: `/tree/feat/x/skills` is `feat` with `x/skills` in it, or
+    `feat/x` with `skills`. Parsing is offline and takes the first segment,
+    which is what it always did; a command that may ask the remote calls
+    `with_branch` once it knows. A key written with the slash escaped,
+    `/tree/feat%2Fx/skills`, has one reading and leaves this `None`.
+    """
+
+    pull: int | None = None
+    """The pull request a `/pull/<n>` URL named, which a forge has to turn into a branch."""
+
     @property
     def is_remote(self) -> bool:
         return self.kind is SourceKind.REMOTE
+
+    def tree_branches(self) -> tuple[str, ...]:
+        """Every branch name this key's `/tree/` path could hold, longest first."""
+        if self.tree is None:
+            return ()
+        segments = self.tree.split("/")
+        return tuple("/".join(segments[:end]) for end in range(len(segments), 0, -1))
+
+    def with_branch(self, branch: str) -> SourceKey:
+        """This key, read with `branch` as the ref, and spelled so that it reads that way again.
+
+        The raw key is rewritten with the branch's slashes escaped, because the
+        raw key is what a manifest records, and the manifest is read by commands
+        that do not go near the remote to find out.
+        """
+        rest = self.tree if self.tree is not None else "/".join(filter(None, (self.ref, self.subdirectory)))
+        if rest != branch and not rest.startswith(f"{branch}/"):
+            raise ValueError(f"{branch} is not a reading of {rest}")
+        inside = rest[len(branch) :].strip("/") or None
+        head = self.raw.rpartition(f"/{TREE}/")[0]
+        spelled = quote(branch, safe="")
+        raw = f"{head}/{TREE}/{spelled}" + (f"/{inside}" if inside else "")
+        return replace(self, raw=raw, ref=branch, subdirectory=inside, tree=None)
 
     @property
     def cache_slug(self) -> str:
@@ -178,15 +221,16 @@ def _refuse_a_file(key: str, path: str, segments: list[str]) -> None:
         )
 
 
-def _split_forge_path(key: str, segments: list[str]) -> tuple[list[str], str | None, str | None]:
-    """A forge URL's path into `(repository, ref, subdirectory)`.
+def _split_forge_path(key: str, segments: list[str]) -> tuple[list[str], str | None, str | None, str | None]:
+    """A forge URL's path into `(repository, ref, subdirectory, tree)`.
 
     The two spellings differ by one segment: GitHub writes `/tree/<ref>/<path>`
     and GitLab writes `/-/tree/<ref>/<path>`, so the `-` is dropped and the rest
-    is read the same way.
+    is read the same way. `tree` is the whole of what follows, kept only when it
+    could also be read with a longer branch (`SourceKey.tree`).
     """
     if TREE not in segments:
-        return segments, None, None
+        return segments, None, None, None
     cut = segments.index(TREE)
     repository = segments[:cut]
     if repository and repository[-1] == GITLAB_SEPARATOR:
@@ -198,8 +242,36 @@ def _split_forge_path(key: str, segments: list[str]) -> tuple[list[str], str | N
             "this ends at `/tree/` and names no branch",
             "Write `/tree/<branch>` for the whole repository, or `/tree/<branch>/<directory>` for one part of it.",
         )
-    ref, *inside = rest
-    return repository, ref, str(PurePosixPath(*inside)) if inside else None
+    spelled, *inside = rest
+    ref = unquote(spelled)
+    escaped = ref != spelled
+    tree = None if escaped or not inside else "/".join([ref, *inside])
+    return repository, ref, str(PurePosixPath(*inside)) if inside else None, tree
+
+
+def _pull_request(key: str, repository: list[str]) -> tuple[list[str], int | None]:
+    """`owner/repo/pull/<n>/...` into the repository and the number, or the path unchanged.
+
+    GitLab's merge requests are refused rather than half-supported: turning one
+    into its branch needs GitLab's API, which nothing here speaks yet, and the
+    branch is one click away on the page the URL came from.
+    """
+    if MERGE_REQUESTS in repository:
+        raise SourceError(
+            key,
+            "this names a GitLab merge request, which akit cannot turn into its branch yet",
+            "Name the merge request's source branch instead: `https://gitlab.com/<group>/<repo>/-/tree/<branch>`.",
+        )
+    if len(repository) > OWNER_AND_REPOSITORY and repository[OWNER_AND_REPOSITORY] == PULL:
+        number = repository[OWNER_AND_REPOSITORY + 1] if len(repository) > OWNER_AND_REPOSITORY + 1 else ""
+        if not number.isdigit():
+            raise SourceError(
+                key,
+                "this names a pull request without its number",
+                "Write the pull request as `https://github.com/<owner>/<repo>/pull/<number>`.",
+            )
+        return repository[:OWNER_AND_REPOSITORY], int(number)
+    return repository, None
 
 
 def _identity(host: str, repository: list[str]) -> str:
@@ -234,7 +306,8 @@ def _from_url(key: str, url: str) -> SourceKey:
             "this URL names no repository",
             "A source URL names an owner and a repository: `https://github.com/owner/repo`.",
         )
-    repository, ref, subdirectory = _split_forge_path(key, segments)
+    repository, ref, subdirectory, tree = _split_forge_path(key, segments)
+    repository, pull = _pull_request(key, repository)
     clone = f"{parsed.scheme}://{parsed.netloc}/{'/'.join(repository)}"
     return SourceKey(
         raw=key,
@@ -243,6 +316,8 @@ def _from_url(key: str, url: str) -> SourceKey:
         identity=_identity(parsed.netloc, repository),
         ref=ref,
         subdirectory=subdirectory,
+        tree=tree,
+        pull=pull,
     )
 
 
@@ -297,6 +372,17 @@ def parse(key: str) -> SourceKey:
     )
 
 
+def at_branch(repository: str, branch: str, subdirectory: str | None = None) -> str:
+    """The key for a forge repository at one branch, spelled so it reads one way only.
+
+    `repository` is a forge URL with nothing after the repository. The branch's
+    slashes are escaped, which is what lets a manifest hold `feat/x` and a
+    directory beside it and still be read without asking the remote.
+    """
+    tail = f"/{subdirectory}" if subdirectory else ""
+    return f"{repository.rstrip('/')}/{TREE}/{quote(branch, safe='')}{tail}"
+
+
 def local_path(source: SourceKey, *, anchor: Path) -> Path:
     """Where a path source actually is, with a relative key read against `anchor`.
 
@@ -330,6 +416,7 @@ __all__ = [
     "SourceError",
     "SourceKey",
     "SourceKind",
+    "at_branch",
     "escapes",
     "local_path",
     "parse",

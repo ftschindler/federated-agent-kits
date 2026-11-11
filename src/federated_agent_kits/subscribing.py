@@ -221,6 +221,9 @@ class Movement:
     diff: str
     """Empty when the pin moved and nothing under it that you subscribe to did."""
 
+    onto: str | None = None
+    """The key it follows from now on, where the branch it followed has landed elsewhere."""
+
     @property
     def changed(self) -> bool:
         return bool(self.diff.strip())
@@ -229,7 +232,8 @@ class Movement:
     def heading(self) -> str:
         """What the diff below it is a diff of, which a bare `diff --git` does not say."""
         was = "an unpinned key" if self.was is None else self.was[:SHORT]
-        return f"{self.kind.value} from {self.source}, {was} to {self.now[:SHORT]}"
+        onto = "" if self.onto is None else f" on {self.onto}"
+        return f"{self.kind.value} from {self.source}, {was} to {self.now[:SHORT]}{onto}"
 
 
 @dataclass(frozen=True)
@@ -335,16 +339,18 @@ def add(call: Call, *, source: str, name: str, rename: str | None = None, kind: 
     hold, and the manifest is byte-identical afterwards.
     """
     chosen = call.chosen()
-    raw, ref = manifests.split_pin(source)
-    key = sources.parse(raw)
+    asked = discovering.named(source)
+    raw = asked.key.raw
     anchor = _anchor(chosen.scope, call.start, call.places.home)
-    found = discovering.fetch(key, ref, anchor=anchor, cache_root=call.places.cache, state_root=call.places.state)
+    found = discovering.fetch(
+        asked.key, asked.ref, anchor=anchor, cache_root=call.places.cache, state_root=call.places.state
+    )
     root, pin, comment = found.root, found.commit, found.comment
     holding = _kinds_holding(root, name, kind)
     if not holding:
         wanted = "" if kind is None else f", as a {SINGULAR[kind]}"
         raise UsageError(
-            f"{raw} holds no kit called `{name}`{wanted}.\n{discovering.described(discovering.offers(root))}"
+            f"{asked.typed} holds no kit called `{name}`{wanted}.\n{discovering.described(discovering.offers(root))}"
         )
     written = chosen.manifest
     notes: list[Note] = []
@@ -383,6 +389,17 @@ def add(call: Call, *, source: str, name: str, rename: str | None = None, kind: 
             Note(
                 f"Subscribed: {SINGULAR[holds]} `{rendered}` from {raw}{where}.",
                 {"kind": str(holds), "name": rendered, "source": raw, "pin": pin, "status": "added"},
+            )
+        )
+    pull = asked.pull_request
+    if changed and pull is not None:
+        origin = manifests.Origin(pull_request=pull.name, merges_into=pull.target)
+        written = editing.describe_source(written, raw, origin)
+        notes.append(
+            Note(
+                f"Following pull request {pull.name} on its branch; `akit update` moves to {pull.target} "
+                "once the branch is gone and its kits have landed there.",
+                {"pull_request": pull.name, "follows": raw, "merges_into": pull.target, "status": "following"},
             )
         )
     return _finish(call, chosen, _Edit("add", written, notes, changed=changed))
@@ -668,6 +685,8 @@ class _Moved:
     pin: str | None
     comment: str | None
     diff: str
+    onto: str | None = None
+    """The source key that replaces this one, for a key whose branch landed elsewhere."""
 
 
 def _places_of(found: Iterable[discovery.Part]) -> tuple[str, ...]:
@@ -740,8 +759,176 @@ def _unmoved(entry: _Key, text: str, status: str, data: dict[str, Any]) -> _Move
     )
 
 
-def _update_key(entry: _Key, places: render.Directories, anchor: Path) -> _Moved:
+@dataclass(frozen=True)
+class _Asked:
+    """What one run of `update` brings to every key: where things are, and what was typed."""
+
+    places: render.Directories
+    anchor: Path
+    to: str | None = None
+    """`--to`: the branch every key this run touches follows from now on."""
+
+
+def _target(entry: _Key, origin: manifests.Origin, branch: str) -> SourceKey:
+    """The key a subscription moves to: `branch`, in the repository the pull request merges into.
+
+    A key that came from no pull request moves within its own repository. The
+    directory a key selected comes along, because the kits are expected to sit
+    where they sat. A key with no forge layout cannot be given a branch at all,
+    and saying so here is better than writing one that reads differently.
+    """
+    key = sources.parse(entry.source)
+    base = key.url if origin.merges_into is None else sources.parse(origin.merges_into).url
+    moved = sources.parse(sources.at_branch(base, branch, key.subdirectory))
+    if moved.ref != branch:
+        raise UsageError(
+            f"{entry.source} is not a forge URL, so it cannot be pointed at a branch by name.\n"
+            f"  Pin it yourself instead: akit add '{entry.source}#{branch}' <kit>"
+        )
+    return moved
+
+
+def _same_parts(entry: _Key, key: SourceKey, target: SourceKey, landed: Fetched, places: render.Directories) -> bool:
+    """Whether every part this key names is the same, byte for byte, at the target's tip.
+
+    The check that survives a squash merge, which rewrites every commit and
+    leaves the content alone. It compares git's own object ids for each part's
+    directory, which name content rather than history and so mean the same
+    thing in a fork as in the repository it merged into.
+
+    The target's parts are read first. A pull request from a branch of the
+    same repository shares one clone with its target, and reading the pinned
+    commit checks that clone out at it.
+    """
+    new = _diff_paths(target, [part for name in entry.names for part in _parts(landed.root, entry.kind, name)])
+    pin = entry.pin or ""
+    try:
+        resolved = cache.resolve(key, pin=pin, anchor=places.home, cache_root=places.cache, offline=True)
+    except cache.CacheError:
+        return False
+    old = _diff_paths(key, [part for name in entry.names for part in _parts(resolved.root, entry.kind, name)])
+    inside = [path.removeprefix(_prefix(key)) for path in old]
+    if not old or inside != [path.removeprefix(_prefix(target)) for path in new]:
+        return False
+    return all(
+        cache.object_id(key, pin, was, cache_root=places.cache)
+        == cache.object_id(target, landed.commit, now, cache_root=places.cache)
+        for was, now in zip(old, new, strict=True)
+    )
+
+
+def _prefix(key: SourceKey) -> str:
+    return "" if key.subdirectory is None else f"{key.subdirectory}/"
+
+
+def _branch_gone(entry: _Key, key: SourceKey, origin: manifests.Origin, asked: _Asked) -> _Moved:
+    """A key whose branch the remote no longer has: landed and followed, or stopped with the ways out.
+
+    Git alone decides, because the forge was asked once when this was added and
+    its answer is in the manifest. The kits have landed when the pinned commit
+    is in the target's history, which a merge or a fast-forward leaves, or when
+    every part is identical at the target's tip, which is what a squash leaves.
+    Anything else stops: an abandoned pull request's branch is deleted too, and
+    following its target then would subscribe somebody to what they never chose.
+    """
+    if origin.merges_into is not None and entry.pin is not None:
+        target = _target(entry, origin, sources.parse(origin.merges_into).ref or "")
+        try:
+            landed = cache.refresh(target, ref=target.ref, cache_root=asked.places.cache)
+        except cache.MissingRefError:
+            landed = None
+        if landed is None:
+            return _gone(entry, key, origin)
+        gone = f"its branch `{key.ref}` is gone and"
+        if cache.contains(target, entry.pin, landed.commit, cache_root=asked.places.cache):
+            said = f"{gone} {origin.pull_request or 'its last commit'} was merged into {target.ref}"
+        elif _same_parts(entry, key, target, landed, asked.places):
+            said = f"{gone} what it subscribes to is identical at the tip of {target.ref}"
+        else:
+            return _gone(entry, key, origin)
+        discovering.classify(target, landed.privacy, asked.places.state)
+        return _switched(entry, key, landed, said, asked.places)
+    return _gone(entry, key, origin)
+
+
+def _gone(entry: _Key, key: SourceKey, origin: manifests.Origin) -> _Moved:
+    """The refusal for a deleted branch, naming what it was and the three ways on."""
+    pin = (entry.pin or "")[:SHORT]
+    name = entry.names[0]
+    pull = "" if origin.pull_request is None else f" (pull request {origin.pull_request})"
+    if origin.merges_into is None:
+        why = "and nothing in the manifest says where it went"
+        branch = "<branch>"
+    else:
+        target = sources.parse(origin.merges_into)
+        why = f"and akit could not confirm its kits landed in {target.ref} of {target.url}"
+        branch = target.ref or "<branch>"
+    return _Moved(
+        note=Note(
+            f"{entry.kind.value}: {entry.source} used to track the branch `{key.ref}`{pull}, which is now deleted, "
+            f"{why}, so its pin stays at {pin}.\n"
+            f"  It may have been merged with its kits changed on the way, or abandoned. Three ways on:\n"
+            f"    akit update {name} --to {branch}   # follow {branch} from now on\n"
+            f"    akit remove {name}   # drop it\n"
+            f"    leave it pinned at {pin} by not updating it",
+            {
+                "source": entry.source,
+                "kind": str(entry.kind),
+                "status": "stopped",
+                "reason": "branch deleted",
+                "branch": key.ref,
+                "pull_request": origin.pull_request,
+                "merges_into": origin.merges_into,
+            },
+        ),
+        pin=None,
+        comment=None,
+        diff="",
+    )
+
+
+def _switched(entry: _Key, key: SourceKey, fetched: Fetched, why: str, places: render.Directories) -> _Moved:
+    """A key that follows another branch from now on, with what moved under it.
+
+    The diff is shown where the two branches share a clone, which is every pull
+    request from a branch of the same repository. Across a fork there is no one
+    clone holding both commits, and the move is reported without one.
+    """
+    target = fetched.source
+    found = {name: _parts(fetched.root, entry.kind, name) for name in entry.names}
+    missing = sorted(name for name, parts in found.items() if not parts and name != discovery.WILDCARD)
+    if missing:
+        return _stopped(entry, fetched, missing)
+    diff = ""
+    if entry.pin is not None and key.identity == target.identity:
+        every = [part for parts in found.values() for part in parts]
+        diff = cache.difference(target, entry.pin, fetched.commit, _diff_paths(target, every), cache_root=places.cache)
+    was = "an unpinned key" if entry.pin is None else entry.pin[:SHORT]
+    return _Moved(
+        note=Note(
+            f"{entry.kind.value}: {entry.source} now follows {target.raw}, because {why}. "
+            f"It moves from {was} to {fetched.commit[:SHORT]}.",
+            {
+                "source": entry.source,
+                "kind": str(entry.kind),
+                "status": "moved",
+                "from": entry.pin,
+                "to": fetched.commit,
+                "ref": fetched.ref,
+                "onto": target.raw,
+                "changed": bool(diff.strip()),
+            },
+        ),
+        pin=fetched.commit,
+        comment=discovering.frozen_comment(fetched),
+        diff=diff,
+        onto=target.raw,
+    )
+
+
+def _update_key(entry: _Key, origin: manifests.Origin, asked: _Asked) -> _Moved:
     """One key, asked what moved, and answered without ever editing a name."""
+    places, anchor = asked.places, asked.anchor
     key = sources.parse(entry.source)
     if not key.is_remote:
         return _unmoved(
@@ -750,8 +937,18 @@ def _update_key(entry: _Key, places: render.Directories, anchor: Path) -> _Moved
             "path",
             {},
         )
+    if asked.to is not None:
+        target = _target(entry, origin, asked.to)
+        fetched = cache.refresh(target, ref=target.ref, cache_root=places.cache)
+        discovering.classify(target, fetched.privacy, places.state)
+        return _switched(entry, key, fetched, f"it was asked to follow `{asked.to}`", places)
     before = _before(entry, places, anchor)
-    fetched = cache.refresh(key, ref=key.ref, cache_root=places.cache)
+    try:
+        fetched = cache.refresh(key, ref=key.ref, cache_root=places.cache)
+    except cache.MissingRefError:
+        if key.ref is None:
+            raise
+        return _branch_gone(entry, key, origin, asked)
     discovering.classify(key, fetched.privacy, places.state)
     if fetched.commit == entry.pin:
         return _unmoved(
@@ -804,7 +1001,7 @@ def _said(moved: _Moved) -> str:
     return PROGRESS.get(status, status)
 
 
-def update(call: Call, *, name: str | None = None, watching: Watcher = UNWATCHED) -> Outcome:
+def update(call: Call, *, name: str | None = None, watching: Watcher = UNWATCHED, to: str | None = None) -> Outcome:
     """Fetch, move the pins that may move, and say what changed under each one.
 
     Three things happen here and the slow one is in the middle. Reading the
@@ -820,8 +1017,15 @@ def update(call: Call, *, name: str | None = None, watching: Watcher = UNWATCHED
     which this says in one sentence; it is `add` that has to refuse, because
     `add` is the one with something to put in a file it would be creating.
     """
+    if to is not None and name is None:
+        raise UsageError(
+            "--to moves a subscription onto another branch, and needs the name of the one to move.\n"
+            f"  akit update <name> --to {to}"
+        )
     chosen = call.chosen(creating=False)
     keys = _keys(chosen.manifest, name)
+    asked = _Asked(places=call.places, anchor=_anchor(chosen.scope, call.start, call.places.home), to=to)
+    left: set[str] = set()
     watching.starting(chosen.path, subscriptions=len(chosen.manifest.subscriptions), keys=len(keys))
     column = Column.of([_named(entry) for entry in keys], watching.style)
     written = chosen.manifest
@@ -830,12 +1034,22 @@ def update(call: Call, *, name: str | None = None, watching: Watcher = UNWATCHED
     movements: list[Movement] = []
     changed = False
     for entry in keys:
-        moved = _update_key(entry, call.places, _anchor(chosen.scope, call.start, call.places.home))
+        moved = _update_key(entry, chosen.manifest.origin(entry.source), asked)
         watching.resolved(entry, _said(moved), column)
         notes.append(moved.note)
         if moved.pin is None:
             continue
-        written = editing.repin(written, kind=entry.kind, key=entry.key, pin=moved.pin, comment=moved.comment)
+        if moved.onto is None:
+            written = editing.repin(written, kind=entry.kind, key=entry.key, pin=moved.pin, comment=moved.comment)
+        else:
+            written = editing.rekey(
+                written,
+                kind=entry.kind,
+                key=entry.key,
+                to=f"{moved.onto}{manifests.PIN}{moved.pin}",
+                comment=moved.comment,
+            )
+            left.add(entry.source)
         changed = True
         movements.append(
             Movement(
@@ -845,10 +1059,13 @@ def update(call: Call, *, name: str | None = None, watching: Watcher = UNWATCHED
                 now=moved.pin,
                 ref=str(moved.note.data.get("ref", "")),
                 diff=moved.diff,
+                onto=moved.onto,
             )
         )
         if moved.diff.strip():
             diffs.append(moved.diff)
+    for source in sorted(left):
+        written = editing.forget_source(written, source)
     watching.finished(keys=len(keys))
     return _finish(call, chosen, _Edit(UPDATE, written, notes, changed=changed, diffs=diffs, moved=movements))
 
@@ -968,6 +1185,22 @@ def _print_nothing_found(outcome: Outcome, out: TextIO, style: Style) -> None:
     print(f"No subscriptions found in {style.place(where)}, not looking for updates.", file=out)
 
 
+def _print_followed(outcome: Outcome, out: TextIO, style: Style) -> None:
+    """Keys that follow another branch from now on, each with the reason it moved.
+
+    Its own section because it is a different change from a pin moving: the
+    manifest now names another branch, often another repository, and a person
+    reading the report should not have to find that out from `akit list`.
+    """
+    followed = [note for note in outcome.notes if note.data.get("onto")]
+    if not followed:
+        return
+    section("Now following another branch", out, style)
+    for note in followed:
+        wrapped(f"- {note.text}", [], out, indent="")
+    print("", file=out)
+
+
 def _print_stopped(outcome: Outcome, out: TextIO, style: Style) -> None:
     """Keys whose pin stayed put because a part they name is gone from the source."""
     stopped = _stopped_notes(outcome)
@@ -1027,6 +1260,7 @@ def text(outcome: Outcome, out: TextIO, *, style: Style | None = None) -> None:
         print("", file=out)
     elif outcome.command == UPDATE:
         _print_upstream(outcome, out, shown)
+        _print_followed(outcome, out, shown)
         _print_stopped(outcome, out, shown)
     else:
         _print_edit(outcome, out, shown)
@@ -1051,6 +1285,7 @@ def payload(outcome: Outcome) -> dict[str, Any]:
                 "ref": movement.ref,
                 "changed": movement.changed,
                 "diff": movement.diff,
+                "onto": movement.onto,
             }
             for movement in outcome.moved
         ],

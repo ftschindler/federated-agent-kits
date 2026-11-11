@@ -167,7 +167,7 @@ class TestWhatItPrints:
     ):
         report = printed(look(remote, places, tmp_path))
 
-        assert f"Next: akit add {remote} fkb" in report
+        assert f"Next: akit add {remote} <kit>" in report
 
     def test_a_source_holding_nothing_says_so_and_points_at_the_topic(self, tmp_path: Path, places: render.Directories):
         empty = local_remote(tmp_path / "empty", {"README.md": "nothing here\n"})

@@ -34,6 +34,7 @@ from pathlib import Path
 from platformdirs import user_config_path
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap, CommentedSeq
+from ruamel.yaml.emitter import Emitter
 from ruamel.yaml.error import MarkedYAMLError
 
 from federated_agent_kits.exits import AkitError
@@ -42,10 +43,29 @@ APPLICATION = "akit"
 USER_MANIFEST = "manifest.yaml"
 PROJECT_MANIFEST = ".akit.yaml"
 
-#: The only schema version this build understands. A manifest naming another one
-#: is refused rather than read optimistically: the failure of guessing is a
-#: subscription silently not rendering, which looks like nothing happening.
-SUPPORTED_VERSION = 1
+#: The newest schema version this build understands. A manifest naming one it
+#: does not know is refused rather than read optimistically: the failure of
+#: guessing is a subscription silently not rendering, which looks like nothing
+#: happening.
+SUPPORTED_VERSION = 2
+
+#: Every version this build reads. Version 2 adds `sources:` and nothing else.
+READABLE = (1, SUPPORTED_VERSION)
+
+#: What a new manifest is written as, and what one stays at until something in
+#: it needs more. The lowest version that holds the file is the one an older
+#: akit on a colleague's machine can still read.
+BASELINE = 1
+
+#: The version that can hold `sources:`, which is what a file is raised to the
+#: first time something is written there.
+SOURCES_VERSION = 2
+
+#: What `sources:` may say about one source. Both are written by `akit add` of a
+#: pull request, and read by `update` and `list`; nothing else needs them.
+PULL_REQUEST = "pr"
+MERGES_INTO = "merges-into"
+ABOUT_A_SOURCE = (PULL_REQUEST, MERGES_INTO)
 
 #: An absent `harnesses:` key means this, which is the ordinary repository.
 #: `detected` is a name like any other and expands in T4 (DESIGN.md section 6).
@@ -132,6 +152,21 @@ class Subscription:
         return self.name == "*"
 
 
+@dataclass(frozen=True)
+class Origin:
+    """What a manifest knows about one source beyond its key: where it came from and is going.
+
+    Written for a subscription to a pull request, so that every later command
+    knows what the forge said without asking it again (DESIGN.md section 6).
+    """
+
+    pull_request: str | None = None
+    """`owner/repo#16`, the name a person knows it by."""
+
+    merges_into: str | None = None
+    """The key of the branch it lands on, which `update` moves to once it has."""
+
+
 @dataclass
 class Manifest:
     """One file: what it subscribes to, which harnesses it names, and its own text.
@@ -156,8 +191,27 @@ class Manifest:
 
     document: CommentedMap = field(repr=False)
 
+    origins: Mapping[str, Origin] = field(default_factory=dict)
+    """What `sources:` says, by source key without its pin. Empty for nearly every file."""
+
     def of_kind(self, kind: Kind) -> tuple[Subscription, ...]:
         return tuple(entry for entry in self.subscriptions if entry.kind is kind)
+
+    def origin(self, source: str) -> Origin:
+        """What `sources:` says about one key, or an `Origin` that says nothing."""
+        return self.origins.get(source, Origin())
+
+
+class _Emitter(Emitter):
+    """ruamel's emitter, writing a long key as a key.
+
+    Past 128 characters ruamel writes a key in YAML's explicit `? key` form,
+    which is valid and which nobody reading a manifest expects. A pull request's
+    branch, with its slashes escaped and a pin after it, is that long without
+    trying. YAML allows an implicit key up to 1024 characters.
+    """
+
+    MAX_SIMPLE_KEY_LENGTH = 1024
 
 
 def _yaml() -> YAML:
@@ -168,6 +222,7 @@ def _yaml() -> YAML:
     # round-trip stops being byte-for-byte on exactly the files that are hardest
     # to notice it on.
     yaml.width = 4096
+    yaml.Emitter = _Emitter
     return yaml
 
 
@@ -176,6 +231,9 @@ def _yaml() -> YAML:
 #: know" branch at each of the dozen raise sites, none of which any input can
 #: reach, and a coverage gate then has to be argued with rather than met.
 UNKNOWN_LINE = 0
+
+#: The block that says something about a source rather than about a kit.
+SOURCES = "sources"
 
 
 def _line_of(node: object, key: object) -> int:
@@ -282,15 +340,15 @@ def _check_version(document: CommentedMap, path: Path | None) -> None:
             path,
             1,
             "no `version:` key",
-            f"Add `version: {SUPPORTED_VERSION}` as the first line.",
+            f"Add `version: {BASELINE}` as the first line.",
         )
     version = document["version"]
-    if version != SUPPORTED_VERSION:
+    if version not in READABLE:
         raise ManifestError(
             path,
             _line_of(document, "version"),
             f"`version: {version}` is not a version this build knows",
-            f"This build reads `version: {SUPPORTED_VERSION}`. Upgrade akit, or correct the file.",
+            f"This build reads `version: {SUPPORTED_VERSION}` and older. Upgrade akit, or correct the file.",
         )
 
 
@@ -356,26 +414,26 @@ def parse(text: str, *, scope: Scope, path: Path | None = None) -> Manifest:
             path,
             1,
             "the manifest is empty",
-            f"A manifest needs at least `version: {SUPPORTED_VERSION}`.",
+            f"A manifest needs at least `version: {BASELINE}`.",
         )
     if not isinstance(document, CommentedMap):
         raise ManifestError(
             path,
             1,
             f"the manifest is {_shape(document)}, not a mapping of keys",
-            f"A manifest starts with `version: {SUPPORTED_VERSION}` and then the kind blocks.",
+            f"A manifest starts with `version: {BASELINE}` and then the kind blocks.",
         )
 
     _check_version(document, path)
 
-    known = {"version", "harnesses", *(kind.value for kind in Kind)}
+    known = {"version", "harnesses", SOURCES, *(kind.value for kind in Kind)}
     for key in document:
         if str(key) not in known:
             raise ManifestError(
                 path,
                 _line_of(document, key),
                 f"`{key}:` is not a key a manifest has",
-                f"A manifest takes version, harnesses, and {', '.join(kind.value for kind in Kind)}.",
+                f"A manifest takes version, harnesses, {SOURCES}, and {', '.join(kind.value for kind in Kind)}.",
             )
 
     subscriptions: list[Subscription] = []
@@ -418,7 +476,49 @@ def parse(text: str, *, scope: Scope, path: Path | None = None) -> Manifest:
         harnesses=harnesses,
         doors=doors,
         document=document,
+        origins=_origins(document, path),
     )
+
+
+def _origins(document: CommentedMap, path: Path | None) -> dict[str, Origin]:
+    """`sources:`, read: one `Origin` per source key, refused where it says something else."""
+    if SOURCES not in document:
+        return {}
+    line = _line_of(document, SOURCES)
+    if document["version"] < SOURCES_VERSION:
+        raise ManifestError(
+            path,
+            line,
+            f"`{SOURCES}:` needs `version: {SOURCES_VERSION}`",
+            f"Raise the file to `version: {SOURCES_VERSION}`, which is what akit writes when it adds this block.",
+        )
+    block = document[SOURCES]
+    if not isinstance(block, CommentedMap):
+        raise ManifestError(
+            path,
+            line,
+            f"`{SOURCES}:` is {_shape(block)}, not a mapping of source to what is known about it",
+            f"Write `{SOURCES}:` with one source key beneath it and `{PULL_REQUEST}:` or `{MERGES_INTO}:` under that.",
+        )
+    found: dict[str, Origin] = {}
+    for key, about in block.items():
+        at = _line_of(block, key)
+        if not isinstance(about, CommentedMap) or not about or set(map(str, about)) - set(ABOUT_A_SOURCE):
+            raise ManifestError(
+                path,
+                at,
+                f"`{key}` under `{SOURCES}:` is not a mapping of {PULL_REQUEST} and {MERGES_INTO}",
+                f"A source takes `{PULL_REQUEST}:` and `{MERGES_INTO}:`, each a string, and nothing else.",
+            )
+        if not all(isinstance(value, str) for value in about.values()):
+            raise ManifestError(
+                path,
+                at,
+                f"`{key}` under `{SOURCES}:` has a value that is not a string",
+                f"Write `{PULL_REQUEST}: owner/repo#16` and `{MERGES_INTO}: <source key>`.",
+            )
+        found[str(key)] = Origin(pull_request=about.get(PULL_REQUEST), merges_into=about.get(MERGES_INTO))
+    return found
 
 
 def _harnesses(document: CommentedMap, path: Path | None) -> tuple[tuple[str, ...], dict[str, dict[Kind, str]]]:
@@ -593,6 +693,11 @@ class Merged:
         manifest = self.user if scope is Scope.USER else self.project
         return {} if manifest is None else manifest.doors
 
+    def origin(self, entry: Subscription) -> Origin:
+        """What the file a subscription came from says about its source under `sources:`."""
+        manifest = self.user if entry.scope is Scope.USER else self.project
+        return Origin() if manifest is None else manifest.origin(entry.source)
+
     def collisions(self) -> dict[tuple[Kind, str], tuple[Subscription, ...]]:
         """Every rendered name wanted by more than one subscription.
 
@@ -637,15 +742,22 @@ def load(start: Path, *, user_path: Path | None = None) -> Merged:
 
 
 __all__ = [
+    "BASELINE",
     "DEFAULT_HARNESSES",
+    "MERGES_INTO",
     "ORDERED",
     "PIN",
     "PROJECT_MANIFEST",
+    "PULL_REQUEST",
+    "READABLE",
+    "SOURCES",
+    "SOURCES_VERSION",
     "SUPPORTED_VERSION",
     "Kind",
     "Manifest",
     "ManifestError",
     "Merged",
+    "Origin",
     "Scope",
     "Subscription",
     "dump",

@@ -230,7 +230,7 @@ def writing_command(arguments: argparse.Namespace, out: TextIO) -> Exit:
     elif arguments.command == "harness":
         outcome = subscribing.harness(call, action=arguments.action, name=arguments.name, doors=chosen_doors(arguments))
     else:
-        outcome = subscribing.update(call, name=arguments.name, watching=watching(arguments))
+        outcome = subscribing.update(call, name=arguments.name, watching=watching(arguments), to=arguments.to)
     return subscribing.report(outcome, out, as_json=arguments.json)
 
 

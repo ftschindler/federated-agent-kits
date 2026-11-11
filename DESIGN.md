@@ -422,7 +422,20 @@ Any of these is a source:
 | A forge URL: GitHub, GitLab, Azure Repos | `https://github.com/org/repo` |
 | Any git URL | `git@github.com:org/repo.git`, `ssh://git@git.example.com/org/repo` |
 | A URL into a subdirectory, selecting one part | `https://github.com/org/repo/tree/main/skills/writing` |
+| A GitHub pull request, followed on its branch | `https://github.com/org/repo/pull/16` |
 | A local path | `../my-kits` |
+
+**A branch name may hold a slash, and a URL cannot say where it ends.** `/tree/feat/x/skills`
+is `feat` with `x/skills` inside it, or `feat/x` with `skills`. `add` and `discover` ask the
+remote once, longest reading first, and write the key with the branch's slashes escaped:
+`/tree/feat%2Fx/skills`. Every later command reads that one way without asking anybody. A
+key written by hand without the escape is read with the first segment as the branch, which is
+what it always meant.
+
+**A pull request is turned into its branch before anything is fetched.** That needs the
+forge, and how it is recorded is [§6](#a-pull-request-is-a-branch-with-somewhere-to-go). A
+GitLab merge request is refused with the `/-/tree/<branch>` URL to use instead, because
+nothing here speaks GitLab's API yet.
 
 Private repositories need nothing extra. Git's configured authentication is what gets used,
 and no credential is read, printed or carried by us.
@@ -877,6 +890,43 @@ hand-written and committed, and the rendered copies of it follow the rules above
 **Anything committed can go stale**, which nothing ignored can. So `akit render --check`
 exits non-zero when a render is out of date, as a pre-commit hook and in CI. It is the same
 code path as `render`, writing nothing.
+
+### A pull request is a branch with somewhere to go
+
+**`akit add https://github.com/org/repo/pull/16 writing` subscribes to the pull request's
+branch, and records where that branch is meant to land.** Trying a kit before it merges is
+the point. Once it merges, the subscription should follow the target, not a branch that
+somebody is about to delete.
+
+```yaml
+version: 2
+
+skills:
+  https://github.com/fork/repo/tree/feat%2Fx#9f2c1ab: writing  # frozen: feat/x, 2026-11-10
+
+sources:
+  https://github.com/fork/repo/tree/feat%2Fx:
+    pr: org/repo#16
+    merges-into: https://github.com/org/repo/tree/main
+```
+
+**The forge is asked once, by a person, and never again.** Git cannot say which branch a pull
+request is, which repository holds it, or where it merges. So `add` and `discover` ask
+GitHub's API, through `gh` where it is signed in and over HTTPS with `GH_TOKEN` or
+`GITHUB_TOKEN` where not. What comes back is written above. `render`, `list`, `update` and a
+CI check afterwards are git and nothing else, and a forge that cannot be asked is refused
+with the git-only way round: `'org/repo#refs/pull/16/head'` takes the head without following
+it.
+
+**The branch lives where the pull request's author pushed it.** For a fork that is the fork,
+so the key names the fork and `merges-into` names the upstream. A pull request already merged
+or closed is refused at `add`, with the key that names where it landed or its branch.
+
+**`sources:` is the only thing version 2 adds.** It is keyed by the source without its pin,
+because a pin moves and what the forge said does not. `akit` writes version 1 until a file
+needs the block, so a manifest without one stays readable by an older `akit`. Removing the
+last kit from a source removes what was said about it too. How `update` uses the block is
+[§10](#update).
 
 ### Where a source actually is
 
@@ -1981,6 +2031,28 @@ in a comment rather than in a second file.
 
 The diff is the point rather than a courtesy. A rule you have never read is text added to
 every prompt your agents see, so an update to one is a change to how they behave.
+
+**A branch that is gone is usually a pull request that merged, and `update` checks rather
+than assumes.** When the remote no longer has the branch a key follows, and `sources:` says
+where it merges ([§6](#a-pull-request-is-a-branch-with-somewhere-to-go)), the key moves to
+the target when one of two things is true. Either the pinned commit is in the target's
+history, which a merge commit or a fast-forward leaves. Or every part under the key is
+byte-identical at the target's tip, which is what a squash leaves. That second check compares
+git's object ids, so it holds across a fork too. The key is rewritten to the target, the pin
+to its tip, and the `sources:` entry goes.
+
+**Anything else stops that key, and the message names what it was and the ways on.** An
+abandoned pull request's branch is deleted as well, and following the target then would
+subscribe somebody to what they never chose. A pull request whose kits changed on the way in
+looks the same. Both are reported as a branch that is now deleted and could not be confirmed
+as landed, with `akit update <name> --to <branch>`, `akit remove <name>`, and leaving the pin
+alone as the three choices. A key with no `sources:` entry stops the same way and says that
+nothing records where its branch went.
+
+**`--to <branch>` moves a key on purpose.** It names one subscription, and points it at that
+branch in the repository the pull request merges into, or in its own repository where there
+was no pull request. It applies whether or not the old branch is still there. It is also the
+answer to [§12](#12-still-open)'s tag question for anybody who needs one today.
 
 ### `doctor`
 

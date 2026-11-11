@@ -30,11 +30,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TextIO
 
-from federated_agent_kits import adapters, cache, discovery, frontmatter, privacy, sources
+from federated_agent_kits import adapters, cache, discovery, forges, frontmatter, privacy, sources
 from federated_agent_kits import manifest as manifests
 from federated_agent_kits.cache import Fetched, Privacy, RefKind, UnreachableError
 from federated_agent_kits.discovery import SKILL_FILE
 from federated_agent_kits.exits import Exit, UsageError
+from federated_agent_kits.forges import PullRequest
 from federated_agent_kits.manifest import Kind
 from federated_agent_kits.reporting import INDENT, KIND_TITLE, PLURAL, SHORT, group, section
 from federated_agent_kits.sources import SourceKey
@@ -94,6 +95,49 @@ class Source:
 
 
 @dataclass(frozen=True)
+class Named:
+    """A source as somebody typed it, turned into the key that is fetched and recorded.
+
+    Usually the same key. A pull request becomes its branch, in whichever
+    repository that lives in; a `/tree/` path whose branch holds a slash becomes
+    the reading the remote holds, spelled so a manifest reads it the same way.
+    """
+
+    typed: str
+    """What was typed, minus any pin, which is what to type again."""
+
+    key: SourceKey
+    ref: str | None
+    """The `#<ref>` that was typed, if one was."""
+
+    pull_request: PullRequest | None = None
+
+
+def named(source: str) -> Named:
+    """One typed source, settled into the key a subscription follows.
+
+    This is where the forge is asked, and the only place: once a pull request is
+    a branch and a target, everything downstream is git.
+    """
+    typed, ref = manifests.split_pin(source)
+    key = sources.parse(typed)
+    if key.pull is None:
+        return Named(typed=typed, key=cache.settle(key), ref=ref)
+    found = forges.pull_request(key)
+    if found.merged:
+        raise UsageError(
+            f"{typed}: pull request {found.name} is merged already, so there is no branch left to follow.\n"
+            f"  Subscribe to where it landed instead: akit add {found.target} <kit>"
+        )
+    if not found.open:
+        raise UsageError(
+            f"{typed}: pull request {found.name} was closed without being merged.\n"
+            f"  Its branch may still be there: akit discover {found.head}"
+        )
+    return Named(typed=typed, key=sources.parse(found.head), ref=ref, pull_request=found)
+
+
+@dataclass(frozen=True)
 class Holding:
     """Everything `akit discover` found, before anything has been printed."""
 
@@ -104,6 +148,10 @@ class Holding:
     offers: tuple[Offer, ...]
     kind: Kind | None
     """The `--kind` it was narrowed to, which changes what "nothing" means."""
+
+    pull_request: PullRequest | None = None
+    followed: str | None = None
+    """The key a pull request turned into, which is what was actually read."""
 
     def of_kind(self, kind: Kind) -> tuple[Offer, ...]:
         return tuple(offer for offer in self.offers if offer.kind is kind)
@@ -170,7 +218,9 @@ def fetch(
         classify(key, resolved.privacy, state_root)
         return Source(root=resolved.root, commit=ref, comment=None, ref=None)
     try:
-        fetched = cache.refresh(key, ref=ref, cache_root=cache_root)
+        # A `#<ref>` typed beside the key wins over the branch inside it, which
+        # is what a `/tree/<branch>` key otherwise follows from its first pin.
+        fetched = cache.refresh(key, ref=ref if ref is not None else key.ref, cache_root=cache_root)
     except UnreachableError:
         resolved = cache.resolve(key, anchor=anchor, cache_root=cache_root, offline=True)
         return Source(
@@ -241,11 +291,17 @@ def look(
     state_root: Path | None = None,
 ) -> Holding:
     """Resolve one source, fetching it if this machine lacks it, and read what is in it."""
-    raw, ref = manifests.split_pin(source)
-    key = sources.parse(raw)
+    asked = named(source)
     anchor = manifests.worktree_root(start) or start
-    resolved = fetch(key, ref, anchor=anchor, cache_root=cache_root, state_root=state_root)
-    return Holding(source=raw, resolved=resolved, offers=offers(resolved.root, kind=kind), kind=kind)
+    resolved = fetch(asked.key, asked.ref, anchor=anchor, cache_root=cache_root, state_root=state_root)
+    return Holding(
+        source=asked.typed,
+        resolved=resolved,
+        offers=offers(resolved.root, kind=kind),
+        kind=kind,
+        pull_request=asked.pull_request,
+        followed=asked.key.raw,
+    )
 
 
 def _at(holding: Holding, style: Style) -> str:
@@ -267,6 +323,9 @@ def text(holding: Holding, out: TextIO, *, verbose: bool = False, style: Style |
     """The report a person reads: one heading per kind, and the names under it."""
     shown = style or Style.plain()
     section(f"From {shown.source(holding.source)}{_at(holding, shown)}", out, shown)
+    if holding.pull_request is not None:
+        print(f"{INDENT}pull request {holding.pull_request.name}, following {holding.followed}", file=out)
+        print(f"{INDENT}merges into {holding.pull_request.target}", file=out)
     print(f"{INDENT}read from {shown.place(str(holding.resolved.root))}\n", file=out)
     if not holding.offers:
         print(f"{_nothing(holding)}\n", file=out)
@@ -293,14 +352,15 @@ def _print_detail(offer: Offer, out: TextIO, style: Style) -> None:
 def _next(holding: Holding) -> str:
     """The closing line, which is a command somebody can paste.
 
-    It names a kit this source actually holds rather than a placeholder,
-    because the whole point of having listed them is that there is now a real
-    name to put there. A source holding nothing has no such name, and what is
-    worth reading then is where a source is expected to keep its kits.
+    It leaves the kit as `<kit>` rather than naming the first one listed,
+    because the first one is rarely the one somebody wants, and a pasted name
+    subscribes to it without a choice having been made. A source holding
+    nothing has no kit to choose, and what is worth reading then is where a
+    source is expected to keep its kits.
     """
     if not holding.offers:
         return "akit help sources, for where a source keeps the kits this one has none of"
-    return f"akit add {holding.source} {holding.offers[0].name}, to subscribe to one of these"
+    return f"akit add {holding.source} <kit>, to subscribe to one of the above kits"
 
 
 def payload(holding: Holding) -> dict[str, Any]:
@@ -311,6 +371,9 @@ def payload(holding: Holding) -> dict[str, Any]:
         "commit": holding.resolved.commit,
         "ref": holding.resolved.ref,
         "kind": None if holding.kind is None else str(holding.kind),
+        "pull_request": None if holding.pull_request is None else holding.pull_request.name,
+        "follows": holding.followed,
+        "merges_into": None if holding.pull_request is None else holding.pull_request.target,
         "parts": [
             {
                 "kind": str(offer.kind),
@@ -341,6 +404,7 @@ def run(out: TextIO, *, source: str, as_json: bool, verbose: bool = False, kind:
 __all__ = [
     "NOTHING",
     "Holding",
+    "Named",
     "Offer",
     "Source",
     "classify",
@@ -348,6 +412,7 @@ __all__ = [
     "fetch",
     "frozen_comment",
     "look",
+    "named",
     "offers",
     "payload",
     "run",
