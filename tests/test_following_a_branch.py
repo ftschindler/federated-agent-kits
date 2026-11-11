@@ -19,6 +19,7 @@ import json
 import subprocess
 import urllib.error
 from dataclasses import dataclass
+from email.message import Message
 from pathlib import Path
 from typing import Any
 
@@ -289,6 +290,38 @@ class TestAskingTheForge:
 
         assert forges.ask("github.com", "repos/o/r/pulls/1") is None
 
+    def test_a_404_from_gh_and_from_https_is_not_found_rather_than_unanswered(self, monkeypatch: pytest.MonkeyPatch):
+        def not_found(request: Any, timeout: float) -> None:
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", Message(), None)
+
+        monkeypatch.setattr(forges.shutil, "which", lambda _: "/usr/bin/gh")
+        monkeypatch.setattr(
+            forges.subprocess,
+            "run",
+            lambda arguments, **_: subprocess.CompletedProcess(arguments, 1, "", "gh: Not Found (HTTP 404)"),
+        )
+        monkeypatch.setattr(forges.urllib.request, "urlopen", not_found)
+
+        assert forges.ask("github.com", "repos/o/r/pulls/1") == forges.NOT_FOUND
+
+    def test_a_404_over_https_alone_is_still_not_found(self, monkeypatch: pytest.MonkeyPatch):
+        def not_found(request: Any, timeout: float) -> None:
+            raise urllib.error.HTTPError(request.full_url, 404, "Not Found", Message(), None)
+
+        monkeypatch.setattr(forges.shutil, "which", lambda _: None)
+        monkeypatch.setattr(forges.urllib.request, "urlopen", not_found)
+
+        assert forges.ask("github.com", "repos/o/r/pulls/1") == forges.NOT_FOUND
+
+    def test_other_http_errors_are_unanswered(self, monkeypatch: pytest.MonkeyPatch):
+        def unavailable(request: Any, timeout: float) -> None:
+            raise urllib.error.HTTPError(request.full_url, 503, "Unavailable", Message(), None)
+
+        monkeypatch.setattr(forges.shutil, "which", lambda _: None)
+        monkeypatch.setattr(forges.urllib.request, "urlopen", unavailable)
+
+        assert forges.ask("github.com", "repos/o/r/pulls/1") is None
+
     def test_a_pull_request_becomes_its_branch_and_its_target(self, monkeypatch: pytest.MonkeyPatch):
         asked = answering(monkeypatch, head=FORK, ref="fork-feature")
 
@@ -308,6 +341,13 @@ class TestAskingTheForge:
 
         with pytest.raises(forges.ForgeError, match="#refs/pull/16/head"):
             forges.pull_request(sources.parse(PULL))
+
+    def test_a_pull_request_the_forge_cannot_find_points_at_the_account_asking(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(forges, "ask", lambda host, path: forges.NOT_FOUND)
+
+        with pytest.raises(forges.ForgeError, match="gh auth switch") as raised:
+            forges.pull_request(sources.parse(PULL))
+        assert "#refs/pull/16/head" in str(raised.value)
 
     def test_a_branch_whose_fork_was_deleted_cannot_be_followed(self, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setattr(forges, "ask", lambda host, path: {"head": {"ref": "x", "repo": None}})

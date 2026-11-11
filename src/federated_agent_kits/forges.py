@@ -28,6 +28,7 @@ import subprocess
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from http import HTTPStatus
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -40,6 +41,11 @@ TOKENS = ("GH_TOKEN", "GITHUB_TOKEN")
 
 #: How long the forge gets to answer. A person is waiting at a prompt.
 TIMEOUT = 20
+
+#: What `ask` returns when the forge answered and said there is nothing there. GitHub
+#: says the same of a private repository the asker cannot see, so this usually means
+#: the wrong account rather than the wrong number.
+NOT_FOUND = "not found"
 
 
 class ForgeError(AkitError):
@@ -77,7 +83,7 @@ def _api(host: str) -> str:
     return "https://api.github.com" if host == DEFAULT_FORGE else f"https://{host}/api/v3"
 
 
-def _with_gh(host: str, path: str) -> dict[str, Any] | None:
+def _with_gh(host: str, path: str) -> dict[str, Any] | str | None:
     """`gh api`, which knows whatever the person is signed into. `None` where it cannot say."""
     if shutil.which("gh") is None:
         return None
@@ -90,12 +96,12 @@ def _with_gh(host: str, path: str) -> dict[str, Any] | None:
         timeout=TIMEOUT,
     )
     if found.returncode != 0:
-        return None
+        return NOT_FOUND if "(HTTP 404)" in found.stderr else None
     answer: dict[str, Any] = json.loads(found.stdout)
     return answer
 
 
-def _over_https(host: str, path: str) -> dict[str, Any] | None:
+def _over_https(host: str, path: str) -> dict[str, Any] | str | None:
     """The same question over plain HTTPS, with a token if one is in the environment."""
     request = urllib.request.Request(f"{_api(host)}/{path}", headers={"Accept": "application/vnd.github+json"})
     token = next((os.environ[name] for name in TOKENS if os.environ.get(name)), None)
@@ -104,14 +110,26 @@ def _over_https(host: str, path: str) -> dict[str, Any] | None:
     try:
         with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
             answer: dict[str, Any] = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as refused:
+        return NOT_FOUND if refused.code == HTTPStatus.NOT_FOUND else None
     except (urllib.error.URLError, TimeoutError):
         return None
     return answer
 
 
-def ask(host: str, path: str) -> dict[str, Any] | None:
-    """One GitHub API call, through `gh` if it can answer and over HTTPS if not."""
-    return _with_gh(host, path) or _over_https(host, path)
+def ask(host: str, path: str) -> dict[str, Any] | str | None:
+    """One GitHub API call, through `gh` if it can answer and over HTTPS if not.
+
+    `NOT_FOUND` where one of them got an answer and it was a 404, `None` where neither
+    got an answer at all.
+    """
+    through_gh = _with_gh(host, path)
+    if isinstance(through_gh, dict):
+        return through_gh
+    over_https = _over_https(host, path)
+    if isinstance(over_https, dict):
+        return over_https
+    return NOT_FOUND if NOT_FOUND in (through_gh, over_https) else None
 
 
 def pull_request(source: SourceKey) -> PullRequest:
@@ -119,7 +137,16 @@ def pull_request(source: SourceKey) -> PullRequest:
     host = urlsplit(source.url).netloc
     repository = urlsplit(source.url).path.strip("/")
     answer = ask(host, f"repos/{repository}/pulls/{source.pull}")
-    if answer is None:
+    if answer == NOT_FOUND:
+        raise ForgeError(
+            source,
+            f"{host} says there is no pull request #{source.pull} in {repository}, which is also what it says"
+            " to an account that cannot see the repository.\n"
+            "  akit asks as the account `gh` is signed in to (see `gh auth status`), else with $GH_TOKEN or"
+            " $GITHUB_TOKEN. Switch with `gh auth switch`, or set GH_TOKEN for this one command:\n"
+            f"    GH_TOKEN=$(gh auth token -u <account>) akit ...",
+        )
+    if not isinstance(answer, dict):
         raise ForgeError(source, f"{host} could not be asked about pull request #{source.pull}")
     head, base = answer.get("head") or {}, answer.get("base") or {}
     lives_in = (head.get("repo") or {}).get("html_url")
