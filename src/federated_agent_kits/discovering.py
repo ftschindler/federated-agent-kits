@@ -352,14 +352,15 @@ def _print_detail(offer: Offer, out: TextIO, style: Style) -> None:
 def _next(holding: Holding) -> str:
     """The closing line, which is a command somebody can paste.
 
-    It names a kit this source actually holds rather than a placeholder,
-    because the whole point of having listed them is that there is now a real
-    name to put there. A source holding nothing has no such name, and what is
-    worth reading then is where a source is expected to keep its kits.
+    It leaves the kit as `<kit>` rather than naming the first one listed,
+    because the first one is rarely the one somebody wants, and a pasted name
+    subscribes to it without a choice having been made. A source holding
+    nothing has no kit to choose, and what is worth reading then is where a
+    source is expected to keep its kits.
     """
     if not holding.offers:
         return "akit help sources, for where a source keeps the kits this one has none of"
-    return f"akit add {holding.source} {holding.offers[0].name}, to subscribe to one of these"
+    return f"akit add {holding.source} <kit>, to subscribe to one of the above kits"
 
 
 def payload(holding: Holding) -> dict[str, Any]:

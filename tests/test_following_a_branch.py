@@ -368,7 +368,7 @@ class TestDiscoveringAPullRequest:
         assert "pull request owner/kits#16, following" in out.getvalue()
         assert f"merges into {UPSTREAM}/tree/main" in out.getvalue()
         assert discovering.payload(holding)["pull_request"] == "owner/kits#16"
-        assert f"akit add {PULL} writing" in out.getvalue()
+        assert f"akit add {PULL} <kit>" in out.getvalue()
 
     def test_a_merged_one_names_where_it_landed(self, monkeypatch: pytest.MonkeyPatch):
         answering(monkeypatch, state="closed", merged=True)
